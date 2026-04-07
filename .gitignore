@@ -38,6 +38,10 @@ CMakeCache.txt
 cmake-build-*/
 compile_commands.json
 Makefile
+QUICK_REFERENCE.md
+IMPLEMENTATION.md
+DESIGN_PROPOSALS.md
+
 
 # VSCode
 .vscode/
