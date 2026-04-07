@@ -100,20 +100,20 @@ static const DWORD SKILLWND_GONE_DEBOUNCE_MS = 800;
 static const bool ENABLE_NATIVE_BUTTON_INSTANCE_SKIN = true;
 static const bool ENABLE_SUPERBTN_STATE_DRAWOBJ_OVERRIDE = false; // 稳定模式：停用 ExBtMacro 叶子draw object override，避免 hover 命中坏资源链
 static const bool ENABLE_SUPERBTN_DRAWOBJ_AB_FALLBACK = false; // dump 已证实 compare 按钮只适合诊断，不再参与正式显示
-static const bool ENABLE_SUPERBTN_NATIVE_DONOR_DRAWOBJ = false; // donor 槽对象会被按钮状态机共享刷新，先停用这条路线
+static const bool ENABLE_SUPERBTN_NATIVE_DONOR_DRAWOBJ = true; // v17.4b: 回到按钮可见的 donor 基线
 static const bool ENABLE_SUPERBTN_SELF_DRAWOBJ_PATCH = false; // 自 patch 会命中共享 draw object，导致原版宏按钮一起被改
-static const bool ENABLE_SUPERBTN_RUNTIME_WRAPPER_PATCH = true; // 只 patch SuperBtn 自己 this+0x3C 的当前状态包装对象
+static const bool ENABLE_SUPERBTN_RUNTIME_WRAPPER_PATCH = false; // v17.4b: 停用错误的 +0x3C wrapper patch
 static const bool ENABLE_NATIVE_BUTTON_SKIN_REMAP = false; // 先关闭按钮换图实验，恢复渲染稳定性
 static const bool ENABLE_DEBUG_VISIBLE_COMPARE_BUTTON = false;
 static const bool ENABLE_PRESENT_CLICK_POLL = false; // v7.2: 关闭Present轮询，避免与WndProc双触发
 static const bool ENABLE_PRESENT_PANEL_DRAW = false; // v8.0: 正式停用 Present 面板直绘，走 SkillWnd draw hook
-static const bool ENABLE_PRESENT_SUPERBTN_DRAW = false; // v17.1: 改回原生surface链绘制，避免最终Present层压住游戏软件鼠标
+static const bool ENABLE_PRESENT_SUPERBTN_DRAW = false; // v17.6: Present 会压鼠标，回退
 static const bool ENABLE_TOGGLE_FOCUS_SYNC = false; // v10.3: 先关闭focus伪同步实验，日志已证实它会干扰拖动/层级
 static const bool ENABLE_MOVE_FOCUS_SYNC = false;   // v10.3: MoveFocusSync 会在拖动时大量触发，先停掉以消除抽搐
 static const bool ENABLE_PRESENT_NATIVE_CHILD_UPDATE = false; // v10.4+: native child 不再每帧在 Present 中搬运，先消除抽搐/视口漂移
 static const bool ENABLE_REFRESH_NATIVE_CHILD_UPDATE = false; // v10.6: native child 不再在 refresh hook 中高频搬运，优先消除拖动抽搐
 static const char* SAVE_STATE_PATH = "G:\\code\\c++\\SuperSkillWnd\\skill\\save_state.json";
-static const char* BUILD_MARKER = "v17.2-2026-04-08-runtime-wrapper-patch-no-donor-share";
+static const char* BUILD_MARKER = "v17.6b-2026-04-08-force-stable-normal-on-create";
 static const wchar_t* SUPER_BTN_RES_PATH = L"UI/UIWindow2.img/Skill/main/BtMacro";
 static const wchar_t* SUPER_BTN_RES_PATH_ALT = L"/UIWindow2.img/Skill/main/BtMacro";
 static int g_PanelDrawX = -9999;
@@ -153,6 +153,7 @@ static bool GetExpectedButtonRectCom(int* outX, int* outY, int* outW, int* outH)
 static bool GetExpectedButtonRectVt(int* outX, int* outY, int* outW, int* outH);
 static void LogSuperButtonGeometry(const char* tag);
 static void LogNativeButtonCoreFields(uintptr_t btnObj, const char* tag);
+static int __fastcall hkButtonDrawCurrentState(uintptr_t thisPtr, void* edxUnused, int x, int y, int a4);
 static DWORD GetCurrentSuperBtnState();
 static bool EnsureSuperBtnCpuBitmapLoaded(DWORD state);
 static const CpuButtonBitmap1555* GetSuperBtnCpuBitmapForState(DWORD state);
@@ -569,6 +570,12 @@ static DWORD NormalizeSuperBtnStateIndex(DWORD state)
 static DWORD NormalizeSuperBtnVisualState(DWORD state)
 {
     state = NormalizeSuperBtnStateIndex(state);
+    // v17.5: hover(3) -> normal(0)，因为 state=3 的 donor draw object 结构
+    // 与 0/1/2/4 不同（entryList 里 scanned=0），patch 始终失败。
+    // 先保证按钮稳定不消失，后续再尝试修复 hover donor 结构匹配。
+    if (state == 3)
+        return 0;
+    // checked(4) -> pressed(1)
     if (state == 4)
         return 1;
     return state;
@@ -1218,9 +1225,7 @@ static bool PatchSuperBtnDonorDrawObjectsFromResources()
     WriteLogFmt("[BtnDonorLeafPatch] donor=0x%08X patchedTotal=%d",
         (DWORD)g_SuperBtnSkinDonorObj,
         patchedTotal);
-    if (patchedTotal > 0 && g_SuperBtnObj) {
-        ForceSuperButtonAllStatesToNormalDonor(g_SuperBtnObj);
-    }
+    g_SuperBtnForcedStableNormalMode = false;
     return patchedTotal > 0;
 }
 
@@ -1423,10 +1428,10 @@ static bool DrawSuperButtonTextureInNativeDraw(uintptr_t thisPtr, DWORD state)
 
 static bool DrawSuperButtonTextureInSkillWndDraw(uintptr_t skillWndThis)
 {
-    // v17.1: 直接调用原生 507020 绘制按钮，绕过 UI 遍历。
-    // 按钮在 move 后被 UI 框架 draw 遍历跳过，
-    // 所以我们在 SkillWnd draw handler 尾部手动调一次 507020。
-    // 这保证按钮绘制在 SkillWnd 层级内，不会被后续 UI 盖住也不会压鼠标。
+    // v17.5: 在 SkillWnd draw handler 尾部手动调 507020 绘制按钮。
+    // 关键修复：调用 oButtonDrawCurrentState (trampoline) 会绕过 hkButtonDrawCurrentState，
+    // 因此必须在此处手动做状态归一化 + donor slot 借用，否则 hover/pressed 状态下
+    // slot 里的 draw object 不稳定，507020 解析失败导致按钮消失。
     if (!skillWndThis || !g_NativeBtnCreated || !g_SuperBtnObj || !oButtonDrawCurrentState)
         return false;
 
@@ -1434,16 +1439,89 @@ static bool DrawSuperButtonTextureInSkillWndDraw(uintptr_t skillWndThis)
     if (!GetButtonScreenRectByObj(g_SuperBtnObj, &screenX, &screenY, &screenW, &screenH))
         return false;
 
+    // ---- 状态归一化 + donor 准备（复刻 hkButtonDrawCurrentState 中 SuperBtn 逻辑）----
+    DWORD origState = 0xFFFFFFFF;
+    DWORD normalizedState = 0;
+    DWORD savedStateSlot = 0;
+    DWORD savedStateValue = 0;
+    DWORD borrowedSlotIndex = 0xFFFFFFFF;
+    bool borrowedDonorSlots = false;
+    bool statePatched = false;
+
+    __try {
+        if (!SafeIsBadReadPtr((void*)(g_SuperBtnObj + 0x34), 4))
+            origState = *(DWORD*)(g_SuperBtnObj + 0x34);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        origState = 0xFFFFFFFF;
+    }
+
+    if (origState < 5) {
+        normalizedState = NormalizeSuperBtnVisualState(origState);
+
+        // donor state patching
+        if (ENABLE_SUPERBTN_NATIVE_DONOR_DRAWOBJ)
+            EnsureSuperBtnDonorStatePatched(normalizedState, "skillwnd_draw");
+
+        // 临时将 state 写成 normalized（让 507020 读到 normal 而不是 hover）
+        if (normalizedState != origState) {
+            __try {
+                if (!SafeIsBadReadPtr((void*)(g_SuperBtnObj + 0x34), 4)) {
+                    *(DWORD*)(g_SuperBtnObj + 0x34) = normalizedState;
+                    statePatched = true;
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
+
+        // donor slot 借用（非稳定模式时需要）
+        if (!g_SuperBtnForcedStableNormalMode && ENABLE_SUPERBTN_NATIVE_DONOR_DRAWOBJ) {
+            __try {
+                DWORD donorStateIndex = 0;
+                uintptr_t donorObj = SelectSuperBtnDonorForState(normalizedState, &donorStateIndex);
+                const DWORD donorResolveState = GetDonorResolveState(donorStateIndex);
+                if (donorObj &&
+                    !SafeIsBadReadPtr((void*)(g_SuperBtnObj + 0x34), 4) &&
+                    !SafeIsBadReadPtr((void*)(g_SuperBtnObj + 0x78 + normalizedState * 4), 4) &&
+                    !SafeIsBadReadPtr((void*)(donorObj + 0x78 + donorResolveState * 4), 4)) {
+                    savedStateValue = *(DWORD*)(g_SuperBtnObj + 0x34);
+                    savedStateSlot = *(DWORD*)(g_SuperBtnObj + 0x78 + normalizedState * 4);
+                    if (donorResolveState != normalizedState)
+                        *(DWORD*)(g_SuperBtnObj + 0x34) = donorResolveState;
+                    *(DWORD*)(g_SuperBtnObj + 0x78 + normalizedState * 4) = *(DWORD*)(donorObj + 0x78 + donorResolveState * 4);
+                    borrowedSlotIndex = normalizedState;
+                    borrowedDonorSlots = true;
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                borrowedDonorSlots = false;
+            }
+        }
+    }
+
+    // ---- 调用原生绘制 ----
     bool ok = false;
     __try {
-        // 直接调原生 507020 绘制按钮当前状态
         oButtonDrawCurrentState(g_SuperBtnObj, screenX, screenY, 0);
         ok = true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         ok = false;
     }
 
-    // 如果原生绘制失败或按钮状态槽坏了，回退到 D3D 直绘
+    // ---- 恢复状态 ----
+    if (borrowedDonorSlots) {
+        __try {
+            if (!SafeIsBadReadPtr((void*)(g_SuperBtnObj + 0x34), 4))
+                *(DWORD*)(g_SuperBtnObj + 0x34) = savedStateValue;
+            if (borrowedSlotIndex < 5)
+                *(DWORD*)(g_SuperBtnObj + 0x78 + borrowedSlotIndex * 4) = savedStateSlot;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    } else if (statePatched) {
+        // 只做了 state 归一化但没借 slot，也要恢复原始 state
+        __try {
+            if (!SafeIsBadReadPtr((void*)(g_SuperBtnObj + 0x34), 4))
+                *(DWORD*)(g_SuperBtnObj + 0x34) = origState;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
+    // D3D fallback
     if (!ok && g_pDevice && g_TexturesLoaded) {
         DWORD state = GetCurrentSuperBtnState();
         IDirect3DTexture9* tex = GetSuperBtnTextureForState(state);
@@ -1458,9 +1536,10 @@ static bool DrawSuperButtonTextureInSkillWndDraw(uintptr_t skillWndThis)
     static LONG s_logBudget = 80;
     LONG after = InterlockedDecrement(&s_logBudget);
     if (after >= 0) {
-        WriteLogFmt("[SkillBtnDraw] ok=%d rect=(%d,%d,%d,%d) btn=0x%08X wnd=0x%08X",
-            ok ? 1 : 0, screenX, screenY, screenW, screenH,
-            (DWORD)g_SuperBtnObj, (DWORD)skillWndThis);
+        WriteLogFmt("[SkillBtnDraw] ok=%d origState=%u norm=%u borrowed=%d rect=(%d,%d,%d,%d) btn=0x%08X",
+            ok ? 1 : 0, origState, normalizedState, borrowedDonorSlots ? 1 : 0,
+            screenX, screenY, screenW, screenH,
+            (DWORD)g_SuperBtnObj);
     }
 
     return ok;
@@ -1489,6 +1568,7 @@ static void DrawSuperButtonTextureInPresent(IDirect3DDevice9* pDevice)
         return;
 
     DWORD state = GetCurrentSuperBtnState();
+    state = NormalizeSuperBtnVisualState(state);
     IDirect3DTexture9* tex = GetSuperBtnTextureForState(state);
     int screenX = 0;
     int screenY = 0;
@@ -3291,6 +3371,12 @@ static bool CreateSuperButton(uintptr_t skillWndThis)
                     WriteLogFmt("[BtnDonorCreate] state=0 FALLBACK compare=0x%08X", compareObj);
                 }
                 PatchSuperBtnDonorDrawObjectsFromResources();
+                // v17.6: 把所有 5 个 slot 钉成 normal donor，然后启用 stableNormal 模式。
+                // 这样 hkButtonRefreshState5095A0 会拦截后续所有状态刷新（包括 hover），
+                // 按钮保持 state=0，draw 链不会被破坏。
+                if (g_SuperBtnObj) {
+                    ForceSuperButtonAllStatesToNormalDonor(g_SuperBtnObj);
+                }
             }
         }
         else
