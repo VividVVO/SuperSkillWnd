@@ -1,0 +1,7 @@
+#include "resource.h"
+
+IDR_BTN_NORMAL    RCDATA  "G:\\code\\UI\\SkillEx\\SkillEx.surpe.normal.png"
+IDR_BTN_HOVER     RCDATA  "G:\\code\\UI\\SkillEx\\SkillEx.surpe.mouseOver.png"
+IDR_BTN_PRESSED   RCDATA  "G:\\code\\UI\\SkillEx\\SkillEx.surpe.pressed.png"
+IDR_BTN_DISABLED  RCDATA  "G:\\code\\UI\\SkillEx\\SkillEx.surpe.disabled.png"
+IDR_PANEL_BG      RCDATA  "G:\\code\\UI\\SkillEx\\SkillEx.main.png"
