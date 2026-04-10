@@ -16,25 +16,35 @@ namespace SuperSkillTool
     {
         private readonly Dictionary<int, WzImage> _imgCache = new Dictionary<int, WzImage>();
         private readonly Dictionary<int, FileStream> _streamCache = new Dictionary<int, FileStream>();
+        private readonly Dictionary<int, int> _skillJobHintCache = new Dictionary<int, int>();
         private WzImage _stringImg;
         private FileStream _stringFs;
 
         /// <summary>
         /// Load all skill data for the given skillId from the corresponding .img file.
         /// </summary>
-        public WzSkillData LoadSkill(int skillId)
+        public WzSkillData LoadSkill(int skillId, int? preferredJobId = null)
         {
-            int jobId = skillId / 10000;
+            if (!TryResolveSkillJobId(skillId, preferredJobId, out int jobId))
+            {
+                string skillPath2 = "skill/" + skillId.ToString();
+                throw new KeyNotFoundException(
+                    $"Skill {skillId} not found in Data/Skill/*.img (path: {skillPath2})");
+            }
+
             var wzImg = GetOrLoadImg(jobId);
 
-            string skillPath = "skill/" + skillId.ToString();
-            var skillNode = wzImg.GetFromPath(skillPath);
+            var skillNode = FindSkillNodeById(wzImg, skillId, out _);
             if (skillNode == null)
-                throw new KeyNotFoundException($"Skill {skillId} not found in {jobId}.img (path: {skillPath})");
+            {
+                string skillPath = "skill/" + skillId.ToString();
+                throw new KeyNotFoundException(
+                    $"Skill {skillId} not found in {PathConfig.SkillImgName(jobId)} (path: {skillPath})");
+            }
 
             var data = ExtractSkillData(skillNode, skillId, jobId);
 
-            // Also load string data (name/desc/h) from String/Skill.img
+            // Also load string data (name/desc/pdesc/ph/h) from String/Skill.img
             LoadStringData(data);
 
             return data;
@@ -83,15 +93,7 @@ namespace SuperSkillTool
         /// </summary>
         public bool SkillExistsInImg(int skillId)
         {
-            int jobId = skillId / 10000;
-            if (!ImgExists(jobId)) return false;
-            try
-            {
-                var wzImg = GetOrLoadImg(jobId);
-                string skillPath = "skill/" + skillId.ToString();
-                return wzImg.GetFromPath(skillPath) != null;
-            }
-            catch { return false; }
+            return TryResolveSkillJobId(skillId, null, out _);
         }
 
         /// <summary>
@@ -100,8 +102,9 @@ namespace SuperSkillTool
         /// </summary>
         public bool IsSuperSkill(int skillId)
         {
-            int jobId = skillId / 10000;
-            if (!ImgExists(jobId)) return false;
+            if (!TryResolveSkillJobId(skillId, null, out int jobId))
+                return false;
+
             try
             {
                 var wzImg = GetOrLoadImg(jobId);
@@ -175,14 +178,14 @@ namespace SuperSkillTool
         }
 
         /// <summary>
-        /// Load name/desc/h levels from String/Skill.img into WzSkillData.
+        /// Load name/desc/pdesc/ph/h levels from String/Skill.img into WzSkillData.
         /// </summary>
         public void LoadStringData(WzSkillData data)
         {
             try
             {
                 var strImg = GetOrLoadStringImg();
-                var node = strImg[data.SkillId.ToString()];
+                var node = FindStringEntryBySkillId(strImg, data.SkillId);
                 if (node == null) return;
 
                 var nameNode = node["name"];
@@ -192,6 +195,14 @@ namespace SuperSkillTool
                 var descNode = node["desc"];
                 if (descNode is WzStringProperty dsp)
                     data.Desc = dsp.Value ?? "";
+
+                var pdescNode = node["pdesc"];
+                if (pdescNode is WzStringProperty psp)
+                    data.PDesc = psp.Value ?? "";
+
+                var phNode = node["ph"];
+                if (phNode is WzStringProperty php)
+                    data.Ph = php.Value ?? "";
 
                 // h1, h2, h3... (level descriptions)
                 if (node.WzProperties != null)
@@ -269,6 +280,171 @@ namespace SuperSkillTool
             return wzImg;
         }
 
+        private bool TryResolveSkillJobId(int skillId, int? preferredJobId, out int resolvedJobId)
+        {
+            resolvedJobId = -1;
+            if (skillId <= 0)
+                return false;
+
+            if (preferredJobId.HasValue && TrySkillExistsInJob(preferredJobId.Value, skillId))
+            {
+                resolvedJobId = preferredJobId.Value;
+                _skillJobHintCache[skillId] = resolvedJobId;
+                return true;
+            }
+
+            bool hasCachedJob = _skillJobHintCache.TryGetValue(skillId, out int cachedJobId);
+            if (hasCachedJob && TrySkillExistsInJob(cachedJobId, skillId))
+            {
+                resolvedJobId = cachedJobId;
+                return true;
+            }
+
+            int derivedJobId = skillId / 10000;
+            if (TrySkillExistsInJob(derivedJobId, skillId))
+            {
+                resolvedJobId = derivedJobId;
+                _skillJobHintCache[skillId] = resolvedJobId;
+                return true;
+            }
+
+            List<int> allJobIds = EnumerateJobIdsFromGameSkillRoot();
+            foreach (int candidate in allJobIds)
+            {
+                if (candidate == derivedJobId)
+                    continue;
+                if (preferredJobId.HasValue && candidate == preferredJobId.Value)
+                    continue;
+                if (hasCachedJob && candidate == cachedJobId)
+                    continue;
+
+                if (!TrySkillExistsInJob(candidate, skillId))
+                    continue;
+
+                resolvedJobId = candidate;
+                _skillJobHintCache[skillId] = resolvedJobId;
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool TrySkillExistsInJob(int jobId, int skillId)
+        {
+            if (jobId < 0 || !ImgExists(jobId))
+                return false;
+
+            try
+            {
+                var wzImg = GetOrLoadImg(jobId);
+                return FindSkillNodeById(wzImg, skillId, out _) != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static IEnumerable<string> BuildIdNameCandidates(int id)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string raw = id.ToString();
+            if (seen.Add(raw))
+                yield return raw;
+
+            for (int width = 2; width <= 8; width++)
+            {
+                string padded = id.ToString("D" + width);
+                if (seen.Add(padded))
+                    yield return padded;
+            }
+        }
+
+        private static WzImageProperty FindSkillNodeById(WzImage wzImg, int skillId, out string matchedKey)
+        {
+            matchedKey = null;
+            if (wzImg == null || skillId <= 0)
+                return null;
+
+            foreach (string key in BuildIdNameCandidates(skillId))
+            {
+                var node = wzImg.GetFromPath("skill/" + key);
+                if (node != null)
+                {
+                    matchedKey = key;
+                    return node;
+                }
+            }
+
+            var skillTop = wzImg.GetFromPath("skill");
+            if (skillTop?.WzProperties != null)
+            {
+                foreach (var child in skillTop.WzProperties)
+                {
+                    if (child == null || string.IsNullOrWhiteSpace(child.Name))
+                        continue;
+                    if (int.TryParse(child.Name, out int parsed) && parsed == skillId)
+                    {
+                        matchedKey = child.Name;
+                        return child;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static WzImageProperty FindStringEntryBySkillId(WzImage strImg, int skillId)
+        {
+            if (strImg == null || skillId <= 0)
+                return null;
+
+            foreach (string key in BuildIdNameCandidates(skillId))
+            {
+                var node = strImg[key];
+                if (node != null)
+                    return node;
+            }
+
+            if (strImg.WzProperties != null)
+            {
+                foreach (var child in strImg.WzProperties)
+                {
+                    if (child == null || string.IsNullOrWhiteSpace(child.Name))
+                        continue;
+                    if (int.TryParse(child.Name, out int parsed) && parsed == skillId)
+                        return child;
+                }
+            }
+
+            return null;
+        }
+
+        private static List<int> EnumerateJobIdsFromGameSkillRoot()
+        {
+            var result = new List<int>();
+            string root = PathConfig.GameDataRoot;
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+                return result;
+
+            try
+            {
+                string[] files = Directory.GetFiles(root, "*.img", SearchOption.TopDirectoryOnly);
+                foreach (string file in files)
+                {
+                    string name = Path.GetFileNameWithoutExtension(file);
+                    if (int.TryParse(name, out int jobId) && jobId >= 0)
+                        result.Add(jobId);
+                }
+                result.Sort();
+            }
+            catch
+            {
+            }
+
+            return result;
+        }
+
         private WzSkillData ExtractSkillData(WzImageProperty skillNode, int skillId, int jobId)
         {
             var data = new WzSkillData { SkillId = skillId, JobId = jobId };
@@ -306,7 +482,7 @@ namespace SuperSkillTool
                 }
             }
 
-            // Effect frames (effect/effect0/effect1...)
+            // Effect frames (effect/effect0... + repeat/repeat0...)
             data.EffectFramesByNode = ExtractEffectFramesByNode(skillNode);
             if (data.EffectFramesByNode != null && data.EffectFramesByNode.Count > 0)
             {
@@ -417,62 +593,182 @@ namespace SuperSkillTool
         private List<WzEffectFrame> ExtractEffectFrames(WzImageProperty effectNode)
         {
             var frames = new List<WzEffectFrame>();
+            if (effectNode == null)
+                return frames;
 
-            foreach (var child in effectNode.WzProperties)
+            var resolvedNode = ResolveProperty(effectNode);
+            if (TryBuildFrameFromNode(resolvedNode, TryParseFrameIndex(effectNode.Name), out var directFrame))
             {
-                if (!int.TryParse(child.Name, out int idx)) continue;
+                if (directFrame != null)
+                    frames.Add(directFrame);
+                return frames;
+            }
 
-                var resolved = ResolveProperty(child);
-                if (resolved is WzCanvasProperty canvas)
-                {
-                    var frame = new WzEffectFrame { Index = idx };
-                    try
-                    {
-                        var src = canvas.GetBitmap();
-                        if (src != null)
-                        {
-                            frame.Bitmap = CloneBitmapSafe(src);
-                            frame.Width = frame.Bitmap.Width;
-                            frame.Height = frame.Bitmap.Height;
-                        }
-                    }
-                    catch { }
+            if (resolvedNode?.WzProperties == null)
+                return frames;
 
-                    // delay
-                    var delayProp = canvas["delay"];
-                    if (delayProp is WzIntProperty dp)
-                        frame.Delay = dp.Value;
-                    else if (delayProp is WzShortProperty dsp)
-                        frame.Delay = dsp.Value;
-                    else if (delayProp is WzLongProperty dlp)
-                        frame.Delay = (int)dlp.Value;
-                    else if (delayProp is WzStringProperty dstr && int.TryParse(dstr.Value, out int parsedDelay))
-                        frame.Delay = parsedDelay;
-                    else
-                        frame.Delay = 100;
+            foreach (var child in resolvedNode.WzProperties)
+            {
+                if (child == null)
+                    continue;
 
-                    // Preserve all vector anchors in the frame canvas, not just origin.
-                    if (canvas.WzProperties != null)
-                    {
-                        foreach (var p in canvas.WzProperties)
-                        {
-                            if (TryReadVector(p, out int vx, out int vy))
-                                frame.Vectors[p.Name] = new WzFrameVector(vx, vy);
-                            else if (!string.Equals(p.Name, "delay", StringComparison.OrdinalIgnoreCase))
-                            {
-                                string value = GetPropertyValueString(p);
-                                if (value != null)
-                                    frame.FrameProps[p.Name] = value;
-                            }
-                        }
-                    }
+                int idx = TryParseFrameIndex(child.Name);
+                if (idx < 0)
+                    continue;
 
+                if (TryBuildFrameFromNode(child, idx, out var frame) && frame != null)
                     frames.Add(frame);
+            }
+
+            // Some data stores frames one level deeper, fallback to nested discovery.
+            if (frames.Count == 0)
+            {
+                foreach (var child in resolvedNode.WzProperties)
+                {
+                    if (child == null || string.Equals(child.Name, "info", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var nested = ExtractEffectFrames(child);
+                    if (nested.Count > 0)
+                    {
+                        frames.AddRange(nested);
+                        break;
+                    }
                 }
             }
 
+            if (frames.Count > 1)
+            {
+                for (int i = 0; i < frames.Count; i++)
+                    frames[i].Index = i;
+            }
             frames.Sort((a, b) => a.Index.CompareTo(b.Index));
             return frames;
+        }
+
+        private static int TryParseFrameIndex(string name)
+        {
+            if (int.TryParse((name ?? "").Trim(), out int idx))
+                return idx;
+            return -1;
+        }
+
+        private bool TryBuildFrameFromNode(WzImageProperty sourceNode, int index, out WzEffectFrame frame)
+        {
+            frame = null;
+            if (sourceNode == null)
+                return false;
+
+            var resolved = ResolveProperty(sourceNode);
+            WzCanvasProperty canvas = null;
+            WzImageProperty metaRoot = resolved;
+
+            if (resolved is WzCanvasProperty directCanvas)
+            {
+                canvas = directCanvas;
+            }
+            else if (resolved is WzSubProperty sub)
+            {
+                var namedCanvas = ResolveProperty(sub["canvas"]) as WzCanvasProperty;
+                if (namedCanvas != null)
+                {
+                    canvas = namedCanvas;
+                }
+                else if (sub.WzProperties != null)
+                {
+                    foreach (var child in sub.WzProperties)
+                    {
+                        var resolvedChild = ResolveProperty(child);
+                        if (resolvedChild is WzCanvasProperty childCanvas)
+                        {
+                            canvas = childCanvas;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (canvas == null)
+                return false;
+
+            frame = new WzEffectFrame
+            {
+                Index = index >= 0 ? index : 0,
+                Delay = ReadDelay(metaRoot, 100)
+            };
+            if (frame.Delay <= 0)
+                frame.Delay = ReadDelay(canvas, 100);
+
+            TryFillFrameBitmap(canvas, frame);
+            CopyFrameMeta(metaRoot, frame, skipCanvasChildren: true);
+            if (!object.ReferenceEquals(metaRoot, canvas))
+                CopyFrameMeta(canvas, frame, skipCanvasChildren: false);
+
+            return true;
+        }
+
+        private static int ReadDelay(WzImageProperty prop, int fallback)
+        {
+            if (prop == null)
+                return fallback;
+
+            WzImageProperty delay = null;
+            if (prop is WzCanvasProperty canvas)
+                delay = canvas["delay"];
+            else if (prop is WzSubProperty sub)
+                delay = sub["delay"];
+
+            if (delay is WzIntProperty dp) return dp.Value;
+            if (delay is WzShortProperty dsp) return dsp.Value;
+            if (delay is WzLongProperty dlp) return (int)dlp.Value;
+            if (delay is WzStringProperty ds && int.TryParse(ds.Value, out int parsed)) return parsed;
+            return fallback;
+        }
+
+        private static void TryFillFrameBitmap(WzCanvasProperty canvas, WzEffectFrame frame)
+        {
+            if (canvas == null || frame == null)
+                return;
+
+            try
+            {
+                var src = canvas.GetBitmap();
+                if (src != null)
+                {
+                    frame.Bitmap = CloneBitmapSafe(src);
+                    frame.Width = frame.Bitmap.Width;
+                    frame.Height = frame.Bitmap.Height;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private void CopyFrameMeta(WzImageProperty source, WzEffectFrame frame, bool skipCanvasChildren)
+        {
+            if (source?.WzProperties == null || frame == null)
+                return;
+
+            foreach (var p in source.WzProperties)
+            {
+                if (p == null)
+                    continue;
+                if (string.Equals(p.Name, "delay", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (skipCanvasChildren && p is WzCanvasProperty)
+                    continue;
+
+                if (TryReadVector(p, out int vx, out int vy))
+                {
+                    frame.Vectors[p.Name] = new WzFrameVector(vx, vy);
+                    continue;
+                }
+
+                string value = GetPropertyValueString(p);
+                if (value != null)
+                    frame.FrameProps[p.Name] = value;
+            }
         }
 
         private Dictionary<string, List<WzEffectFrame>> ExtractEffectFramesByNode(WzImageProperty skillNode)
@@ -483,7 +779,7 @@ namespace SuperSkillTool
 
             foreach (var child in skillNode.WzProperties)
             {
-                if (!IsEffectNodeName(child?.Name) || child.WzProperties == null)
+                if (!IsEffectNodeName(child?.Name))
                     continue;
 
                 var frames = ExtractEffectFrames(child);
@@ -500,40 +796,49 @@ namespace SuperSkillTool
         {
             if (string.IsNullOrWhiteSpace(name))
                 return false;
-            if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "repeat", StringComparison.OrdinalIgnoreCase))
                 return true;
-            if (!name.StartsWith("effect", StringComparison.OrdinalIgnoreCase))
-                return false;
-            string suffix = name.Substring("effect".Length);
-            if (string.IsNullOrEmpty(suffix))
-                return false;
-            return int.TryParse(suffix, out _);
+            return TryParseIndexedFrameNodeName(name, "effect", out _)
+                || TryParseIndexedFrameNodeName(name, "repeat", out _);
         }
 
         private static int CompareEffectNodeName(string a, string b)
         {
             if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase))
                 return 0;
-            if (string.Equals(a, "effect", StringComparison.OrdinalIgnoreCase))
-                return -1;
-            if (string.Equals(b, "effect", StringComparison.OrdinalIgnoreCase))
-                return 1;
 
-            bool aIndexed = TryParseIndexedEffectName(a, out int aIndex);
-            bool bIndexed = TryParseIndexedEffectName(b, out int bIndex);
-            if (aIndexed && bIndexed)
+            int aRank = GetFrameNodeSortRank(a, out int aIndex);
+            int bRank = GetFrameNodeSortRank(b, out int bIndex);
+            if (aRank != bRank)
+                return aRank.CompareTo(bRank);
+            if (aRank == 1 || aRank == 3)
                 return aIndex.CompareTo(bIndex);
-            if (aIndexed) return -1;
-            if (bIndexed) return 1;
             return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool TryParseIndexedEffectName(string name, out int index)
+        private static int GetFrameNodeSortRank(string name, out int index)
+        {
+            index = int.MaxValue;
+            if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase))
+                return 0;
+            if (TryParseIndexedFrameNodeName(name, "effect", out index))
+                return 1;
+            if (string.Equals(name, "repeat", StringComparison.OrdinalIgnoreCase))
+                return 2;
+            if (TryParseIndexedFrameNodeName(name, "repeat", out index))
+                return 3;
+            return 4;
+        }
+
+        private static bool TryParseIndexedFrameNodeName(string name, string prefix, out int index)
         {
             index = -1;
-            if (string.IsNullOrWhiteSpace(name) || !name.StartsWith("effect", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(prefix))
                 return false;
-            string suffix = name.Substring("effect".Length);
+            if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return false;
+            string suffix = name.Substring(prefix.Length);
             if (string.IsNullOrEmpty(suffix))
                 return false;
             return int.TryParse(suffix, out index);
@@ -685,6 +990,7 @@ namespace SuperSkillTool
                 try { kvp.Value.Dispose(); } catch { }
             }
             _imgCache.Clear();
+            _skillJobHintCache.Clear();
 
             foreach (var kvp in _streamCache)
             {

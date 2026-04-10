@@ -1,3 +1,32 @@
+# Ignore build outputs and IDE files for .NET projects
+# Build folders
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Rider
+.idea/
+
+# NuGet
+*.nupkg
+packages/
+
+# Logs and OS
+*.log
+Thumbs.db
+Desktop.ini
+
+# Optional: ignore publish outputs
+bin/Release/
+bin/Debug/
+obj/Debug/
+obj/Release/
 # Build output
 bin/
 obj/

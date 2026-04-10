@@ -175,6 +175,8 @@ public class MainForm : Form
 
 		public bool InjectToNative;
 
+		public bool AllowMountedFlight;
+
 		public int SelectedSkillIndex = -1;
 
 		public int SelectedEffectIndex = -1;
@@ -201,6 +203,8 @@ public class MainForm : Form
 		public WzNodeInfo EditedTree;
 
 		public Dictionary<int, Dictionary<string, string>> EditedLevelParams = new Dictionary<int, Dictionary<string, string>>();
+
+		public bool HasManualEffectEdit;
 	}
 
 	private sealed class WzSkillDataSnapshot
@@ -212,6 +216,10 @@ public class MainForm : Form
 		public string Name = "";
 
 		public string Desc = "";
+
+		public string PDesc = "";
+
+		public string Ph = "";
 
 		public string Action = "";
 
@@ -252,6 +260,8 @@ public class MainForm : Form
 	private sealed class SkillLibraryItem
 	{
 		public int SkillId;
+
+		public int JobId = -1;
 
 		public string Name = "";
 
@@ -369,6 +379,12 @@ public class MainForm : Form
 
 	private TextBox txtSkillLibrarySearch;
 
+	private CheckBox chkSkillFilterName;
+
+	private CheckBox chkSkillFilterId;
+
+	private CheckBox chkSkillFilterDesc;
+
 	private ListView lvSkillLibrary;
 
 	private Label lblSkillLibraryStatus;
@@ -432,6 +448,8 @@ public class MainForm : Form
 	private TextBox txtMountFatigue;
 
 	private CheckBox chkBorrowDonorVisual;
+
+	private CheckBox chkAllowMountedFlight;
 
 	private GroupBox grpRoute;
 
@@ -529,8 +547,6 @@ public class MainForm : Form
 
 	private TextBox txtServerRootDir;
 
-	private TextBox txtDllSkillJsonDir;
-
 	private TextBox txtOutputDir;
 
 	private TextBox txtGameDataBaseDir;
@@ -546,6 +562,8 @@ public class MainForm : Form
 	private bool _dgvCellEditUndoCaptured;
 
 	private bool _suppressEffectNodeChange;
+
+	private bool _hasManualEffectEdit;
 
 	private ToolTip _toolTip;
 
@@ -588,9 +606,9 @@ public class MainForm : Form
 		{
 			Path.Combine(PathConfig.ToolRoot, "职业ID.txt"),
 			Path.Combine(PathConfig.ToolRoot, "docs", "职业ID.txt"),
-			"G:\\code\\职业ID.txt",
-			"G:\\code\\c++\\SuperSkillWnd\\docs\\职业ID.txt",
-			"G:\\code\\c++\\SuperSkillWnd\\职业ID.txt"
+			Path.Combine(AppContext.BaseDirectory, "职业ID.txt"),
+			Path.Combine(AppContext.BaseDirectory, "docs", "职业ID.txt"),
+			Path.Combine(Environment.CurrentDirectory, "职业ID.txt")
 		};
 		string text = null;
 		foreach (string text2 in array)
@@ -1130,7 +1148,7 @@ public class MainForm : Form
 		{
 			Text = "发包路由",
 			Location = new Point(8, num),
-			Size = new Size(num12, 150)
+			Size = new Size(num12, 176)
 		};
 		num6 = 18;
 		grpRoute.Controls.Add(new Label
@@ -1244,10 +1262,17 @@ public class MainForm : Form
 		cboMountResourceMode.SelectedIndex = 0;
 		grpRoute.Controls.Add(cboMountResourceMode);
 		num6 += 26;
+		chkAllowMountedFlight = new CheckBox
+		{
+			Text = "骑宠可飞行",
+			Location = new Point(8, num6 + 1),
+			AutoSize = true
+		};
+		grpRoute.Controls.Add(chkAllowMountedFlight);
 		Button buttonMountEditor = new Button
 		{
 			Text = "打开坐骑编辑",
-			Location = new Point(8, num6 - 1),
+			Location = new Point(105, num6 - 1),
 			Width = 120
 		};
 		buttonMountEditor.Click += delegate
@@ -1269,7 +1294,7 @@ public class MainForm : Form
 		grpRoute.Controls.Add(new Label
 		{
 			Text = "高级参数自动从坐骑资源读取（tamingMob/Data/speed/jump/fatigue）",
-			Location = new Point(138, num6 + 3),
+			Location = new Point(232, num6 + 3),
 			AutoSize = true,
 			ForeColor = Color.Gray
 		});
@@ -1281,7 +1306,7 @@ public class MainForm : Form
 		txtMountJump = new TextBox { Visible = false };
 		txtMountFatigue = new TextBox { Visible = false };
 		panel.Controls.Add(grpRoute);
-		num += 154;
+		num += 180;
 		GroupBox groupBox2 = new GroupBox
 		{
 			Text = "显示策略",
@@ -1409,16 +1434,19 @@ public class MainForm : Form
 			AutoSize = true,
 			ForeColor = Color.Gray
 		});
-		panel.Controls.Add(new Label
+		Label labelNodeTree = new Label
 		{
 			Text = "节点树（双击编辑值；右键菜单）:",
 			Location = new Point(num3, 43),
-			AutoSize = true
-		});
+			AutoSize = true,
+			Anchor = (AnchorStyles.Top | AnchorStyles.Right)
+		};
+		panel.Controls.Add(labelNodeTree);
 		treeSkillData = new TreeView
 		{
 			Location = new Point(num3, 63),
-			Size = new Size(rightEditorWidth, treeEditorHeight)
+			Size = new Size(rightEditorWidth, treeEditorHeight),
+			Anchor = (AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right)
 		};
 		treeSkillData.NodeMouseDoubleClick += TreeNode_DoubleClick;
 		ContextMenuStrip contextMenuStrip = new ContextMenuStrip();
@@ -1433,13 +1461,15 @@ public class MainForm : Form
 		{
 			Text = "技能参数",
 			Location = new Point(num3, treeSkillData.Bottom + 8),
-			AutoSize = true
+			AutoSize = true,
+			Anchor = (AnchorStyles.Top | AnchorStyles.Right)
 		};
 		panel.Controls.Add(_lblParamType);
 		dgvLevelParams = new DataGridView
 		{
 			Location = new Point(num3, _lblParamType.Bottom + 4),
 			Size = new Size(rightEditorWidth, paramEditorHeight),
+			Anchor = (AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right),
 			ReadOnly = false,
 			AllowUserToAddRows = false,
 			AllowUserToDeleteRows = false,
@@ -1465,6 +1495,52 @@ public class MainForm : Form
 		dgvLevelParams.MouseMove += DgvLevelParams_MouseMove;
 		dgvLevelParams.MouseLeave += DgvLevelParams_MouseLeave;
 		panel.Controls.Add(dgvLevelParams);
+		void LayoutRightEditorFill()
+		{
+			if (panel == null || treeSkillData == null || dgvLevelParams == null || _lblParamType == null || labelNodeTree == null)
+			{
+				return;
+			}
+			int clientWidth = panel.ClientSize.Width;
+			int clientHeight = panel.ClientSize.Height;
+			if (clientWidth <= 0 || clientHeight <= 0)
+			{
+				return;
+			}
+			int rightPadding = (panel.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0) + 10;
+			int editorX = num3;
+			int editorWidth = Math.Max(220, clientWidth - editorX - rightPadding);
+			int titleY = 43;
+			int treeTop = titleY + 20;
+			int bottom = Math.Max(treeTop + 260, clientHeight - 8);
+			int paramLabelHeight = Math.Max(_lblParamType.Height, _lblParamType.PreferredHeight);
+			int minTreeHeight = 120;
+			int minParamHeight = 120;
+			int gapTreeToLabel = 8;
+			int gapLabelToGrid = 4;
+			int available = bottom - treeTop - gapTreeToLabel - paramLabelHeight - gapLabelToGrid;
+			if (available < minTreeHeight + minParamHeight)
+			{
+				available = minTreeHeight + minParamHeight;
+			}
+			int treeHeight = Math.Max(minTreeHeight, available / 2);
+			int paramHeight = Math.Max(minParamHeight, available - treeHeight);
+			labelNodeTree.Location = new Point(editorX, titleY);
+			treeSkillData.Location = new Point(editorX, treeTop);
+			treeSkillData.Size = new Size(editorWidth, treeHeight);
+			_lblParamType.Location = new Point(editorX, treeSkillData.Bottom + gapTreeToLabel);
+			dgvLevelParams.Location = new Point(editorX, _lblParamType.Bottom + gapLabelToGrid);
+			dgvLevelParams.Size = new Size(editorWidth, paramHeight);
+		}
+		panel.Resize += delegate
+		{
+			LayoutRightEditorFill();
+		};
+		panel.HandleCreated += delegate
+		{
+			LayoutRightEditorFill();
+		};
+		LayoutRightEditorFill();
 		btnAddToList = new Button
 		{
 			Text = "添加到列表 >>",
@@ -1519,7 +1595,8 @@ public class MainForm : Form
 			Dock = DockStyle.Fill,
 			View = View.Details,
 			FullRowSelect = true,
-			GridLines = true
+			GridLines = true,
+			MultiSelect = true
 		};
 		lvSkills.Columns.Add("技能ID", 80);
 		lvSkills.Columns.Add("名称", 120);
@@ -1610,10 +1687,11 @@ public class MainForm : Form
 		{
 			Dock = DockStyle.Fill,
 			ColumnCount = 1,
-			RowCount = 4
+			RowCount = 5
 		};
 		tableLayoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 		tableLayoutPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f));
+		tableLayoutPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24f));
 		tableLayoutPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24f));
 		tableLayoutPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 18f));
 		tableLayoutPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
@@ -1655,6 +1733,73 @@ public class MainForm : Form
 		{
 			RefreshSkillLibraryList();
 		};
+		FlowLayoutPanel flowLayoutPanel = new FlowLayoutPanel
+		{
+			Dock = DockStyle.Fill,
+			AutoSize = false,
+			WrapContents = false,
+			FlowDirection = FlowDirection.LeftToRight,
+			Margin = new Padding(0)
+		};
+		Label label2 = new Label
+		{
+			Text = "过滤:",
+			AutoSize = true,
+			Margin = new Padding(0, 4, 6, 0)
+		};
+		try
+		{
+			label2.Font = new Font("Microsoft YaHei UI", 8f);
+		}
+		catch
+		{
+		}
+		chkSkillFilterName = new CheckBox
+		{
+			Text = "名字",
+			AutoSize = true,
+			Checked = true,
+			Margin = new Padding(0, 2, 8, 0)
+		};
+		chkSkillFilterId = new CheckBox
+		{
+			Text = "ID",
+			AutoSize = true,
+			Checked = true,
+			Margin = new Padding(0, 2, 8, 0)
+		};
+		chkSkillFilterDesc = new CheckBox
+		{
+			Text = "描述",
+			AutoSize = true,
+			Checked = true,
+			Margin = new Padding(0, 2, 0, 0)
+		};
+		try
+		{
+			chkSkillFilterName.Font = new Font("Microsoft YaHei UI", 8f);
+			chkSkillFilterId.Font = new Font("Microsoft YaHei UI", 8f);
+			chkSkillFilterDesc.Font = new Font("Microsoft YaHei UI", 8f);
+		}
+		catch
+		{
+		}
+		chkSkillFilterName.CheckedChanged += delegate
+		{
+			RefreshSkillLibraryList();
+		};
+		chkSkillFilterId.CheckedChanged += delegate
+		{
+			RefreshSkillLibraryList();
+		};
+		chkSkillFilterDesc.CheckedChanged += delegate
+		{
+			RefreshSkillLibraryList();
+		};
+		flowLayoutPanel.Controls.Add(label2);
+		flowLayoutPanel.Controls.Add(chkSkillFilterName);
+		flowLayoutPanel.Controls.Add(chkSkillFilterId);
+		flowLayoutPanel.Controls.Add(chkSkillFilterDesc);
 		lblSkillLibraryStatus = new Label
 		{
 			Text = "技能库: 0 / 0",
@@ -1691,8 +1836,9 @@ public class MainForm : Form
 		lvSkillLibrary.KeyDown += LvSkillLibrary_KeyDown;
 		tableLayoutPanel.Controls.Add(label, 0, 0);
 		tableLayoutPanel.Controls.Add(txtSkillLibrarySearch, 0, 1);
-		tableLayoutPanel.Controls.Add(lblSkillLibraryStatus, 0, 2);
-		tableLayoutPanel.Controls.Add(lvSkillLibrary, 0, 3);
+		tableLayoutPanel.Controls.Add(flowLayoutPanel, 0, 2);
+		tableLayoutPanel.Controls.Add(lblSkillLibraryStatus, 0, 3);
+		tableLayoutPanel.Controls.Add(lvSkillLibrary, 0, 4);
 	}
 
 	private void LoadSkillLibrary(bool forceReload = false)
@@ -1740,6 +1886,7 @@ public class MainForm : Form
 							SkillLibraryItem skillLibraryItem = new SkillLibraryItem
 							{
 								SkillId = item2,
+								JobId = item,
 								Name = name,
 								Desc = desc
 							};
@@ -1808,7 +1955,35 @@ public class MainForm : Form
 		IEnumerable<SkillLibraryItem> enumerable = _skillLibraryItems ?? Enumerable.Empty<SkillLibraryItem>();
 		if (!string.IsNullOrEmpty(text))
 		{
-			enumerable = enumerable.Where((SkillLibraryItem x) => !string.IsNullOrEmpty(x?.SearchText) && x.SearchText.Contains(text));
+			bool flag = chkSkillFilterName?.Checked != false;
+			bool flag2 = chkSkillFilterId?.Checked != false;
+			bool flag3 = chkSkillFilterDesc?.Checked != false;
+			if (!flag && !flag2 && !flag3)
+			{
+				flag = true;
+				flag2 = true;
+				flag3 = true;
+			}
+			enumerable = enumerable.Where(delegate(SkillLibraryItem x)
+			{
+				if (x == null)
+				{
+					return false;
+				}
+				if (flag2 && x.SkillId.ToString().Contains(text))
+				{
+					return true;
+				}
+				if (flag && !string.IsNullOrEmpty(x.Name) && x.Name.ToLowerInvariant().Contains(text))
+				{
+					return true;
+				}
+				if (flag3 && !string.IsNullOrEmpty(x.Desc) && x.Desc.ToLowerInvariant().Contains(text))
+				{
+					return true;
+				}
+				return false;
+			});
 		}
 		List<SkillLibraryItem> list = enumerable.Where((SkillLibraryItem x) => x != null).ToList();
 		lvSkillLibrary.BeginUpdate();
@@ -1852,7 +2027,7 @@ public class MainForm : Form
 			return;
 		}
 		txtSkillIdInput.Text = skillLibraryItem.SkillId.ToString();
-		DoLoadSkill();
+		DoLoadSkill(skillLibraryItem.JobId >= 0 ? skillLibraryItem.JobId : null);
 	}
 
 	private void BuildTab2_Management()
@@ -2013,7 +2188,6 @@ public class MainForm : Form
 		int y = 12;
 		txtServerRootDir = AddSettingRow(panel, ref y, "服务端目录根路径:", PathConfig.ServerRootDir, browse: true);
 		txtGameDataBaseDir = AddSettingRow(panel, ref y, "游戏Data目录根路径:", PathConfig.GameDataBaseDir, browse: true);
-		txtDllSkillJsonDir = AddSettingRow(panel, ref y, "DLL技能JSON目录:", PathConfig.DllSkillJsonDir, browse: true);
 		txtOutputDir = AddSettingRow(panel, ref y, "输出目录:", PathConfig.OutputDir, browse: true);
 
 		Label lblAutoDerived = new Label
@@ -3652,6 +3826,9 @@ public class MainForm : Form
 		SetControlTip(cboPreset, "常用模板技能快捷入口。");
 		SetControlTip(btnLoadPreset, "按预设技能ID快速加载一个可修改样例。");
 		SetControlTip(txtSkillLibrarySearch, "输入关键词搜索技能库（名称/描述/技能ID）。技能库来自 Data/Skill/*.img 全量扫描。");
+		SetControlTip(chkSkillFilterName, "按技能名称字段参与搜索（可与 ID/描述多选组合）。");
+		SetControlTip(chkSkillFilterId, "按技能ID字段参与搜索（可与 名字/描述多选组合）。");
+		SetControlTip(chkSkillFilterDesc, "按技能描述字段参与搜索（可与 名字/ID多选组合）。");
 		SetControlTip(lvSkillLibrary, "左侧技能库（含原版技能与新增超级技能）。双击或回车可直接载入该技能ID。");
 		SetControlTip(lblSkillLibraryStatus, "显示当前筛选条数 / 技能库总条数。");
 
@@ -3680,6 +3857,7 @@ public class MainForm : Form
 		SetControlTip(cboReleaseClass, "释放分类实现类。通常保持默认。");
 		SetControlTip(chkBorrowDonorVisual, "优先借用代理技能的可视表现。");
 		SetControlTip(txtMountItemId, "坐骑ItemId（mountItemId）。其余 tamingMob/Data 参数由坐骑资源自动读取并绑定。");
+		SetControlTip(chkAllowMountedFlight, "是否写出 allowMountedFlight=true。勾选后仅在“上坐骑+跳”且满足飞行技能条件时进入飞行。");
 		SetControlTip(cboMountResourceMode,
 			"坐骑资源同步模式：\n" +
 			"仅写配置：只写 mountItemId，不改资源文件；\n" +
@@ -3710,7 +3888,7 @@ public class MainForm : Form
 		SetControlTip(chkInjectToNative, "将技能注入原生技能流程（按需启用）。");
 
 		SetControlTip(btnCopyEffects, "复制其它技能的 effect 帧数据到当前技能。");
-		SetControlTip(cboEffectNode, "特效节点切换（effect/effect0/effect1...）。当前帧编辑操作只作用于选中节点。");
+		SetControlTip(cboEffectNode, "特效节点切换（effect/effect0...、repeat/repeat0...）。当前帧编辑操作只作用于选中节点。");
 		SetControlTip(lvEffectFrames, "技能特效帧列表。支持右键编辑帧延迟/坐标参数，也支持拖拽图片追加帧。");
 		SetControlTip(_picEffectPreview, "当前选中特效帧预览。");
 		SetControlTip(_lblParamType, "参数编辑区模式提示：公共参数模式或按等级参数模式。");
@@ -3731,7 +3909,6 @@ public class MainForm : Form
 		SetControlTip(chkRemoveDryRun, "删除前演练，不实际修改文件。");
 
 		SetControlTip(txtServerRootDir, "服务端根目录。其余服务端路径会自动派生。");
-		SetControlTip(txtDllSkillJsonDir, "客户端 DLL 使用的技能 JSON 目录。");
 		SetControlTip(txtOutputDir, "SQL、清单、备份等输出目录。");
 		SetControlTip(txtGameDataBaseDir, "游戏 Data 根目录。其余 Skill/Character/TamingMob 路径会自动派生。");
 		SetControlTip(txtDefaultCarrierId, "默认超级SP载体技能ID。");
@@ -4392,6 +4569,8 @@ public class MainForm : Form
 			SkillId = source.SkillId,
 			Name = source.Name,
 			Desc = source.Desc,
+			PDesc = source.PDesc,
+			Ph = source.Ph,
 			Type = source.Type,
 			Tab = source.Tab,
 			MaxLevel = source.MaxLevel,
@@ -4420,6 +4599,7 @@ public class MainForm : Form
 			InjectEnabled = source.InjectEnabled,
 			DonorSkillId = source.DonorSkillId,
 			MountItemId = source.MountItemId,
+			AllowMountedFlight = source.AllowMountedFlight,
 			MountResourceMode = source.MountResourceMode,
 			MountSourceItemId = source.MountSourceItemId,
 			MountTamingMobId = source.MountTamingMobId,
@@ -4598,6 +4778,7 @@ public class MainForm : Form
 			ShowInSuperWhenLearned = chkShowInSuperWhenLearned?.Checked ?? false,
 			AllowNativeFallback = chkAllowNativeFallback?.Checked ?? false,
 			InjectToNative = chkInjectToNative?.Checked ?? false,
+			AllowMountedFlight = chkAllowMountedFlight?.Checked ?? false,
 			SelectedSkillIndex = (lvSkills != null && lvSkills.SelectedIndices.Count > 0) ? lvSkills.SelectedIndices[0] : -1,
 			SelectedEffectIndex = (lvEffectFrames != null && lvEffectFrames.SelectedIndices.Count > 0) ? lvEffectFrames.SelectedIndices[0] : -1,
 			SelectedEffectNodeName = (cboEffectNode?.SelectedItem as string) ?? (_editState?.SelectedEffectNodeName ?? "effect")
@@ -4634,6 +4815,7 @@ public class MainForm : Form
 		if (chkShowInSuperWhenLearned != null) chkShowInSuperWhenLearned.Checked = snapshot.ShowInSuperWhenLearned;
 		if (chkAllowNativeFallback != null) chkAllowNativeFallback.Checked = snapshot.AllowNativeFallback;
 		if (chkInjectToNative != null) chkInjectToNative.Checked = snapshot.InjectToNative;
+		if (chkAllowMountedFlight != null) chkAllowMountedFlight.Checked = snapshot.AllowMountedFlight;
 
 		SafeSetImage(picIcon, _editState.GetEffectiveIcon());
 		SafeSetImage(picIconMO, _editState.GetEffectiveIconMO());
@@ -4727,7 +4909,8 @@ public class MainForm : Form
 			IconDisOverrideBase64 = EditState.BitmapToBase64(_editState.IconDisOverride),
 			EditedTree = (_editState.EditedTree != null) ? DeepCopyNode(_editState.EditedTree) : null,
 			EditedLevelParams = CloneLevelParams(_editState.EditedLevelParams) ?? new Dictionary<int, Dictionary<string, string>>(),
-			SelectedEffectNodeName = _editState.SelectedEffectNodeName ?? "effect"
+			SelectedEffectNodeName = _editState.SelectedEffectNodeName ?? "effect",
+			HasManualEffectEdit = _hasManualEffectEdit
 		};
 
 		if (_editState.EditedEffectsByNode != null && _editState.EditedEffectsByNode.Count > 0)
@@ -4771,6 +4954,7 @@ public class MainForm : Form
 	private void RestoreEditStateSnapshot(EditStateSnapshot snapshot)
 	{
 		_editState.Clear();
+		_hasManualEffectEdit = false;
 
 		if (snapshot == null)
 		{
@@ -4830,6 +5014,7 @@ public class MainForm : Form
 			}
 		}
 		_editState.SetSelectedEffectNode(snapshot.SelectedEffectNodeName ?? "effect", createIfMissing: true);
+		_hasManualEffectEdit = snapshot.HasManualEffectEdit;
 	}
 
 	private WzSkillDataSnapshot CaptureWzSkillDataSnapshot(WzSkillData source)
@@ -4845,6 +5030,8 @@ public class MainForm : Form
 			JobId = source.JobId,
 			Name = source.Name ?? "",
 			Desc = source.Desc ?? "",
+			PDesc = source.PDesc ?? "",
+			Ph = source.Ph ?? "",
 			Action = source.Action ?? "",
 			InfoType = source.InfoType,
 			HLevels = source.HLevels != null ? new Dictionary<string, string>(source.HLevels) : new Dictionary<string, string>(),
@@ -4870,6 +5057,8 @@ public class MainForm : Form
 			JobId = snapshot.JobId,
 			Name = snapshot.Name ?? "",
 			Desc = snapshot.Desc ?? "",
+			PDesc = snapshot.PDesc ?? "",
+			Ph = snapshot.Ph ?? "",
 			Action = snapshot.Action ?? "",
 			InfoType = snapshot.InfoType,
 			HLevels = snapshot.HLevels != null ? new Dictionary<string, string>(snapshot.HLevels) : new Dictionary<string, string>(),
@@ -5110,7 +5299,78 @@ public class MainForm : Form
 		return fallback;
 	}
 
-	private void DoLoadSkill()
+	private int? TryGetSelectedJobId()
+	{
+		if (cboJobId == null)
+			return null;
+
+		int selectedIndex = cboJobId.SelectedIndex;
+		if (selectedIndex < 0 || selectedIndex >= JobList.Count)
+			return null;
+
+		return JobList[selectedIndex].Value;
+	}
+
+	private bool TryLoadSkillWithInputFallback(
+		int inputSkillId,
+		int? preferredJobId,
+		out WzSkillData loadedData,
+		out int resolvedSkillId,
+		out string triedText)
+	{
+		loadedData = null;
+		resolvedSkillId = inputSkillId;
+
+		List<int> candidates = new List<int>();
+		HashSet<int> seen = new HashSet<int>();
+		void AddCandidate(int value)
+		{
+			if (value <= 0)
+				return;
+			if (seen.Add(value))
+				candidates.Add(value);
+		}
+
+		AddCandidate(inputSkillId);
+
+		if (inputSkillId > 0 && inputSkillId < 10000)
+		{
+			if (preferredJobId.HasValue && preferredJobId.Value > 0)
+				AddCandidate(preferredJobId.Value * 10000 + inputSkillId);
+
+			int? selectedJobId = TryGetSelectedJobId();
+			if (selectedJobId.HasValue && selectedJobId.Value > 0)
+				AddCandidate(selectedJobId.Value * 10000 + inputSkillId);
+		}
+
+		List<string> tried = new List<string>();
+		Exception lastNotFound = null;
+
+		foreach (int candidate in candidates)
+		{
+			try
+			{
+				loadedData = _wzLoader.LoadSkill(candidate, preferredJobId);
+				resolvedSkillId = candidate;
+				triedText = string.Join(", ", tried);
+				return true;
+			}
+			catch (KeyNotFoundException ex)
+			{
+				lastNotFound = ex;
+				tried.Add(candidate.ToString());
+			}
+		}
+
+		triedText = string.Join(", ", tried);
+		if (lastNotFound != null)
+			throw new KeyNotFoundException(
+				$"{lastNotFound.Message}（已尝试: {triedText}）",
+				lastNotFound);
+		return false;
+	}
+
+	private void DoLoadSkill(int? preferredJobId = null)
 	{
 		if (!int.TryParse(txtSkillIdInput.Text.Trim(), out var result) || result <= 0)
 		{
@@ -5120,17 +5380,21 @@ public class MainForm : Form
 		}
 		try
 		{
-			WzSkillData wzSkillData = _wzLoader.LoadSkill(result);
+			if (!TryLoadSkillWithInputFallback(result, preferredJobId, out WzSkillData wzSkillData, out int resolvedSkillId, out string _))
+				return;
+			result = resolvedSkillId;
 			PushUndoSnapshot();
 			_editState.LoadFromSkillData(wzSkillData);
+			_hasManualEffectEdit = false;
 			RefreshEffectNodeSelector("effect", createIfMissing: true);
-			int value = result / 10000;
-			lblLoadStatus.Text = $"已加载 skill/{result}（来自 {value}.img）";
+			int value = wzSkillData.JobId;
+			lblLoadStatus.Text = $"已加载 skill/{result}（来自 {PathConfig.SkillImgName(value)}）";
 			lblLoadStatus.ForeColor = Color.LimeGreen;
 			SafeSetImage(picIcon, wzSkillData.IconBitmap);
 			SafeSetImage(picIconMO, wzSkillData.IconMouseOverBitmap);
 			SafeSetImage(picIconDis, wzSkillData.IconDisabledBitmap);
 			txtSkillId.Text = result.ToString();
+			txtSkillIdInput.Text = result.ToString();
 			txtName.Text = wzSkillData.Name ?? "";
 			txtDesc.Text = wzSkillData.Desc ?? "";
 			int loadedMaxLevel = ResolveMaxLevelFromWzData(wzSkillData, 20);
@@ -5149,7 +5413,8 @@ public class MainForm : Form
 				ShowInNativeWhenLearned = chkShowInNativeWhenLearned.Checked,
 				ShowInSuperWhenLearned = chkShowInSuperWhenLearned.Checked,
 				AllowNativeUpgradeFallback = chkAllowNativeFallback.Checked,
-				InjectToNative = chkInjectToNative.Checked
+				InjectToNative = chkInjectToNative.Checked,
+				AllowMountedFlight = chkAllowMountedFlight?.Checked ?? false
 			};
 			ApplyConfigHints(skillDefinition);
 			EnsureRecommendedRoute(skillDefinition, wzSkillData);
@@ -5179,6 +5444,10 @@ public class MainForm : Form
 			chkShowInSuperWhenLearned.Checked = skillDefinition.ShowInSuperWhenLearned;
 			chkAllowNativeFallback.Checked = skillDefinition.AllowNativeUpgradeFallback;
 			chkInjectToNative.Checked = skillDefinition.InjectToNative;
+			if (chkAllowMountedFlight != null)
+			{
+				chkAllowMountedFlight.Checked = skillDefinition.AllowMountedFlight;
+			}
 			TrySyncMountEditorFromSkill(skillDefinition);
 			PopulateTreeView(wzSkillData.RootNode);
 			PopulateSkillParams(wzSkillData);
@@ -5318,8 +5587,29 @@ public class MainForm : Form
 			return false;
 		}
 		// 骑乘/飞行类技能描述常见关键词：命中后优先 special_move。
-		return desc.Contains("有可以骑着")
-			|| desc.Contains("可以骑着");
+		string[] keywords = new string[12]
+		{
+			"有可以骑着",
+			"可以骑着",
+			"骑乘",
+			"坐骑",
+			"搭乘",
+			"飞行",
+			"翱翔",
+			"滑翔",
+			"fly",
+			"soar",
+			"mount",
+			"vehicle"
+		};
+		foreach (string keyword in keywords)
+		{
+			if (desc.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static bool HasNodeName(WzNodeInfo node, string nodeName)
@@ -5383,6 +5673,7 @@ public class MainForm : Form
 			if (dictionary != null && dictionary.Count > 0)
 			{
 				_editState.EditedEffectsByNode = dictionary;
+				_hasManualEffectEdit = true;
 				RefreshEffectNodeSelector("effect", createIfMissing: true);
 				PopulateEffectFrames(_editState.EditedEffects);
 			}
@@ -5526,14 +5817,18 @@ public class MainForm : Form
 		}
 	}
 
-	private static bool TryParseIndexedEffectNodeName(string name, out int index)
+	private static bool TryParseIndexedEffectNodeName(string name, string prefix, out int index)
 	{
 		index = -1;
-		if (string.IsNullOrWhiteSpace(name) || !name.StartsWith("effect", StringComparison.OrdinalIgnoreCase))
+		if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(prefix))
 		{
 			return false;
 		}
-		string text = name.Substring("effect".Length);
+		if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+		{
+			return false;
+		}
+		string text = name.Substring(prefix.Length);
 		if (string.IsNullOrEmpty(text))
 		{
 			return false;
@@ -5547,29 +5842,39 @@ public class MainForm : Form
 		{
 			return 0;
 		}
-		if (string.Equals(a, "effect", StringComparison.OrdinalIgnoreCase))
+		int num = GetEffectNodeSortRank(a, out var index);
+		int num2 = GetEffectNodeSortRank(b, out var index2);
+		if (num != num2)
 		{
-			return -1;
+			return num.CompareTo(num2);
 		}
-		if (string.Equals(b, "effect", StringComparison.OrdinalIgnoreCase))
-		{
-			return 1;
-		}
-		bool flag = TryParseIndexedEffectNodeName(a, out var index);
-		bool flag2 = TryParseIndexedEffectNodeName(b, out var index2);
-		if (flag && flag2)
+		if (num == 1 || num == 3)
 		{
 			return index.CompareTo(index2);
 		}
-		if (flag)
+		return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+	}
+
+	private static int GetEffectNodeSortRank(string name, out int index)
+	{
+		index = int.MaxValue;
+		if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase))
 		{
-			return -1;
+			return 0;
 		}
-		if (flag2)
+		if (TryParseIndexedEffectNodeName(name, "effect", out index))
 		{
 			return 1;
 		}
-		return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+		if (string.Equals(name, "repeat", StringComparison.OrdinalIgnoreCase))
+		{
+			return 2;
+		}
+		if (TryParseIndexedEffectNodeName(name, "repeat", out index))
+		{
+			return 3;
+		}
+		return 4;
 	}
 
 	private List<WzEffectFrame> GetActiveEffectFrames(bool createIfMissing)
@@ -5875,6 +6180,7 @@ public class MainForm : Form
 				activeEffectFrames.Add(cloned);
 			}
 		}
+		_hasManualEffectEdit = true;
 		PopulateEffectFrames(activeEffectFrames);
 		Console.WriteLine($"[GUI] 已粘贴 {_clipboardFrames.Count} 帧");
 	}
@@ -5923,6 +6229,7 @@ public class MainForm : Form
 		}
 		if (num > 0)
 		{
+			_hasManualEffectEdit = true;
 			PopulateEffectFrames(activeEffectFrames);
 			Console.WriteLine($"[GUI] 拖拽导入 {num} 帧");
 		}
@@ -6147,6 +6454,7 @@ public class MainForm : Form
 			{
 				PushUndoSnapshot();
 				_editState.EditedEffectsByNode = dictionary;
+				_hasManualEffectEdit = true;
 				RefreshEffectNodeSelector("effect", createIfMissing: true);
 				PopulateEffectFrames(_editState.EditedEffects);
 				int num = 0;
@@ -6198,6 +6506,7 @@ public class MainForm : Form
 					Height = bitmap.Height,
 					Delay = result
 				});
+				_hasManualEffectEdit = true;
 				PopulateEffectFrames(activeEffectFrames);
 			}
 			catch (Exception ex)
@@ -6236,6 +6545,7 @@ public class MainForm : Form
 				activeEffectFrames[num].Bitmap = bitmap;
 				activeEffectFrames[num].Width = bitmap.Width;
 				activeEffectFrames[num].Height = bitmap.Height;
+				_hasManualEffectEdit = true;
 				PopulateEffectFrames(activeEffectFrames);
 			}
 		}
@@ -6264,6 +6574,7 @@ public class MainForm : Form
 			{
 				PushUndoSnapshot();
 				activeEffectFrames[num].Delay = result;
+				_hasManualEffectEdit = true;
 			}
 			PopulateEffectFrames(activeEffectFrames);
 		}
@@ -6318,6 +6629,7 @@ public class MainForm : Form
 		PushUndoSnapshot();
 		frame.Vectors = vectors;
 		frame.FrameProps = frameProps;
+		_hasManualEffectEdit = true;
 		PopulateEffectFrames(_editState.EditedEffects);
 		if (index >= 0 && index < lvEffectFrames.Items.Count)
 		{
@@ -6531,6 +6843,7 @@ public class MainForm : Form
 			PushUndoSnapshot();
 			activeEffectFrames.RemoveAt(num);
 			ReindexEffectFrames(activeEffectFrames);
+			_hasManualEffectEdit = true;
 			PopulateEffectFrames(activeEffectFrames);
 		}
 	}
@@ -6564,6 +6877,8 @@ public class MainForm : Form
 			WzSkillData loadedData = _editState.LoadedData;
 			skillDefinition.Action = loadedData.Action ?? "";
 			skillDefinition.InfoType = loadedData.InfoType;
+			skillDefinition.PDesc = loadedData.PDesc ?? "";
+			skillDefinition.Ph = loadedData.Ph ?? "";
 			if (loadedData.SkillId > 0 && loadedData.SkillId != skillDefinition.SkillId)
 			{
 				skillDefinition.CloneFromSkillId = loadedData.SkillId;
@@ -6611,6 +6926,14 @@ public class MainForm : Form
 					{
 						skillDefinition.HLevels[hLevel2.Key] = hLevel2.Value;
 					}
+				}
+				if (string.IsNullOrEmpty(skillDefinition.PDesc))
+				{
+					skillDefinition.PDesc = skillDefinition2.PDesc ?? "";
+				}
+				if (string.IsNullOrEmpty(skillDefinition.Ph))
+				{
+					skillDefinition.Ph = skillDefinition2.Ph ?? "";
 				}
 				if (skillDefinition.Levels == null && skillDefinition2.Levels != null && skillDefinition2.Levels.Count > 0)
 				{
@@ -6713,6 +7036,7 @@ public class MainForm : Form
 		skillDefinition.ShowInSuperWhenLearned = chkShowInSuperWhenLearned.Checked;
 		skillDefinition.AllowNativeUpgradeFallback = chkAllowNativeFallback.Checked;
 		skillDefinition.InjectToNative = chkInjectToNative.Checked;
+		skillDefinition.AllowMountedFlight = chkAllowMountedFlight?.Checked ?? false;
 		if (skillDefinition2 != null)
 		{
 			skillDefinition.InjectEnabled = skillDefinition2.InjectEnabled;
@@ -6752,9 +7076,19 @@ public class MainForm : Form
 				skillDefinition.CloneFromSkillId = skillDefinition2.CloneFromSkillId;
 			}
 		}
-		skillDefinition.IconBase64 = _editState.GetEffectiveIconBase64();
-		skillDefinition.IconMouseOverBase64 = _editState.GetEffectiveIconMOBase64();
-		skillDefinition.IconDisabledBase64 = _editState.GetEffectiveIconDisBase64();
+		bool hasIconOverride = _editState.IconOverride != null
+			|| _editState.IconMOOverride != null
+			|| _editState.IconDisOverride != null;
+		bool hasQueuedIconOverride = skillDefinition2 != null
+			&& (!string.IsNullOrEmpty(skillDefinition2.IconBase64)
+				|| !string.IsNullOrEmpty(skillDefinition2.IconMouseOverBase64)
+				|| !string.IsNullOrEmpty(skillDefinition2.IconDisabledBase64));
+		if (hasIconOverride || hasQueuedIconOverride)
+		{
+			skillDefinition.IconBase64 = _editState.GetEffectiveIconBase64();
+			skillDefinition.IconMouseOverBase64 = _editState.GetEffectiveIconMOBase64();
+			skillDefinition.IconDisabledBase64 = _editState.GetEffectiveIconDisBase64();
+		}
 		string text2 = InferType(skillDefinition.ReleaseType, skillDefinition.Tab);
 		if (skillDefinition2 != null && string.Equals(skillDefinition2.Type, "newbie_level", StringComparison.OrdinalIgnoreCase))
 		{
@@ -6811,7 +7145,11 @@ public class MainForm : Form
 		{
 			skillDefinition.Type = "newbie_level";
 		}
-		if (_editState.EditedEffectsByNode != null && _editState.EditedEffectsByNode.Count > 0)
+		bool hasQueuedEffectOverride = skillDefinition2 != null
+			&& ((skillDefinition2.CachedEffectsByNode != null && skillDefinition2.CachedEffectsByNode.Count > 0)
+				|| (skillDefinition2.CachedEffects != null && skillDefinition2.CachedEffects.Count > 0));
+		bool shouldPersistEffectOverrides = _hasManualEffectEdit || hasQueuedEffectOverride;
+		if (shouldPersistEffectOverrides && _editState.EditedEffectsByNode != null && _editState.EditedEffectsByNode.Count > 0)
 		{
 			skillDefinition.CachedEffectsByNode = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
 			foreach (KeyValuePair<string, List<WzEffectFrame>> item3 in _editState.EditedEffectsByNode)
@@ -6861,7 +7199,7 @@ public class MainForm : Form
 				}
 			}
 		}
-		else if (_editState.EditedEffects != null && _editState.EditedEffects.Count > 0)
+		else if (shouldPersistEffectOverrides && _editState.EditedEffects != null && _editState.EditedEffects.Count > 0)
 		{
 			skillDefinition.CachedEffects = new List<WzEffectFrame>();
 			foreach (WzEffectFrame editedEffect in _editState.EditedEffects)
@@ -7247,29 +7585,54 @@ public class MainForm : Form
 		{
 			return;
 		}
-		int num = lvSkills.SelectedIndices[0];
-		if (num < 0 || num >= _pendingSkills.Count)
+		List<int> selectedIndexes = new List<int>();
+		foreach (int selectedIndex in lvSkills.SelectedIndices)
+		{
+			if (selectedIndex >= 0 && selectedIndex < _pendingSkills.Count)
+			{
+				selectedIndexes.Add(selectedIndex);
+			}
+		}
+		selectedIndexes = selectedIndexes.Distinct().OrderBy((int i) => i).ToList();
+		if (selectedIndexes.Count == 0)
 		{
 			return;
 		}
-		SkillDefinition skillDefinition = _pendingSkills[num];
-		DialogResult dialogResult = MessageBox.Show($"将技能 {skillDefinition.SkillId} ({skillDefinition.Name}) 从列表移除并加入删除队列吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation);
+
+		string message = (selectedIndexes.Count == 1)
+			? $"将技能 {_pendingSkills[selectedIndexes[0]].SkillId} ({_pendingSkills[selectedIndexes[0]].Name}) 从列表移除并加入删除队列吗？"
+			: $"将选中的 {selectedIndexes.Count} 个技能从列表移除并加入删除队列吗？";
+		DialogResult dialogResult = MessageBox.Show(message, "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation);
 		if (dialogResult == DialogResult.Yes)
 		{
 			PushUndoSnapshot();
-			QueueDeleteSkill(skillDefinition);
-			_pendingSkills.RemoveAt(num);
-			if (_editState.EditingListIndex == num)
+			HashSet<int> removedSet = new HashSet<int>(selectedIndexes);
+			List<int> removedSkillIds = new List<int>();
+			for (int i = selectedIndexes.Count - 1; i >= 0; i--)
 			{
-				_editState.EditingListIndex = null;
+				int removeIndex = selectedIndexes[i];
+				SkillDefinition sd = _pendingSkills[removeIndex];
+				QueueDeleteSkill(sd);
+				removedSkillIds.Add(sd.SkillId);
+				_pendingSkills.RemoveAt(removeIndex);
 			}
-			else if (_editState.EditingListIndex.HasValue && _editState.EditingListIndex.Value > num)
+			if (_editState.EditingListIndex.HasValue)
 			{
-				_editState.EditingListIndex = _editState.EditingListIndex.Value - 1;
+				int editingIndex = _editState.EditingListIndex.Value;
+				if (removedSet.Contains(editingIndex))
+				{
+					_editState.EditingListIndex = null;
+				}
+				else
+				{
+					int shift = selectedIndexes.Count((int idx) => idx < editingIndex);
+					_editState.EditingListIndex = editingIndex - shift;
+				}
 			}
 			RefreshListView();
 			SavePendingList();
-			Console.WriteLine($"[GUI] 已标记删除 {skillDefinition.SkillId} ({skillDefinition.Name})");
+			removedSkillIds.Sort();
+			Console.WriteLine($"[GUI] 已标记删除 {removedSkillIds.Count} 个技能: {string.Join(", ", removedSkillIds)}");
 		}
 	}
 
@@ -7303,6 +7666,8 @@ public class MainForm : Form
 			return;
 		}
 		SkillDefinition skillDefinition = _pendingSkills[num];
+		_hasManualEffectEdit = (skillDefinition.CachedEffectsByNode != null && skillDefinition.CachedEffectsByNode.Count > 0)
+			|| (skillDefinition.CachedEffects != null && skillDefinition.CachedEffects.Count > 0);
 		Console.WriteLine($"[双击调试] 技能ID={skillDefinition.SkillId} 名称={skillDefinition.Name} 动作={skillDefinition.Action} 类型={skillDefinition.InfoType} 通用参数数={skillDefinition.Common?.Count ?? (-1)} H层级数={skillDefinition.HLevels?.Count ?? (-1)} 等级参数数={skillDefinition.Levels?.Count ?? (-1)} 缓存特效节点数={skillDefinition.CachedEffectsByNode?.Count ?? 0} 缓存当前特效帧数={skillDefinition.CachedEffects?.Count ?? (-1)} 缓存节点树={(skillDefinition.CachedTree != null)}");
 		txtSkillId.Text = skillDefinition.SkillId.ToString();
 		txtName.Text = skillDefinition.Name;
@@ -7335,6 +7700,10 @@ public class MainForm : Form
 		chkShowInSuperWhenLearned.Checked = skillDefinition.ShowInSuperWhenLearned;
 		chkAllowNativeFallback.Checked = skillDefinition.AllowNativeUpgradeFallback;
 		chkInjectToNative.Checked = skillDefinition.InjectToNative;
+		if (chkAllowMountedFlight != null)
+		{
+			chkAllowMountedFlight.Checked = skillDefinition.AllowMountedFlight;
+		}
 		TrySyncMountEditorFromSkill(skillDefinition);
 		_editState.LoadFromSkillDefinition(skillDefinition, num);
 		SafeSetImage(picIcon, _editState.GetEffectiveIcon());
@@ -7380,6 +7749,14 @@ public class MainForm : Form
 					{
 						_editState.LoadedData.HLevels[hLevel.Key] = hLevel.Value;
 					}
+				}
+				if (!string.IsNullOrEmpty(skillDefinition.PDesc))
+				{
+					_editState.LoadedData.PDesc = skillDefinition.PDesc;
+				}
+				if (!string.IsNullOrEmpty(skillDefinition.Ph))
+				{
+					_editState.LoadedData.Ph = skillDefinition.Ph;
 				}
 				if (skillDefinition.Common != null && skillDefinition.Common.Count > 0)
 				{
@@ -7645,8 +8022,6 @@ public class MainForm : Form
 					Console.WriteLine("\n[ServerXml] 已跳过");
 					Console.WriteLine("[ServerStringXml] 已跳过");
 				}
-				DllJsonGenerator.GenerateSkillImgJson(skills, dryRun);
-				DllJsonGenerator.GenerateStringImgJson(skills, dryRun);
 				if (!dryRun)
 				{
 					_wzLoader.ClearCache();
@@ -7666,8 +8041,6 @@ public class MainForm : Form
 					ServerXmlGenerator.Remove(deletedSkills, dryRun);
 					ServerStringXmlGenerator.Remove(deletedSkills, dryRun);
 				}
-				DllJsonGenerator.RemoveSkillImgJson(deletedSkills, dryRun);
-				DllJsonGenerator.RemoveStringImgJson(deletedSkills, dryRun);
 				if (!dryRun)
 				{
 					_wzLoader.ClearCache();
@@ -7836,7 +8209,6 @@ public class MainForm : Form
 	{
 		PathConfig.ServerRootDir = txtServerRootDir.Text.Trim();
 		PathConfig.GameDataBaseDir = txtGameDataBaseDir.Text.Trim();
-		PathConfig.DllSkillJsonDir = txtDllSkillJsonDir.Text.Trim();
 		PathConfig.OutputDir = txtOutputDir.Text.Trim();
 		if (string.IsNullOrWhiteSpace(PathConfig.OutputDir))
 		{
@@ -7862,7 +8234,6 @@ public class MainForm : Form
 	{
 		txtServerRootDir.Text = "G:\\code\\dasheng099";
 		txtGameDataBaseDir.Text = "G:\\code\\mxd\\Data";
-		txtDllSkillJsonDir.Text = "G:\\code\\c++\\SuperSkillWnd\\skill";
 		txtOutputDir.Text = Path.Combine(txtServerRootDir.Text.Trim(), "output");
 		txtDefaultCarrierId.Text = "1001038";
 		SyncCarrierSkillIdEditors(txtDefaultCarrierId);
@@ -8118,6 +8489,13 @@ public class MainForm : Form
 			{
 				sd.MountItemId = SimpleJson.GetInt(value4, "mountItemId", sd.MountItemId);
 			}
+			if (value4.ContainsKey("allowMountedFlight") || value4.ContainsKey("grantSoaringOnRide"))
+			{
+				sd.AllowMountedFlight = SimpleJson.GetBool(
+					value4,
+					"allowMountedFlight",
+					SimpleJson.GetBool(value4, "grantSoaringOnRide", sd.AllowMountedFlight));
+			}
 		}
 		if (string.IsNullOrEmpty(sd.ReleaseClass))
 		{
@@ -8225,6 +8603,11 @@ public class MainForm : Form
 			{
 				BackupHelper.Backup(PendingSkillsJson);
 			}
+			string dir = Path.GetDirectoryName(PendingSkillsJson);
+			if (!string.IsNullOrWhiteSpace(dir) && !Directory.Exists(dir))
+			{
+				Directory.CreateDirectory(dir);
+			}
 			File.WriteAllText(PendingSkillsJson, SkillDefinition.SerializeList(_pendingSkills), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 		}
 		catch (Exception ex)
@@ -8290,6 +8673,8 @@ public class MainForm : Form
 			PushUndoSnapshot();
 			skillDefinition.Name = ((!string.IsNullOrEmpty(wzSkillData.Name)) ? wzSkillData.Name : skillDefinition.Name);
 			skillDefinition.Desc = wzSkillData.Desc ?? skillDefinition.Desc;
+			skillDefinition.PDesc = wzSkillData.PDesc ?? skillDefinition.PDesc;
+			skillDefinition.Ph = wzSkillData.Ph ?? skillDefinition.Ph;
 			skillDefinition.IconBase64 = wzSkillData.IconBase64 ?? skillDefinition.IconBase64;
 			skillDefinition.IconMouseOverBase64 = wzSkillData.IconMouseOverBase64 ?? skillDefinition.IconMouseOverBase64;
 			skillDefinition.IconDisabledBase64 = wzSkillData.IconDisabledBase64 ?? skillDefinition.IconDisabledBase64;
@@ -8357,6 +8742,8 @@ public class MainForm : Form
 				{
 					skillDefinition.Name = ((!string.IsNullOrEmpty(data.Name)) ? data.Name : skillDefinition.Name);
 					skillDefinition.Desc = data.Desc ?? skillDefinition.Desc;
+					skillDefinition.PDesc = data.PDesc ?? skillDefinition.PDesc;
+					skillDefinition.Ph = data.Ph ?? skillDefinition.Ph;
 					skillDefinition.IconBase64 = data.IconBase64 ?? skillDefinition.IconBase64;
 					skillDefinition.IconMouseOverBase64 = data.IconMouseOverBase64 ?? skillDefinition.IconMouseOverBase64;
 					skillDefinition.IconDisabledBase64 = data.IconDisabledBase64 ?? skillDefinition.IconDisabledBase64;
@@ -8396,6 +8783,8 @@ public class MainForm : Form
 				skillDefinition2.SkillId = data.SkillId;
 				skillDefinition2.Name = ((!string.IsNullOrEmpty(data.Name)) ? data.Name : data.SkillId.ToString());
 				skillDefinition2.Desc = data.Desc ?? "";
+				skillDefinition2.PDesc = data.PDesc ?? "";
+				skillDefinition2.Ph = data.Ph ?? "";
 				skillDefinition2.IconBase64 = data.IconBase64 ?? "";
 				skillDefinition2.IconMouseOverBase64 = data.IconMouseOverBase64 ?? "";
 				skillDefinition2.IconDisabledBase64 = data.IconDisabledBase64 ?? "";

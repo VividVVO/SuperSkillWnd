@@ -130,6 +130,10 @@ namespace SuperSkillTool
             {
                 SkillId = sd.SkillId,
                 JobId = sd.JobId,
+                Name = sd.Name ?? "",
+                Desc = sd.Desc ?? "",
+                PDesc = sd.PDesc ?? "",
+                Ph = sd.Ph ?? "",
                 Action = sd.Action ?? "",
                 InfoType = sd.InfoType,
                 CommonParams = sd.Common != null ? new Dictionary<string, string>(sd.Common) : null

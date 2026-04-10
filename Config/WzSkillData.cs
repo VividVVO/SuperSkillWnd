@@ -17,6 +17,8 @@ namespace SuperSkillTool
         // String data (from String/Skill.img)
         public string Name = "";
         public string Desc = "";
+        public string PDesc = "";
+        public string Ph = "";
         public Dictionary<string, string> HLevels = new Dictionary<string, string>();
 
         // Icons as bitmaps (for GUI preview) and base64 (for generators)

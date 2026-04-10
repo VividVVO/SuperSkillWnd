@@ -64,16 +64,6 @@ namespace SuperSkillTool
             sb.AppendLine($"    [ ] {PathConfig.ServerStringXml}");
             sb.AppendLine();
 
-            // DLL JSON
-            sb.AppendLine("[ ] DLL Skill IMG JSON:");
-            foreach (int jobId in jobIds)
-                sb.AppendLine($"    [ ] {PathConfig.DllSkillImgJson(jobId)}");
-            sb.AppendLine();
-
-            sb.AppendLine($"[ ] DLL String JSON:");
-            sb.AppendLine($"    [ ] {PathConfig.DllStringJson}");
-            sb.AppendLine();
-
             // Config JSON
             sb.AppendLine($"[ ] super_skills.json:");
             sb.AppendLine($"    [ ] {PathConfig.SuperSkillsJson}");

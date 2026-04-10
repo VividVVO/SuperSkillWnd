@@ -350,16 +350,7 @@ namespace SuperSkillTool
 
         private static void ApplySkillOverrides(XmlDocument doc, XmlElement root, SkillDefinition sd)
         {
-            if (sd.InfoType > 0)
-            {
-                XmlElement infoDir = FindImgDir(root, "info") as XmlElement;
-                if (infoDir == null)
-                {
-                    infoDir = CreateImgDir(doc, "info");
-                    root.AppendChild(infoDir);
-                }
-                ReplaceOrAddValueNode(doc, infoDir, "int", "type", sd.InfoType.ToString(CultureInfo.InvariantCulture));
-            }
+            // To avoid accidental mutation of native skills, merge path does not overwrite info/type.
 
             if (!string.IsNullOrEmpty(sd.Action) && sd.InfoType != 50)
             {
@@ -390,7 +381,6 @@ namespace SuperSkillTool
                     commonDir = CreateImgDir(doc, "common");
                     root.AppendChild(commonDir);
                 }
-                ReplaceOrAddValueNode(doc, commonDir, "int", "maxLevel", sd.MaxLevel.ToString(CultureInfo.InvariantCulture));
                 foreach (var kv in sd.Common)
                 {
                     if (kv.Key == "maxLevel") continue;

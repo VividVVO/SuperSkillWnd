@@ -27,27 +27,19 @@ namespace SuperSkillTool
             // 2. Server String XML
             found += CheckServerStringXml(skillId, ref missing);
 
-            // 3. DLL Skill IMG JSON
-            found += CheckFileContains(PathConfig.DllSkillImgJson(jobId),
-                "DLL Skill IMG JSON", skillId, ref missing);
-
-            // 4. DLL String JSON
-            found += CheckFileContains(PathConfig.DllStringJson,
-                "DLL String JSON", skillId, ref missing);
-
-            // 5. super_skills.json
+            // 3. super_skills.json
             found += CheckFileContains(PathConfig.SuperSkillsJson,
                 "super_skills.json", skillId, ref missing);
 
-            // 6. custom_skill_routes.json
+            // 4. custom_skill_routes.json
             found += CheckFileContains(PathConfig.CustomSkillRoutesJson,
                 "custom_skill_routes.json", skillId, ref missing);
 
-            // 7. native_skill_injections.json
+            // 5. native_skill_injections.json
             CheckFileContainsOptional(PathConfig.NativeSkillInjectionsJson,
                 "native_skill_injections.json", skillId);
 
-            // 8. super_skills_server.json
+            // 6. super_skills_server.json
             found += CheckFileContains(PathConfig.SuperSkillsServerJson,
                 "super_skills_server.json", skillId, ref missing);
 

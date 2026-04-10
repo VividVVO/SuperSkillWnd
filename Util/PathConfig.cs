@@ -9,16 +9,21 @@ namespace SuperSkillTool
     /// </summary>
     public static class PathConfig
     {
+        private static readonly string DefaultToolRoot = ResolveDefaultToolRoot();
+        private static readonly string DefaultServerRoot = ResolveDefaultServerRoot();
+        private static readonly string DefaultGameDataBase = ResolveDefaultGameDataBase();
+        private static readonly string DefaultDllSkillJsonDir = ResolveDefaultDllSkillJsonDir();
+
         // Root directories
-        public static string ServerRootDir = @"G:\code\dasheng099";
-        public static string GameDataBaseDir = @"G:\code\mxd\Data";
+        public static string ServerRootDir = DefaultServerRoot;
+        public static string GameDataBaseDir = DefaultGameDataBase;
 
         // Server WZ / XML paths (derived from ServerRootDir)
         public static string ServerWzRoot;
         public static string ServerStringXml;
 
         // DLL local resource JSON
-        public static string DllSkillJsonDir = @"G:\code\c++\SuperSkillWnd\skill";
+        public static string DllSkillJsonDir = DefaultDllSkillJsonDir;
         public static string DllStringJson;
 
         public static string DllSkillImgJson(int jobId) =>
@@ -34,8 +39,48 @@ namespace SuperSkillTool
         public static string GameDataRoot;
         public static string GameStringSkillImg;
 
+        public static string SkillImgName(int jobId)
+        {
+            if (jobId < 0)
+                return "";
+
+            string plain = jobId + ".img";
+            string d3 = jobId.ToString("D3") + ".img";
+            string d4 = jobId.ToString("D4") + ".img";
+
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(GameDataRoot) && Directory.Exists(GameDataRoot))
+                {
+                    string plainPath = Path.Combine(GameDataRoot, plain);
+                    if (File.Exists(plainPath))
+                        return plain;
+
+                    if (!string.Equals(d3, plain, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string d3Path = Path.Combine(GameDataRoot, d3);
+                        if (File.Exists(d3Path))
+                            return d3;
+                    }
+
+                    if (!string.Equals(d4, plain, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(d4, d3, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string d4Path = Path.Combine(GameDataRoot, d4);
+                        if (File.Exists(d4Path))
+                            return d4;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return jobId < 1000 ? d3 : plain;
+        }
+
         public static string GameSkillImg(int jobId) =>
-            Path.Combine(GameDataRoot, jobId + ".img");
+            Path.Combine(GameDataRoot, SkillImgName(jobId));
 
         // Mount resources (.img / xml)
         public static string GameCharacterTamingMobRoot;
@@ -44,8 +89,7 @@ namespace SuperSkillTool
         public static string ServerTamingMobRoot;
 
         // Tool output directory
-        public static readonly string ToolRoot =
-            @"G:\code\Harepacker-resurrected-master\SuperSkillTool";
+        public static readonly string ToolRoot = DefaultToolRoot;
 
         public static string OutputDir;
         public static string BackupRoot;
@@ -114,15 +158,15 @@ namespace SuperSkillTool
         {
             ServerRootDir = NormalizeDirectoryLikePath(ServerRootDir);
             if (string.IsNullOrWhiteSpace(ServerRootDir))
-                ServerRootDir = @"G:\code\dasheng099";
+                ServerRootDir = DefaultServerRoot;
 
             GameDataBaseDir = NormalizeDirectoryLikePath(GameDataBaseDir);
             if (string.IsNullOrWhiteSpace(GameDataBaseDir))
-                GameDataBaseDir = @"G:\code\mxd\Data";
+                GameDataBaseDir = DefaultGameDataBase;
 
             DllSkillJsonDir = NormalizeDirectoryLikePath(DllSkillJsonDir);
             if (string.IsNullOrWhiteSpace(DllSkillJsonDir))
-                DllSkillJsonDir = @"G:\code\c++\SuperSkillWnd\skill";
+                DllSkillJsonDir = DefaultDllSkillJsonDir;
 
             ServerWzRoot = Path.Combine(ServerRootDir, "wz", "Skill.wz");
             ServerStringXml = Path.Combine(ServerRootDir, "wz", "String.wz", "Skill.img.xml");
@@ -259,6 +303,73 @@ namespace SuperSkillTool
                 NormalizeDirectoryLikePath(a),
                 NormalizeDirectoryLikePath(b),
                 StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string ResolveDefaultToolRoot()
+        {
+            try
+            {
+                string cwd = NormalizeDirectoryLikePath(Environment.CurrentDirectory);
+                if (!string.IsNullOrWhiteSpace(cwd))
+                    return cwd;
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                string baseDir = NormalizeDirectoryLikePath(AppContext.BaseDirectory);
+                if (!string.IsNullOrWhiteSpace(baseDir))
+                    return baseDir;
+            }
+            catch
+            {
+            }
+
+            return ".";
+        }
+
+        private static string ResolveDefaultServerRoot()
+        {
+            try
+            {
+                string candidate = NormalizeDirectoryLikePath(Path.Combine(DefaultToolRoot, "..", "dasheng099"));
+                if (!string.IsNullOrWhiteSpace(candidate) && Directory.Exists(candidate))
+                    return candidate;
+            }
+            catch
+            {
+            }
+            return DefaultToolRoot;
+        }
+
+        private static string ResolveDefaultGameDataBase()
+        {
+            try
+            {
+                string candidate = NormalizeDirectoryLikePath(Path.Combine(DefaultToolRoot, "Data"));
+                if (!string.IsNullOrWhiteSpace(candidate) && Directory.Exists(candidate))
+                    return candidate;
+            }
+            catch
+            {
+            }
+            return Path.Combine(DefaultToolRoot, "Data");
+        }
+
+        private static string ResolveDefaultDllSkillJsonDir()
+        {
+            try
+            {
+                string candidate = NormalizeDirectoryLikePath(Path.Combine(DefaultToolRoot, "skill"));
+                if (!string.IsNullOrWhiteSpace(candidate) && Directory.Exists(candidate))
+                    return candidate;
+            }
+            catch
+            {
+            }
+            return Path.Combine(DefaultToolRoot, "skill");
         }
     }
 }

@@ -17,6 +17,8 @@ namespace SuperSkillTool
         public int SkillId;
         public string Name = "";
         public string Desc = "";
+        public string PDesc = "";
+        public string Ph = "";
 
         // ── Type / template ────────────────────────────────────
         public string Type = "active_melee";   // template key
@@ -77,6 +79,7 @@ namespace SuperSkillTool
         public bool InjectEnabled = true;      // for native_skill_injections enabled flag
         public int DonorSkillId = 0;
         public int MountItemId = 0;            // for super_skills_server mount override
+        public bool AllowMountedFlight = false; // for super_skills_server allowMountedFlight
         public string MountResourceMode = "config_only"; // config_only | sync_action | sync_action_and_data
         public int MountSourceItemId = 0;      // donor mount item id for resource sync
         public int MountTamingMobId = 0;       // target tamingMob id when syncing mount data
@@ -164,6 +167,7 @@ namespace SuperSkillTool
             if (InjectToNative) d["injectEnabled"] = InjectEnabled;
             if (DonorSkillId > 0) d["donorSkillId"] = (long)DonorSkillId;
             if (MountItemId > 0) d["mountItemId"] = (long)MountItemId;
+            d["allowMountedFlight"] = AllowMountedFlight;
             if (!string.IsNullOrEmpty(MountResourceMode) && !string.Equals(MountResourceMode, "config_only", StringComparison.OrdinalIgnoreCase))
                 d["mountResourceMode"] = MountResourceMode;
             if (MountSourceItemId > 0) d["mountSourceItemId"] = (long)MountSourceItemId;
@@ -462,29 +466,39 @@ namespace SuperSkillTool
             string right = NormalizeEffectNodeName(b);
             if (string.Equals(left, right, StringComparison.OrdinalIgnoreCase))
                 return 0;
-            if (string.Equals(left, "effect", StringComparison.OrdinalIgnoreCase))
-                return -1;
-            if (string.Equals(right, "effect", StringComparison.OrdinalIgnoreCase))
-                return 1;
 
-            bool leftIndexed = TryParseIndexedEffectName(left, out int leftIndex);
-            bool rightIndexed = TryParseIndexedEffectName(right, out int rightIndex);
-            if (leftIndexed && rightIndexed)
+            int leftRank = GetEffectNodeSortRank(left, out int leftIndex);
+            int rightRank = GetEffectNodeSortRank(right, out int rightIndex);
+            if (leftRank != rightRank)
+                return leftRank.CompareTo(rightRank);
+            if (leftRank == 1 || leftRank == 3)
                 return leftIndex.CompareTo(rightIndex);
-            if (leftIndexed) return -1;
-            if (rightIndexed) return 1;
 
             return string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool TryParseIndexedEffectName(string name, out int index)
+        private static int GetEffectNodeSortRank(string name, out int index)
+        {
+            index = int.MaxValue;
+            if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase))
+                return 0;
+            if (TryParseIndexedEffectName(name, "effect", out index))
+                return 1;
+            if (string.Equals(name, "repeat", StringComparison.OrdinalIgnoreCase))
+                return 2;
+            if (TryParseIndexedEffectName(name, "repeat", out index))
+                return 3;
+            return 4;
+        }
+
+        private static bool TryParseIndexedEffectName(string name, string prefix, out int index)
         {
             index = -1;
-            if (string.IsNullOrWhiteSpace(name))
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(prefix))
                 return false;
-            if (!name.StartsWith("effect", StringComparison.OrdinalIgnoreCase))
+            if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 return false;
-            string suffix = name.Substring("effect".Length);
+            string suffix = name.Substring(prefix.Length);
             if (string.IsNullOrEmpty(suffix))
                 return false;
             return int.TryParse(suffix, out index);
@@ -511,6 +525,8 @@ namespace SuperSkillTool
             sd.SkillId = SimpleJson.GetInt(obj, "skillId");
             sd.Name = SimpleJson.GetString(obj, "name");
             sd.Desc = SimpleJson.GetString(obj, "desc");
+            sd.PDesc = SimpleJson.GetString(obj, "pdesc");
+            sd.Ph = SimpleJson.GetString(obj, "ph");
             sd.Type = SimpleJson.GetString(obj, "type", "active_melee");
             sd.Tab = SimpleJson.GetString(obj, "tab", "active");
             sd.MaxLevel = SimpleJson.GetInt(obj, "maxLevel", 0); // 0 means "use template default"
@@ -534,6 +550,10 @@ namespace SuperSkillTool
             sd.InjectEnabled = SimpleJson.GetBool(obj, "injectEnabled", true);
             sd.DonorSkillId = SimpleJson.GetInt(obj, "donorSkillId");
             sd.MountItemId = SimpleJson.GetInt(obj, "mountItemId", 0);
+            sd.AllowMountedFlight = SimpleJson.GetBool(
+                obj,
+                "allowMountedFlight",
+                SimpleJson.GetBool(obj, "grantSoaringOnRide", false));
             sd.MountResourceMode = SimpleJson.GetString(obj, "mountResourceMode", "config_only");
             if (string.IsNullOrWhiteSpace(sd.MountResourceMode))
                 sd.MountResourceMode = "config_only";
@@ -667,6 +687,8 @@ namespace SuperSkillTool
         {
             Name = NormalizeSkillText(Name, keepSlashN: false);
             Desc = NormalizeSkillText(Desc, keepSlashN: true);
+            PDesc = NormalizeSkillText(PDesc, keepSlashN: true);
+            Ph = NormalizeSkillText(Ph, keepSlashN: true);
             if (HLevels != null && HLevels.Count > 0)
             {
                 var keys = new List<string>(HLevels.Keys);

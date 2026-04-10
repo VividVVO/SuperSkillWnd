@@ -27,15 +27,7 @@ namespace SuperSkillTool
             // 2. Server String XML
             RemoveFromServerStringXml(skillId, dryRun);
 
-            // 3. DLL Skill IMG JSON
-            RemoveFromJsonFile(PathConfig.DllSkillImgJson(jobId),
-                "DLL Skill IMG JSON", skillId.ToString(), dryRun);
-
-            // 4. DLL String JSON
-            RemoveFromJsonFile(PathConfig.DllStringJson,
-                "DLL String JSON", skillId.ToString(), dryRun);
-
-            // 5. Config JSONs (array-based)
+            // 3. Config JSONs (array-based)
             RemoveFromJsonArrayFile(PathConfig.SuperSkillsJson,
                 "super_skills.json", "skills", skillId, dryRun);
 

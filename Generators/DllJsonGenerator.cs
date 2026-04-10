@@ -773,38 +773,49 @@ namespace SuperSkillTool
         {
             if (string.IsNullOrWhiteSpace(name))
                 return false;
-            if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "repeat", StringComparison.OrdinalIgnoreCase))
                 return true;
-            if (!name.StartsWith("effect", StringComparison.OrdinalIgnoreCase))
-                return false;
-            string suffix = name.Substring("effect".Length);
-            return !string.IsNullOrEmpty(suffix) && int.TryParse(suffix, out _);
+            return TryParseIndexedFrameNodeName(name, "effect", out _)
+                || TryParseIndexedFrameNodeName(name, "repeat", out _);
         }
 
         private static int CompareEffectNodeNames(string a, string b)
         {
             if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase))
                 return 0;
-            if (string.Equals(a, "effect", StringComparison.OrdinalIgnoreCase))
-                return -1;
-            if (string.Equals(b, "effect", StringComparison.OrdinalIgnoreCase))
-                return 1;
 
-            bool aIndexed = TryParseIndexedEffectName(a, out int aIndex);
-            bool bIndexed = TryParseIndexedEffectName(b, out int bIndex);
-            if (aIndexed && bIndexed)
+            int aRank = GetFrameNodeSortRank(a, out int aIndex);
+            int bRank = GetFrameNodeSortRank(b, out int bIndex);
+            if (aRank != bRank)
+                return aRank.CompareTo(bRank);
+            if (aRank == 1 || aRank == 3)
                 return aIndex.CompareTo(bIndex);
-            if (aIndexed) return -1;
-            if (bIndexed) return 1;
             return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool TryParseIndexedEffectName(string name, out int index)
+        private static int GetFrameNodeSortRank(string name, out int index)
+        {
+            index = int.MaxValue;
+            if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase))
+                return 0;
+            if (TryParseIndexedFrameNodeName(name, "effect", out index))
+                return 1;
+            if (string.Equals(name, "repeat", StringComparison.OrdinalIgnoreCase))
+                return 2;
+            if (TryParseIndexedFrameNodeName(name, "repeat", out index))
+                return 3;
+            return 4;
+        }
+
+        private static bool TryParseIndexedFrameNodeName(string name, string prefix, out int index)
         {
             index = -1;
-            if (string.IsNullOrWhiteSpace(name) || !name.StartsWith("effect", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(prefix))
                 return false;
-            string suffix = name.Substring("effect".Length);
+            if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return false;
+            string suffix = name.Substring(prefix.Length);
             if (string.IsNullOrEmpty(suffix))
                 return false;
             return int.TryParse(suffix, out index);

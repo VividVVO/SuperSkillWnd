@@ -528,7 +528,7 @@ namespace SuperSkillTool
                 node.AddProperty(levelNode);
             }
 
-            // effect frames (effect/effect0/effect1...)
+            // effect frames (effect/effect0... + repeat/repeat0...)
             var effectMap = GetEffectFramesByNode(sd);
             if (effectMap != null && effectMap.Count > 0)
             {
@@ -664,7 +664,8 @@ namespace SuperSkillTool
 
         /// <summary>
         /// Merge our fields into an existing skill node without destroying level/effect/etc.
-        /// Only updates: _superSkill, icon, iconMouseOver, iconDisabled, action, info/type, common.
+        /// Only updates: _superSkill, icon, iconMouseOver, iconDisabled, action, level, effect*.
+        /// NOTE: To avoid accidental mutation of native skills, merge path no longer writes info/type and common/maxLevel.
         /// </summary>
         private static void MergeSkillNode(WzSubProperty node, SkillDefinition sd)
         {
@@ -692,40 +693,8 @@ namespace SuperSkillTool
             if (!string.IsNullOrEmpty(sd.Action))
                 MergeActionProperty(node, sd.Action);
 
-            // info/type
-            var infoNode = node["info"] as WzSubProperty;
-            if (infoNode != null)
-            {
-                ReplaceOrAddProperty(infoNode, new WzIntProperty("type", sd.InfoType));
-            }
-            else
-            {
-                var info = new WzSubProperty("info");
-                info.AddProperty(new WzIntProperty("type", sd.InfoType));
-                node.AddProperty(info);
-            }
-
-            // common params (merge, don't destroy existing keys we don't have)
-            var commonNode = node["common"] as WzSubProperty;
-            bool shouldTouchCommon = commonNode != null || (sd.Common != null && sd.Common.Count > 0);
-            if (shouldTouchCommon)
-            {
-                if (commonNode == null)
-                {
-                    commonNode = new WzSubProperty("common");
-                    node.AddProperty(commonNode);
-                }
-                ReplaceOrAddProperty(commonNode, new WzIntProperty("maxLevel", Math.Max(1, sd.MaxLevel)));
-                if (sd.Common != null && sd.Common.Count > 0)
-                {
-                    foreach (var kv in sd.Common)
-                    {
-                        if (string.Equals(kv.Key, "maxLevel", StringComparison.OrdinalIgnoreCase))
-                            continue;
-                        ReplaceOrAddProperty(commonNode, new WzStringProperty(kv.Key, kv.Value));
-                    }
-                }
-            }
+            // Intentionally do NOT touch info/type or common/maxLevel in merge mode.
+            // Existing native values should be preserved as-is.
 
             // level sub-nodes (merge per-level data, preserve existing levels we don't have)
             if (sd.Levels != null && sd.Levels.Count > 0)
@@ -784,6 +753,9 @@ namespace SuperSkillTool
                 ReplaceOrAddProperty(node, new WzStringProperty("name", sd.Name));
             if (!string.IsNullOrEmpty(sd.Desc))
                 ReplaceOrAddProperty(node, new WzStringProperty("desc", sd.Desc));
+            // Super skill write-out should not keep/add pdesc/ph by default.
+            RemoveProperty(node, "pdesc");
+            RemoveProperty(node, "ph");
             if (sd.HLevels != null)
             {
                 foreach (var kv in sd.HLevels)
@@ -1055,39 +1027,50 @@ namespace SuperSkillTool
         {
             if (string.IsNullOrWhiteSpace(name))
                 return false;
-            if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "repeat", StringComparison.OrdinalIgnoreCase))
                 return true;
-            if (!name.StartsWith("effect", StringComparison.OrdinalIgnoreCase))
-                return false;
-            string suffix = name.Substring("effect".Length);
-            return !string.IsNullOrEmpty(suffix) && int.TryParse(suffix, out _);
+            return TryParseIndexedFrameNodeName(name, "effect", out _)
+                || TryParseIndexedFrameNodeName(name, "repeat", out _);
         }
 
         private static int CompareEffectNodeNames(string a, string b)
         {
             if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase))
                 return 0;
-            if (string.Equals(a, "effect", StringComparison.OrdinalIgnoreCase))
-                return -1;
-            if (string.Equals(b, "effect", StringComparison.OrdinalIgnoreCase))
-                return 1;
 
-            bool aIndexed = TryParseIndexedEffectName(a, out int aIndex);
-            bool bIndexed = TryParseIndexedEffectName(b, out int bIndex);
-            if (aIndexed && bIndexed)
+            int aRank = GetFrameNodeSortRank(a, out int aIndex);
+            int bRank = GetFrameNodeSortRank(b, out int bIndex);
+            if (aRank != bRank)
+                return aRank.CompareTo(bRank);
+            if (aRank == 1 || aRank == 3)
                 return aIndex.CompareTo(bIndex);
-            if (aIndexed) return -1;
-            if (bIndexed) return 1;
 
             return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool TryParseIndexedEffectName(string name, out int index)
+        private static int GetFrameNodeSortRank(string name, out int index)
+        {
+            index = int.MaxValue;
+            if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase))
+                return 0;
+            if (TryParseIndexedFrameNodeName(name, "effect", out index))
+                return 1;
+            if (string.Equals(name, "repeat", StringComparison.OrdinalIgnoreCase))
+                return 2;
+            if (TryParseIndexedFrameNodeName(name, "repeat", out index))
+                return 3;
+            return 4;
+        }
+
+        private static bool TryParseIndexedFrameNodeName(string name, string prefix, out int index)
         {
             index = -1;
-            if (string.IsNullOrWhiteSpace(name) || !name.StartsWith("effect", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(prefix))
                 return false;
-            string suffix = name.Substring("effect".Length);
+            if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return false;
+            string suffix = name.Substring(prefix.Length);
             if (string.IsNullOrEmpty(suffix))
                 return false;
             return int.TryParse(suffix, out index);

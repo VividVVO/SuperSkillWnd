@@ -316,7 +316,8 @@ namespace SuperSkillTool
             int mountItemId = sd.MountItemId;
             if (mountItemId <= 0 && existingEntry != null)
                 mountItemId = SimpleJson.GetInt(existingEntry, "mountItemId", 0);
-            var entry = BuildServerEntry(sd.SkillId, behaviorSkillId, mountItemId, superSpCost, carrierId, sd.ServerEnabled);
+            bool allowMountedFlight = sd.AllowMountedFlight;
+            var entry = BuildServerEntry(sd.SkillId, behaviorSkillId, mountItemId, allowMountedFlight, superSpCost, carrierId, sd.ServerEnabled);
             return entry;
         }
 
@@ -324,6 +325,7 @@ namespace SuperSkillTool
             int skillId,
             int behaviorSkillId,
             int mountItemId,
+            bool allowMountedFlight,
             int superSpCost,
             int carrierId,
             bool enabled)
@@ -334,6 +336,8 @@ namespace SuperSkillTool
                 entry["behaviorSkillId"] = (long)behaviorSkillId;
             if (mountItemId > 0)
                 entry["mountItemId"] = (long)mountItemId;
+            if (mountItemId > 0 || allowMountedFlight)
+                entry["allowMountedFlight"] = allowMountedFlight;
             entry["superSpCost"] = (long)(superSpCost > 0 ? superSpCost : 1);
             if (carrierId > 0)
                 entry["superSpCarrierSkillId"] = (long)carrierId;
@@ -365,8 +369,12 @@ namespace SuperSkillTool
 
                 int behaviorSkillId = SimpleJson.GetInt(raw, "behaviorSkillId", 0);
                 int mountItemId = SimpleJson.GetInt(raw, "mountItemId", 0);
+                bool allowMountedFlight = SimpleJson.GetBool(
+                    raw,
+                    "allowMountedFlight",
+                    SimpleJson.GetBool(raw, "grantSoaringOnRide", false));
                 bool enabled = SimpleJson.GetBool(raw, "enabled", true);
-                var normalized = BuildServerEntry(skillId, behaviorSkillId, mountItemId, superSpCost, carrierId, enabled);
+                var normalized = BuildServerEntry(skillId, behaviorSkillId, mountItemId, allowMountedFlight, superSpCost, carrierId, enabled);
                 if (DictionaryShallowEquals(raw, normalized))
                     continue;
 

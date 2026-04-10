@@ -11,8 +11,7 @@ namespace SuperSkillTool
     /// </summary>
     public static class SettingsManager
     {
-        private static readonly string SettingsPath =
-            Path.Combine(PathConfig.ToolRoot, "settings.json");
+        private static readonly string SettingsPath = ResolveSettingsPath();
 
         /// <summary>
         /// Load settings from settings.json if it exists.
@@ -66,7 +65,6 @@ namespace SuperSkillTool
                 if (!string.IsNullOrWhiteSpace(gameDataBase))
                     PathConfig.GameDataBaseDir = gameDataBase;
 
-                PathConfig.DllSkillJsonDir = SimpleJson.GetString(obj, "dllSkillJsonDir", PathConfig.DllSkillJsonDir);
                 PathConfig.OutputDir = SimpleJson.GetString(obj, "outputDir", PathConfig.OutputDir);
 
                 PathConfig.DefaultCharacterId = SimpleJson.GetInt(obj, "defaultCharacterId", PathConfig.DefaultCharacterId);
@@ -95,7 +93,6 @@ namespace SuperSkillTool
             // New simplified keys
             obj["serverRootDir"] = PathConfig.ServerRootDir;
             obj["gameDataBaseDir"] = PathConfig.GameDataBaseDir;
-            obj["dllSkillJsonDir"] = PathConfig.DllSkillJsonDir;
             obj["outputDir"] = PathConfig.OutputDir;
 
             // Compatibility keys (derived)
@@ -120,10 +117,38 @@ namespace SuperSkillTool
             obj["knownCarrierSkillIds"] = knownCarrierArray;
 
             string json = SimpleJson.Serialize(obj);
+            string dir = Path.GetDirectoryName(SettingsPath);
+            if (!string.IsNullOrWhiteSpace(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
             File.WriteAllText(SettingsPath, json, new UTF8Encoding(false));
         }
 
         public static string GetSettingsPath() => SettingsPath;
+
+        private static string ResolveSettingsPath()
+        {
+            try
+            {
+                string cwd = Environment.CurrentDirectory;
+                if (!string.IsNullOrWhiteSpace(cwd))
+                    return Path.Combine(cwd, "settings.json");
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                string baseDir = AppContext.BaseDirectory;
+                if (!string.IsNullOrWhiteSpace(baseDir))
+                    return Path.Combine(baseDir, "settings.json");
+            }
+            catch
+            {
+            }
+
+            return Path.Combine(PathConfig.ToolRoot, "settings.json");
+        }
 
         private static IEnumerable<int> ReadIntArray(Dictionary<string, object> obj, string key)
         {
