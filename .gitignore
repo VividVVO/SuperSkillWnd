@@ -1,0 +1,57 @@
+# Visual Studio
+.vs/
+*.VC.db
+*.VC.opendb
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build output
+Debug/
+Release/
+x64/
+x86/
+build/
+out/
+bin/
+obj/
+skill/
+.claude/
+docs/
+
+# C/C++
+*.obj
+*.o
+*.pch
+*.pdb
+*.ilk
+*.idb
+*.exp
+*.lib
+*.dll
+*.exe
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake-build-*/
+compile_commands.json
+Makefile
+QUICK_REFERENCE.md
+IMPLEMENTATION.md
+DESIGN_PROPOSALS.md
+
+
+# VSCode
+.vscode/
+
+# Logs / temp
+*.log
+*.tmp
+*.temp
+
+# ImGui example generated files or caches
+imgui.ini
+
+
