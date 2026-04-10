@@ -742,20 +742,26 @@ namespace SuperSkillTool
         /// </summary>
         public void ApplyTemplate(SkillTemplate tpl)
         {
-            if (InfoType == 0) InfoType = tpl.InfoType;
+            bool donorClone = ResolveCloneSourceSkillId() > 0;
+
+            if (!donorClone && InfoType == 0) InfoType = tpl.InfoType;
             if (MaxLevel == 0) MaxLevel = tpl.MaxLevel;
-            if (string.IsNullOrEmpty(Action)) Action = tpl.Action;
+            if (!donorClone && string.IsNullOrEmpty(Action)) Action = tpl.Action;
             if (string.IsNullOrEmpty(ReleaseType)) ReleaseType = tpl.PacketRoute;
             if (ProxySkillId == 0) ProxySkillId = tpl.ProxySkillId;
 
-            // Merge common: template provides defaults, user overrides
-            var merged = new Dictionary<string, string>(tpl.DefaultCommon);
-            foreach (var kv in Common)
-                merged[kv.Key] = kv.Value;
-            Common = merged;
+            if (!donorClone)
+            {
+                // Merge common: template provides defaults, user overrides
+                var merged = new Dictionary<string, string>(tpl.DefaultCommon);
+                foreach (var kv in Common)
+                    merged[kv.Key] = kv.Value;
+                Common = merged;
+            }
 
-            // For newbie_level, set up level data if not provided
-            if (Type == "newbie_level" && Levels == null)
+            // For donor clones, preserve the cloned source node instead of
+            // backfilling template action/info/common/levels from melee defaults.
+            if (!donorClone && Type == "newbie_level" && Levels == null)
             {
                 Levels = tpl.BuildDefaultLevels();
             }

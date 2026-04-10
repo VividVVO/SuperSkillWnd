@@ -1,58 +1,51 @@
-# Visual Studio
+# Build output
+bin/
+obj/
+[Bb]uild/
+[Rr]elease/
+[Dd]ebug/
+x64/
+x86/
+AnyCPU/
+output/
+
+# Visual Studio / Rider / VSCode
 .vs/
-*.VC.db
-*.VC.opendb
+.vscode/
+.idea/
 *.suo
 *.user
 *.userosscache
 *.sln.docstates
 
-# Build output
-Debug/
-Release/
-x64/
-x86/
-build/
-out/
-bin/
-obj/
-skill/
-.claude/
-docs/
-output/
-
-# C/C++
-*.obj
-*.o
-*.pch
-*.pdb
-*.ilk
-*.idb
-*.exp
-*.lib
-*.dll
-*.exe
-
-# CMake
-CMakeFiles/
-CMakeCache.txt
-cmake-build-*/
-compile_commands.json
-Makefile
-QUICK_REFERENCE.md
-IMPLEMENTATION.md
-DESIGN_PROPOSALS.md
-
-
-# VSCode
-.vscode/
+# NuGet
+packages/
+*.nupkg
+project.assets.json
+project.nuget.cache
 
 # Logs / temp
 *.log
 *.tmp
 *.temp
+*.cache
 
-# ImGui example generated files or caches
-imgui.ini
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
 
+# Test / coverage
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
 
+# Generated files
+*.generated.cs
+
+# Publish output
+publish/
+
+# Local settings you may not want to upload
+appsettings.Development.json
