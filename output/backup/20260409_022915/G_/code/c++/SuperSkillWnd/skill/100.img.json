@@ -1,0 +1,156 @@
+{
+  "skill": {
+    "_dirName": "skill",
+    "_dirType": "sub",
+    "1001555": {
+      "_dirName": "1001555",
+      "_dirType": "sub",
+      "icon": {
+        "_dirName": "icon",
+        "_dirType": "canvas",
+        "_width": 32,
+        "_height": 32,
+        "_image": "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGFSURBVFhH3ZSBbcQgDEVvp67ALF2hK2SFW8ErsAIrMEsqu/eRY2yOKiSq+qUvjhD47wzk8Thqv8mu9lzqLfYgZOAubVQOEMPwUkroM9IQIQCH1Pp0XSidgngLwIs7h0e8AmIIgHCrUqt4BUQIEIVrrYBwAWbCWbYSfwbgHYQeXwrQIAaVwNoYXw4wOg9YN9PPHO4vBXgt5ELo8M9EYunn3APoCZG8cDzHM30mvPCwAi0E+/UK08G29Po9C4Dwr0RihLOmAGAIfbvvgNAAo3BuT22BhoPtthSq+5ZIbMMl0wPQ4VjQSm+FNQBQAQBoCAB3AF44t1ZRBRBuz8AzUbOs+bqKBwAvHH0r/U89e1eQUj54CGBbK1vqzsFHqFKdA/hNBfR9hw/vqvCcqLkDiM6AJw/AE9aL3AHoSfI7OIizACxbHW0XAJMQrAG4hWcBRgq/hB6APheXA7A0hAa4pQIsfRak/98BOoirAWx4g+ABNq4I5AGUsu20fci7mDdrLxzC4NVu+gYh2qqKwhFGRgAAAABJRU5ErkJggg==",
+        "origin": {
+          "_dirName": "origin",
+          "_dirType": "vector",
+          "_x": 0,
+          "_y": 32
+        },
+        "z": {
+          "_dirName": "z",
+          "_dirType": "Int",
+          "_value": 0
+        }
+      },
+      "iconMouseOver": {
+        "_dirName": "iconMouseOver",
+        "_dirType": "canvas",
+        "_width": 32,
+        "_height": 32,
+        "_image": "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGOSURBVFhH3ZSBjcMgDEWzAsPdCrdCV2CFWyErZAVWYAWvQGWST41jaKqQqLovfSFK8X810GmqlW6yqbSEeIstiLxwl/wcKohueAih6TOSEE2ANeRhO0ynIN4CcHHj8mSPgOgCIFxriZQ9AqIJ0AqXGgFhAhwJZ+068S0A7yDk+liADaLXCdTG+niAzn1A3dmve3g+FGArZEKg5uIp/biYnefLsgeQG1qywvF5gRB3wgpvdgAqG7cwGaxbL7+nARD+cDEb4axDADD0mtfnDggJ0Avn8dQRSDhYH0vwKf05ytbh+fsWgAx/Fawlj0IbAOgAACREAdYAVjiPWq0OlHB9BxwV8zz69SgrACscc63ql1o2nmBwVLkLoEct3WpthEOoTT6l6Ci7C/BRB8R7h6VKXU+JXCzeAbTugCULwBLqtbwDkJtYrYt4FICluyNtAmATgiUAj/BRgJ6a/4QWgLwXlwOwJIQEuKUDLHkXWP8eYAdxNYAOLxC8wMYTgSwAot9E8/qese+orXAIi1e76AlCA7Y6Z5Rs1gAAAABJRU5ErkJggg==",
+        "origin": {
+          "_dirName": "origin",
+          "_dirType": "vector",
+          "_x": 0,
+          "_y": 32
+        },
+        "z": {
+          "_dirName": "z",
+          "_dirType": "Int",
+          "_value": 0
+        }
+      },
+      "iconDisabled": {
+        "_dirName": "iconDisabled",
+        "_dirType": "canvas",
+        "_width": 32,
+        "_height": 32,
+        "_image": "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAFhSURBVFhH3ZSBrYMwEEO7NSswCyuwQlZgllYX1cg1vjQVAX19S1YEac6vx8Hj8annTbZ6rmW7xQ6ibtyleSkfEM3wUkrqM2KIFCBC1nW1nuf5FMRXgChuhqd6BEQTAOGqbduqR0CkAFk4awSEBegJD2kn/gzANwjeHwoAiFYnUBv7wwFa84C6sQ+IoQDvQhaCw6dpqpZzv70FLhz3cY9nwoWnHYBwEGEcrK3n3ylAFh7qAoAhXPMzZwgGaIXHeuoRMBysj6UVzr9LhxAFVfwo1CiMDgCAIQB8AHDhsaqyDqCozoBCcId2ABeOaxX/U2f3CjKEghwAdFVpq9UIh1A71i6AXzrA7zvMcuEWIJsBJwfghHqZDwB8KJQNYi9ASLvDtgA4hGAGiBXuBWgp/RI6AJ6LywFCDMEAt3QgxLMQ+vcAB4irATR8h4iNMF4RyAEsy1I/KhXkfa7XLhzC5tXe9QIhnqDHSGC0DgAAAABJRU5ErkJggg==",
+        "origin": {
+          "_dirName": "origin",
+          "_dirType": "vector",
+          "_x": 0,
+          "_y": 32
+        },
+        "z": {
+          "_dirName": "z",
+          "_dirType": "Int",
+          "_value": 0
+        }
+      },
+      "action": {
+        "_dirName": "action",
+        "_dirType": "sub",
+        "0": {
+          "_dirName": "0",
+          "_dirType": "String",
+          "_value": "alert2"
+        }
+      },
+      "common": {
+        "_dirName": "common",
+        "_dirType": "sub",
+        "maxLevel": {
+          "_dirName": "maxLevel",
+          "_dirType": "Int",
+          "_value": 15
+        },
+        "time": {
+          "_dirName": "time",
+          "_dirType": "String",
+          "_value": "100+10*x"
+        },
+        "mpCon": {
+          "_dirName": "mpCon",
+          "_dirType": "String",
+          "_value": "6+2*u(x/5)"
+        },
+        "pdd": {
+          "_dirName": "pdd",
+          "_dirType": "String",
+          "_value": "100*x"
+        }
+      },
+      "info": {
+        "_dirName": "info",
+        "_dirType": "sub",
+        "type": {
+          "_dirName": "type",
+          "_dirType": "Int",
+          "_value": 10
+        },
+        "magicSteal": {
+          "_dirName": "magicSteal",
+          "_dirType": "Int",
+          "_value": 1
+        }
+      }
+    },
+    "1009999": {
+      "_dirName": "1009999",
+      "_dirType": "sub",
+      "icon": {
+        "_dirName": "icon",
+        "_dirType": "canvas",
+        "_width": 32,
+        "_height": 32,
+        "_image": "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAM0lEQVR4Ae3XMREAAAgDsYrDNeJARpcM3f+yNbN3zUUAAQIECBAgQIAAAQIECBAgMOV7/gvA9KY6etazAAAAAElFTkSuQmCC",
+        "origin": {
+          "_dirName": "origin",
+          "_dirType": "vector",
+          "_x": 0,
+          "_y": 32
+        },
+        "z": {
+          "_dirName": "z",
+          "_dirType": "Int",
+          "_value": 0
+        }
+      },
+      "info": {
+        "_dirName": "info",
+        "_dirType": "sub",
+        "type": {
+          "_dirName": "type",
+          "_dirType": "Int",
+          "_value": 50
+        }
+      },
+      "common": {
+        "_dirName": "common",
+        "_dirType": "sub",
+        "maxLevel": {
+          "_dirName": "maxLevel",
+          "_dirType": "Int",
+          "_value": 30
+        }
+      },
+      "_superSkill": {
+        "_dirName": "_superSkill",
+        "_dirType": "Int",
+        "_value": 1
+      }
+    }
+  }
+}

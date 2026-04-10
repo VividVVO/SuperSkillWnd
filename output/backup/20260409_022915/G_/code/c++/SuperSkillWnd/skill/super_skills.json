@@ -1,0 +1,43 @@
+{
+  "defaultSuperSpCarrierSkillId": 1009999,
+  "skills": [
+    {
+      "skillId": 1301111,
+      "tab": "active",
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 1009999,
+      "hideFromNativeSkillWnd": true,
+      "showInNativeWhenLearned": false,
+      "showInSuperWhenLearned": false,
+      "allowNativeUpgradeFallback": true
+    },
+    {
+      "skillId": 1001555,
+      "tab": "active",
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 1009999,
+      "hideFromNativeSkillWnd": true,
+      "showInNativeWhenLearned": false,
+      "showInSuperWhenLearned": false,
+      "allowNativeUpgradeFallback": true
+    },
+    {
+      "skillId": 1009999,
+      "tab": "active",
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 1009999,
+      "hideFromNativeSkillWnd": true,
+      "showInNativeWhenLearned": false,
+      "showInSuperWhenLearned": false,
+      "allowNativeUpgradeFallback": true,
+      "passive": true
+    }
+  ],
+  "hiddenSkills": [
+    {
+      "skillId": 1009999,
+      "hideFromNativeSkillWnd": true,
+      "hideFromSuperSkillWnd": true
+    }
+  ]
+}

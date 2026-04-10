@@ -1,0 +1,61 @@
+{
+  "readme": "Server-side super skill rules. Uses DISTRIBUTE_SP opcode and applies custom Super SP logic via carrier skill level.",
+  "skills": [
+    {
+      "skillId": 1301111,
+      "behaviorSkillId": 1301006,
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 1001999,
+      "ignoreJobRequirement": true,
+      "ignoreRequiredSkills": true
+    },
+    {
+      "skillId": 1001555,
+      "behaviorSkillId": 1001003,
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 1001999,
+      "ignoreJobRequirement": true,
+      "ignoreRequiredSkills": true
+    },
+    {
+      "skillId": 80001901,
+      "behaviorSkillId": 80001029,
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 1001999,
+      "ignoreJobRequirement": true,
+      "ignoreRequiredSkills": true
+    },
+    {
+      "skillId": 1300901,
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 1001999,
+      "ignoreJobRequirement": true,
+      "ignoreRequiredSkills": true
+    },
+    {
+      "skillId": 10001901,
+      "behaviorSkillId": 10001026,
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 1001999,
+      "ignoreJobRequirement": true,
+      "ignoreRequiredSkills": true
+    },
+    {
+      "skillId": 20001901,
+      "behaviorSkillId": 20001147,
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 1001999,
+      "ignoreJobRequirement": true,
+      "ignoreRequiredSkills": true
+    },
+    {
+      "skillId": 20001903,
+      "behaviorSkillId": 20001122,
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 1001999,
+      "ignoreJobRequirement": true,
+      "ignoreRequiredSkills": true
+    }
+  ],
+  "defaultSuperSpCarrierSkillId": 1001999
+}

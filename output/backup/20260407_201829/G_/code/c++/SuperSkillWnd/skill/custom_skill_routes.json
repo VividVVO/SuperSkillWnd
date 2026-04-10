@@ -1,0 +1,10 @@
+{
+  "routes": [
+    {
+      "skillId": 13011111,
+      "proxySkillId": 1301006,
+      "releaseClass": "native_classifier_proxy",
+      "packetRoute": "special_move"
+    }
+  ]
+}

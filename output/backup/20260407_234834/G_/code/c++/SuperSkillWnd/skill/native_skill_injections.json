@@ -1,0 +1,4 @@
+{
+  "readme": "Skills listed here will be injected into the native SkillWnd list. donorSkillId must be a skill already present in the native list; its rowData is cloned and the skillId is overwritten. Set enabled=false to disable without removing.",
+  "skills": []
+}

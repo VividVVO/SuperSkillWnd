@@ -1,0 +1,27 @@
+{
+  "readme": "Server-side super skill rules. Uses DISTRIBUTE_SP opcode and applies custom Super SP logic via carrier skill level.",
+  "skills": [
+    {
+      "skillId": 1301111,
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 109999,
+      "ignoreJobRequirement": true,
+      "ignoreRequiredSkills": true
+    },
+    {
+      "skillId": 1001555,
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 109999,
+      "ignoreJobRequirement": true,
+      "ignoreRequiredSkills": true
+    },
+    {
+      "skillId": 1009999,
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 109999,
+      "ignoreJobRequirement": true,
+      "ignoreRequiredSkills": true
+    }
+  ],
+  "defaultSuperSpCarrierSkillId": 109999
+}

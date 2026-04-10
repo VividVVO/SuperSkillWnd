@@ -1,0 +1,47 @@
+﻿{
+  "_dirName": "skill",
+  "_dirType": "sub",
+  "1301122": {
+    "_dirName": "1301122",
+    "_dirType": "sub",
+    "icon": {
+      "_dirName": "icon",
+      "_dirType": "canvas",
+      "_width": 32,
+      "_height": 32,
+      "_image": "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAFHSURBVFhHxZeBDYQgDEVd8la4FVzBWVzBFVjBWbxA/KR+Su0paJOf0yvwHy3ROAzH2B6SGtsSVrdCCKp4nCYNIiW8EY2UXSXF3FlMc55/3bwWVyAuAYR1VTVOkwviFIB7K/8HwLKEQhHAA2ECaD3GYh4A/FoQVQDZ42SSTvZuulfDC2BBqAA1c4b4B6AGUQCcmUsIL8DnO1YhHgFgSYhXACREAZCMTyAw+Q6AhCgALAhMugsQz4ULIJvI+wYAZgV499wGObE5AJtzC1odQhWAzeW1ND5UohcAdqgBAKIrwCsV0M5ANiEAVKI5QDKmVjCAnNgFgCFQiVz2Bs8B94OoF8CjFZCvY9y/UgFpzOt0BagZx1Bfx60ALGNEE4B5XgrhkNWMEebXkejPYTErz2NrxjHYPEPEBIRFIJnT8tZYlmaOKHbTSTl+IiuiLygsQZUAAAAASUVORK5CYII=",
+      "origin": {
+        "_dirName": "origin",
+        "_dirType": "vector",
+        "_x": 0,
+        "_y": 32
+      }
+    },
+    "iconMouseOver": {
+      "_dirName": "iconMouseOver",
+      "_dirType": "canvas",
+      "_width": 32,
+      "_height": 32,
+      "_image": "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAFPSURBVFhHxZeBEYMgDEUdrrN0ha7gCq7gCq7ACqzQFeyF9nMxhJgq6L/711aE/0g4vQ7DVutFVrUuIbodQlAt79OsQaQBryhI2VUyje1pnPP84+E1HYE4BBBiVP0cJxfELoDsLb8OgDmEwgTggTABtB5jMQ8APi2IKgDv8RLf6xwo6HtyUQ0vgAWhAtTCJcQ/ADWIAmAvnEN4AR7PVxXiEgBpDnELAIcoAEh7EJh8BoBDFAAWBCadBaBz4QJI138A+N0CwKyA3L1sA5/YHECGyxa0OoQqgAzn33nwphK9ALBDDQAQXQFuqYB2BtJ1BQCVaA5Akq2QAHxiFwAJgUrksjd4DrgfRL0ALq0Afx3j9y0V4MFyna4AtWCS+jpuBWAFQ00ApnkpjENWC4bMf0esP5vFrHF5by2YJMMzBA3AWATmY9q4da+0Fg4Vu+nkrA/3MaEOGegvvwAAAABJRU5ErkJggg==",
+      "origin": {
+        "_dirName": "origin",
+        "_dirType": "vector",
+        "_x": 0,
+        "_y": 32
+      }
+    },
+    "iconDisabled": {
+      "_dirName": "iconDisabled",
+      "_dirType": "canvas",
+      "_width": 32,
+      "_height": 32,
+      "_image": "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAE1SURBVFhHxZWLDYQwDEOZllmYhRVYgRWYhVNPMjJu0oZPiyXr4NrGrymCYThr72RT+7quXWxB/AeioiKZI3XmeT5BhBZBCPcUrccQoQUQALZtMz1NUwiiCqDnxv8DYFmWzAkgAlEEsM4YcyIA+LVqQy4AApI4BPOuAJQgTAAvXCGuAHgQGUAtnCGiAOM4uhBdANQM8QkAQ2QASTUIzH0CwBAZQAlCO3UXID0XIQAOwf0bAMUO6O41hBfq2GMADdcjYIgmABzO1xzM180AsEMLABBNAT7rgAVhAaATrwMk6VEoAC9sAqAQ6AQAuFN3AcIvolYAXTvAn2Pcf9IBDtY6TQG84CTzc/wWQCkYegUgFVHjIfOCIQZwIdi1cZ3rBSdp+AHBO0ERWHeq46W5aiscynbTyId+bJKdiaXNKpUAAAAASUVORK5CYII=",
+      "origin": {
+        "_dirName": "origin",
+        "_dirType": "vector",
+        "_x": 0,
+        "_y": 32
+      }
+    }
+  }
+}

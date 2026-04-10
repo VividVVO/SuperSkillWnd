@@ -1,0 +1,13 @@
+{
+  "skills": [
+    {
+      "skillId": 1301111,
+      "tab": "active",
+      "superSpCost": 1,
+      "hideFromNativeSkillWnd": true,
+      "showInNativeWhenLearned": false,
+      "showInSuperWhenLearned": false,
+      "allowNativeUpgradeFallback": false
+    }
+  ]
+}

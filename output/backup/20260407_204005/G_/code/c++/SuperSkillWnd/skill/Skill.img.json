@@ -1,0 +1,16 @@
+{
+  "1001038": {
+    "_dirName": "1001038",
+    "_dirType": "sub",
+    "_superSkill": {
+      "_dirName": "_superSkill",
+      "_dirType": "Int",
+      "_value": 1
+    },
+    "name": {
+      "_dirName": "name",
+      "_dirType": "String",
+      "_value": "Super SP"
+    }
+  }
+}

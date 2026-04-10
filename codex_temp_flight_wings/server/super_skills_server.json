@@ -1,0 +1,13 @@
+{
+  "defaultSuperSpCarrierSkillId": 1001999,
+  "skills": [
+    {
+      "skillId": 10001901,
+      "behaviorSkillId": 1301008,
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 1001999,
+      "ignoreJobRequirement": true,
+      "ignoreRequiredSkills": true
+    }
+  ]
+}

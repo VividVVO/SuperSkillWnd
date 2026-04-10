@@ -1,0 +1,92 @@
+{
+  "skills": [
+    {
+      "skillId": 1001070,
+      "name": "超级斩击",
+      "desc": "[最高等级：20]\\n对前方敌人造成强力一击。",
+      "type": "active_melee",
+      "tab": "active",
+      "maxLevel": 20,
+      "superSpCost": 1,
+      "icon": "icons/1001070.png",
+      "iconMouseOver": "",
+      "iconDisabled": "",
+      "releaseType": "close_range",
+      "proxySkillId": 1301008,
+      "action": "swingO1",
+      "common": {
+        "damage": "120+10*x",
+        "mpCon": "10+2*x",
+        "mobCount": "1",
+        "attackCount": "1",
+        "range": "350"
+      },
+      "hideFromNativeSkillWnd": true,
+      "showInNativeWhenLearned": false,
+      "allowNativeUpgradeFallback": false,
+      "injectToNative": false,
+      "donorSkillId": 0,
+      "hLevels": {
+        "h1": "消耗MP12，伤害130%",
+        "h5": "消耗MP20，伤害170%",
+        "h10": "消耗MP30，伤害220%"
+      }
+    },
+    {
+      "skillId": 1001071,
+      "name": "铁壁防御",
+      "desc": "[最高等级：20]\\n暂时提升防御力。",
+      "type": "buff",
+      "tab": "buff",
+      "maxLevel": 20,
+      "superSpCost": 1,
+      "icon": "",
+      "common": {
+        "time": "100+10*x",
+        "mpCon": "6+2*u(x/5)",
+        "pdd": "10*x"
+      },
+      "hideFromNativeSkillWnd": true,
+      "hLevels": {
+        "h1": "消耗MP8，防御力+10，持续110秒",
+        "h10": "消耗MP12，防御力+100，持续200秒",
+        "h20": "消耗MP16，防御力+200，持续300秒"
+      }
+    },
+    {
+      "skillId": 1001072,
+      "name": "坚韧之体",
+      "desc": "[最高等级：10]\\n永久提升物理防御力。",
+      "type": "passive",
+      "tab": "passive",
+      "maxLevel": 10,
+      "superSpCost": 1,
+      "icon": "",
+      "common": {
+        "pdd": "5*x"
+      },
+      "hideFromNativeSkillWnd": true,
+      "hLevels": {
+        "h1": "物理防御力+5",
+        "h5": "物理防御力+25",
+        "h10": "物理防御力+50"
+      }
+    },
+    {
+      "skillId": 1001073,
+      "name": "初心一击",
+      "desc": "[最高等级：3]\\n新手的固定伤害攻击。",
+      "type": "newbie_level",
+      "tab": "active",
+      "maxLevel": 3,
+      "superSpCost": 1,
+      "icon": "",
+      "hideFromNativeSkillWnd": true,
+      "hLevels": {
+        "h1": "固定伤害10，消耗MP3",
+        "h2": "固定伤害25，消耗MP5",
+        "h3": "固定伤害40，消耗MP7"
+      }
+    }
+  ]
+}

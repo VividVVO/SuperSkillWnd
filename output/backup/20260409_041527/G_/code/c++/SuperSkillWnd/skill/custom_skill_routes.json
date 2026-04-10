@@ -1,0 +1,18 @@
+{
+  "routes": [
+    {
+      "skillId": 1301111,
+      "proxySkillId": 1301006,
+      "releaseClass": "native_classifier_proxy",
+      "packetRoute": "special_move",
+      "borrowDonorVisual": true
+    },
+    {
+      "skillId": 1001555,
+      "proxySkillId": 1001003,
+      "releaseClass": "native_classifier_proxy",
+      "packetRoute": "special_move",
+      "borrowDonorVisual": true
+    }
+  ]
+}

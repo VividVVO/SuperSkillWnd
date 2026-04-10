@@ -1,0 +1,70 @@
+================================================================
+  Harepacker Import Guide - Client .img Editing
+  Generated: 2026-04-10 11:18:12
+================================================================
+
+This guide explains how to add the super skills to the client
+Skill.wz using Harepacker-resurrected.
+
+NOTE: If the skills are only used through the overlay system
+(hideFromNativeSkillWnd=true), client .img editing is optional.
+The overlay reads from local JSON files instead.
+
+================================================================
+  STEP-BY-STEP INSTRUCTIONS
+================================================================
+
+1. Open Harepacker-resurrected
+   File -> Open -> Select your client's Skill.wz
+
+2. Navigate to Skill.wz / 1000.img / skill
+
+   --- Adding Skill:  (ID: 10001901) ---
+
+   a) Right-click on 'skill' -> Add -> SubProperty
+      Name: 10001901
+
+   b) Under 10001901, add three Canvas nodes:
+      - icon       (32x32 PNG, origin: 0,32)
+      - iconMouseOver (32x32 PNG, origin: 0,32)
+      - iconDisabled  (32x32 PNG, origin: 0,32)
+
+      For each canvas:
+        Right-click -> Add -> Canvas
+        Set name, then right-click canvas -> Change Image
+        Select your 32x32 icon PNG
+        Add a Vector child named 'origin' with x=0, y=32
+
+   c) Add SubProperty 'common' under 10001901:
+      - IntProperty 'maxLevel' = 20
+      - StringProperty 'damage' = 120+10*x
+      - StringProperty 'mpCon' = 10+2*x
+      - IntProperty 'mobCount' = 1
+      - IntProperty 'attackCount' = 1
+      - IntProperty 'range' = 350
+
+   d) Add SubProperty 'info' under 10001901:
+      - IntProperty 'type' = 1
+
+   e) Add SubProperty 'action' under 10001901:
+      - StringProperty '0' = alert2
+
+
+3. Now open String.wz -> Skill.img
+
+   Add SubProperty '10001901':
+     - StringProperty 'name' = 
+
+4. Save all changes in Harepacker
+   File -> Save
+
+5. Test in client
+   Launch the game and verify skill icons appear correctly.
+
+================================================================
+  ICON FILES
+================================================================
+
+Prepare 32x32 PNG icons for each skill:
+  10001901: (no icon specified - using placeholder)
+

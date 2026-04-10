@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Encoding>utf-8</Encoding>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MapleLib\MapleLib\MapleLib.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,15 @@
+{
+  "readme": "Skills listed here will be injected into the native SkillWnd list. donorSkillId must be a skill already present in the native list; its rowData is cloned and the skillId is overwritten. Set enabled=false to disable without removing.",
+  "skills": [
+    {
+      "skillId": 1301111,
+      "donorSkillId": 1301006,
+      "enabled": true
+    },
+    {
+      "skillId": 1001555,
+      "donorSkillId": 1001003,
+      "enabled": true
+    }
+  ]
+}

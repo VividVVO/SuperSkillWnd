@@ -1,0 +1,680 @@
+﻿{
+  "skills": [
+    {
+      "skillId": 1301222,
+      "name": "极限防御2",
+      "desc": "在一定时间内提高队员的物理防御力和魔法防御力。",
+      "type": "buff",
+      "tab": "active",
+      "maxLevel": 20,
+      "superSpCost": 1,
+      "releaseType": "special_move",
+      "proxySkillId": 1301006,
+      "action": "alert2",
+      "infoType": 10,
+      "iconBase64": "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAFHSURBVFhHxZeBDYQgDEVd8la4FVzBWVzBFVjBWbxA/KR+Su0paJOf0yvwHy3ROAzH2B6SGtsSVrdCCKp4nCYNIiW8EY2UXSXF3FlMc55/3bwWVyAuAYR1VTVOkwviFIB7K/8HwLKEQhHAA2ECaD3GYh4A/FoQVQDZ42SSTvZuulfDC2BBqAA1c4b4B6AGUQCcmUsIL8DnO1YhHgFgSYhXACREAZCMTyAw+Q6AhCgALAhMugsQz4ULIJvI+wYAZgV499wGObE5AJtzC1odQhWAzeW1ND5UohcAdqgBAKIrwCsV0M5ANiEAVKI5QDKmVjCAnNgFgCFQiVz2Bs8B94OoF8CjFZCvY9y/UgFpzOt0BagZx1Bfx60ALGNEE4B5XgrhkNWMEebXkejPYTErz2NrxjHYPEPEBIRFIJnT8tZYlmaOKHbTSTl+IiuiLygsQZUAAAAASUVORK5CYII=",
+      "iconMouseOverBase64": "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAFPSURBVFhHxZeBEYMgDEUdrrN0ha7gCq7gCq7ACqzQFeyF9nMxhJgq6L/711aE/0g4vQ7DVutFVrUuIbodQlAt79OsQaQBryhI2VUyje1pnPP84+E1HYE4BBBiVP0cJxfELoDsLb8OgDmEwgTggTABtB5jMQ8APi2IKgDv8RLf6xwo6HtyUQ0vgAWhAtTCJcQ/ADWIAmAvnEN4AR7PVxXiEgBpDnELAIcoAEh7EJh8BoBDFAAWBCadBaBz4QJI138A+N0CwKyA3L1sA5/YHECGyxa0OoQqgAzn33nwphK9ALBDDQAQXQFuqYB2BtJ1BQCVaA5Akq2QAHxiFwAJgUrksjd4DrgfRL0ALq0Afx3j9y0V4MFyna4AtWCS+jpuBWAFQ00ApnkpjENWC4bMf0esP5vFrHF5by2YJMMzBA3AWATmY9q4da+0Fg4Vu+nkrA/3MaEOGegvvwAAAABJRU5ErkJggg==",
+      "iconDisabledBase64": "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAE1SURBVFhHxZWLDYQwDEOZllmYhRVYgRWYhVNPMjJu0oZPiyXr4NrGrymCYThr72RT+7quXWxB/AeioiKZI3XmeT5BhBZBCPcUrccQoQUQALZtMz1NUwiiCqDnxv8DYFmWzAkgAlEEsM4YcyIA+LVqQy4AApI4BPOuAJQgTAAvXCGuAHgQGUAtnCGiAOM4uhBdANQM8QkAQ2QASTUIzH0CwBAZQAlCO3UXID0XIQAOwf0bAMUO6O41hBfq2GMADdcjYIgmABzO1xzM180AsEMLABBNAT7rgAVhAaATrwMk6VEoAC9sAqAQ6AQAuFN3AcIvolYAXTvAn2Pcf9IBDtY6TQG84CTzc/wWQCkYegUgFVHjIfOCIQZwIdi1cZ3rBSdp+AHBO0ERWHeq46W5aiscynbTyId+bJKdiaXNKpUAAAAASUVORK5CYII=",
+      "hideFromNativeSkillWnd": true,
+      "showInNativeWhenLearned": false,
+      "allowNativeUpgradeFallback": false,
+      "injectToNative": false,
+      "common": {
+        "time": "40+13*x",
+        "mpCon": "12+3*u(x/5)",
+        "pdd": "15*x",
+        "mdd": "10*x",
+        "maxLevel": "20"
+      },
+      "hLevels": {
+        "h": "消耗MP#mpCon，在#time秒内使队员的物理防御力增加#pdd，魔法防御力增加#mdd"
+      },
+      "cachedEffects": [
+        {
+          "index": 0,
+          "width": 68,
+          "height": 9,
+          "delay": 80
+        },
+        {
+          "index": 1,
+          "width": 68,
+          "height": 18,
+          "delay": 80
+        },
+        {
+          "index": 2,
+          "width": 68,
+          "height": 24,
+          "delay": 80
+        },
+        {
+          "index": 3,
+          "width": 68,
+          "height": 37,
+          "delay": 80
+        },
+        {
+          "index": 4,
+          "width": 68,
+          "height": 56,
+          "delay": 80
+        },
+        {
+          "index": 5,
+          "width": 68,
+          "height": 56,
+          "delay": 80
+        },
+        {
+          "index": 6,
+          "width": 68,
+          "height": 55,
+          "delay": 80
+        },
+        {
+          "index": 7,
+          "width": 68,
+          "height": 55,
+          "delay": 80
+        },
+        {
+          "index": 8,
+          "width": 68,
+          "height": 55,
+          "delay": 80
+        },
+        {
+          "index": 9,
+          "width": 68,
+          "height": 55,
+          "delay": 80
+        },
+        {
+          "index": 10,
+          "width": 68,
+          "height": 55,
+          "delay": 80
+        },
+        {
+          "index": 11,
+          "width": 69,
+          "height": 55,
+          "delay": 80
+        },
+        {
+          "index": 12,
+          "width": 68,
+          "height": 143,
+          "delay": 80
+        },
+        {
+          "index": 13,
+          "width": 68,
+          "height": 148,
+          "delay": 80
+        },
+        {
+          "index": 14,
+          "width": 68,
+          "height": 139,
+          "delay": 90
+        },
+        {
+          "index": 15,
+          "width": 68,
+          "height": 141,
+          "delay": 100
+        }
+      ],
+      "cachedTree": {
+        "name": "1301006",
+        "typeName": "SubProperty",
+        "children": [
+          {
+            "name": "icon",
+            "typeName": "Canvas",
+            "children": [
+              {
+                "name": "origin",
+                "typeName": "Vector"
+              },
+              {
+                "name": "z",
+                "typeName": "Int",
+                "value": "0"
+              }
+            ]
+          },
+          {
+            "name": "iconMouseOver",
+            "typeName": "Canvas",
+            "children": [
+              {
+                "name": "origin",
+                "typeName": "Vector"
+              },
+              {
+                "name": "z",
+                "typeName": "Int",
+                "value": "0"
+              }
+            ]
+          },
+          {
+            "name": "iconDisabled",
+            "typeName": "Canvas",
+            "children": [
+              {
+                "name": "origin",
+                "typeName": "Vector"
+              },
+              {
+                "name": "z",
+                "typeName": "Int",
+                "value": "0"
+              }
+            ]
+          },
+          {
+            "name": "action",
+            "typeName": "SubProperty",
+            "children": [
+              {
+                "name": "0",
+                "typeName": "String",
+                "value": "alert2"
+              }
+            ]
+          },
+          {
+            "name": "common",
+            "typeName": "SubProperty",
+            "children": [
+              {
+                "name": "mpCon",
+                "typeName": "String",
+                "value": "12+3*u(x/5)"
+              },
+              {
+                "name": "time",
+                "typeName": "String",
+                "value": "40+13*x"
+              },
+              {
+                "name": "pdd",
+                "typeName": "String",
+                "value": "15*x"
+              },
+              {
+                "name": "mdd",
+                "typeName": "String",
+                "value": "10*x"
+              },
+              {
+                "name": "lt",
+                "typeName": "Vector"
+              },
+              {
+                "name": "rb",
+                "typeName": "Vector"
+              },
+              {
+                "name": "maxLevel",
+                "typeName": "Int",
+                "value": "20"
+              }
+            ]
+          },
+          {
+            "name": "PVPcommon",
+            "typeName": "SubProperty",
+            "children": [
+              {
+                "name": "mpCon",
+                "typeName": "String",
+                "value": "12+3*u(x/5)"
+              },
+              {
+                "name": "time",
+                "typeName": "String",
+                "value": "40+10*x"
+              },
+              {
+                "name": "pdd",
+                "typeName": "String",
+                "value": "15*x"
+              },
+              {
+                "name": "mdd",
+                "typeName": "String",
+                "value": "10*x"
+              },
+              {
+                "name": "lt",
+                "typeName": "Vector"
+              },
+              {
+                "name": "rb",
+                "typeName": "Vector"
+              },
+              {
+                "name": "maxLevel",
+                "typeName": "Int",
+                "value": "20"
+              }
+            ]
+          },
+          {
+            "name": "effect",
+            "typeName": "SubProperty",
+            "children": [
+              {
+                "name": "0",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "80"
+                  }
+                ]
+              },
+              {
+                "name": "1",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "80"
+                  }
+                ]
+              },
+              {
+                "name": "2",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "80"
+                  }
+                ]
+              },
+              {
+                "name": "3",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "80"
+                  }
+                ]
+              },
+              {
+                "name": "4",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "80"
+                  }
+                ]
+              },
+              {
+                "name": "5",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "80"
+                  }
+                ]
+              },
+              {
+                "name": "6",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "80"
+                  }
+                ]
+              },
+              {
+                "name": "7",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "80"
+                  }
+                ]
+              },
+              {
+                "name": "8",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "80"
+                  }
+                ]
+              },
+              {
+                "name": "9",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "80"
+                  }
+                ]
+              },
+              {
+                "name": "10",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "80"
+                  }
+                ]
+              },
+              {
+                "name": "11",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "80"
+                  }
+                ]
+              },
+              {
+                "name": "12",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "80"
+                  }
+                ]
+              },
+              {
+                "name": "13",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "80"
+                  }
+                ]
+              },
+              {
+                "name": "14",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "90"
+                  }
+                ]
+              },
+              {
+                "name": "15",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "100"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "affected",
+            "typeName": "SubProperty",
+            "children": [
+              {
+                "name": "0",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "120"
+                  }
+                ]
+              },
+              {
+                "name": "1",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "120"
+                  }
+                ]
+              },
+              {
+                "name": "2",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "120"
+                  }
+                ]
+              },
+              {
+                "name": "3",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "120"
+                  }
+                ]
+              },
+              {
+                "name": "4",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "120"
+                  }
+                ]
+              },
+              {
+                "name": "5",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "120"
+                  }
+                ]
+              },
+              {
+                "name": "6",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "120"
+                  }
+                ]
+              },
+              {
+                "name": "7",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "150"
+                  }
+                ]
+              },
+              {
+                "name": "8",
+                "typeName": "Canvas",
+                "children": [
+                  {
+                    "name": "origin",
+                    "typeName": "Vector"
+                  },
+                  {
+                    "name": "delay",
+                    "typeName": "Int",
+                    "value": "120"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "info",
+            "typeName": "SubProperty",
+            "children": [
+              {
+                "name": "type",
+                "typeName": "Int",
+                "value": "10"
+              },
+              {
+                "name": "massSpell",
+                "typeName": "Int",
+                "value": "1"
+              },
+              {
+                "name": "magicSteal",
+                "typeName": "Int",
+                "value": "1"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

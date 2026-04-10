@@ -1,0 +1,21 @@
+{
+  "1301111": {
+    "_dirName": "1301111",
+    "_dirType": "sub",
+    "name": {
+      "_dirName": "name",
+      "_dirType": "String",
+      "_value": "极限防御"
+    },
+    "desc": {
+      "_dirName": "desc",
+      "_dirType": "String",
+      "_value": "在一定时间内提高队员的物理防御力和魔法防御力。"
+    },
+    "h": {
+      "_dirName": "h",
+      "_dirType": "String",
+      "_value": "消耗MP#mpCon，在#time秒内使队员的物理防御力增加#pdd，魔法防御力增加#mdd"
+    }
+  }
+}

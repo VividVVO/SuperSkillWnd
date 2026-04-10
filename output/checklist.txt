@@ -1,0 +1,127 @@
+================================================================
+  Super Skill Tool - Verification Checklist
+  Generated: 2026-04-09 14:42:29
+================================================================
+
+SKILLS ADDED:
+─────────────────────────────────────────
+  [1301111] 极限防御2
+    Type: buff, Tab: active, MaxLevel: 20
+    InfoType: 10, Action: alert2
+    ProxySkill: 1301006, Route: special_move
+
+  [1001555] 圣甲术2
+    Type: buff, Tab: active, MaxLevel: 15
+    InfoType: 10, Action: alert2
+    ProxySkill: 1001003, Route: special_move
+
+  [80001901] 骑士团战车001
+    Type: newbie_level, Tab: active, MaxLevel: 1
+    InfoType: 1, Action: swingO1
+    ProxySkill: 80001029, Route: special_move
+
+  [1300901] 物理训练2
+    Type: passive, Tab: passive, MaxLevel: 10
+    InfoType: 50, Action: 
+
+  [10001901] 飞翔2
+    Type: newbie_level, Tab: active, MaxLevel: 1
+    InfoType: 1, Action: swingO1
+    ProxySkill: 10001026, Route: special_move
+
+  [20001901] 天马2
+    Type: newbie_level, Tab: active, MaxLevel: 10
+    InfoType: 0, Action: 
+    ProxySkill: 20001147, Route: special_move
+
+  [20001903] 小龟龟
+    Type: newbie_level, Tab: active, MaxLevel: 1
+    InfoType: 1, Action: swingO1
+    ProxySkill: 20001122, Route: special_move
+
+  [80001902] 骑兽技能2
+    Type: newbie_level, Tab: active, MaxLevel: 1
+    InfoType: 0, Action: 
+    ProxySkill: 80001000, Route: close_range
+
+  [80001903] 鳄鱼
+    Type: newbie_level, Tab: active, MaxLevel: 1
+    InfoType: 0, Action: 
+    ProxySkill: 80001004, Route: close_range
+
+  [80001904] 鳄鱼3
+    Type: newbie_level, Tab: active, MaxLevel: 1
+    InfoType: 0, Action: 
+    ProxySkill: 20001147, Route: close_range
+
+
+FILES MODIFIED / CREATED:
+─────────────────────────────────────────
+
+[ ] Server Skill XML:
+    [ ] G:\code\dasheng099\wz\Skill.wz\130.img.xml
+    [ ] G:\code\dasheng099\wz\Skill.wz\100.img.xml
+    [ ] G:\code\dasheng099\wz\Skill.wz\8000.img.xml
+    [ ] G:\code\dasheng099\wz\Skill.wz\1000.img.xml
+    [ ] G:\code\dasheng099\wz\Skill.wz\2000.img.xml
+
+[ ] Server String XML:
+    [ ] G:\code\dasheng099\wz\String.wz\Skill.img.xml
+
+[ ] DLL Skill IMG JSON:
+    [ ] G:\code\c++\SuperSkillWnd\skill\130.img.json
+    [ ] G:\code\c++\SuperSkillWnd\skill\100.img.json
+    [ ] G:\code\c++\SuperSkillWnd\skill\8000.img.json
+    [ ] G:\code\c++\SuperSkillWnd\skill\1000.img.json
+    [ ] G:\code\c++\SuperSkillWnd\skill\2000.img.json
+
+[ ] DLL String JSON:
+    [ ] G:\code\c++\SuperSkillWnd\skill\Skill.img.json
+
+[ ] super_skills.json:
+    [ ] G:\code\c++\SuperSkillWnd\skill\super_skills.json
+
+[ ] custom_skill_routes.json:
+    [ ] G:\code\c++\SuperSkillWnd\skill\custom_skill_routes.json
+
+[ ] native_skill_injections.json:
+    [ ] G:\code\c++\SuperSkillWnd\skill\native_skill_injections.json
+
+[ ] super_skills_server.json:
+    [ ] G:\code\dasheng099\super_skills_server.json
+
+[ ] SQL output:
+    [ ] G:\code\Harepacker-resurrected-master\SuperSkillTool\output\insert_skill.sql
+
+
+VERIFICATION STEPS:
+─────────────────────────────────────────
+
+1. Server-side:
+   [ ] Restart server after XML changes
+   [ ] Run insert_skill.sql on the database
+   [ ] Verify skill appears in @skill or admin commands
+
+2. Client-side DLL:
+   [ ] Rebuild hook.dll (SuperSkillWnd build.bat)
+   [ ] Verify skill appears in overlay panel
+   [ ] Verify icon loads correctly
+   [ ] Verify skill name/desc display
+
+3. Client-side .img (Harepacker):
+   [ ] See harepacker_guide.txt for import instructions
+   [ ] Import skill data into client Skill.wz
+   [ ] Verify icon displays in native skill window (if applicable)
+
+4. In-game testing:
+   [ ] Open super skill panel
+   [ ] Verify skill is in correct tab
+   [ ] Test skill level up
+   [ ] Test skill use (drag to hotkey bar, press key)
+   [ ] Verify damage / buff / passive effect
+
+
+BACKUP LOCATION:
+─────────────────────────────────────────
+  G:\code\Harepacker-resurrected-master\SuperSkillTool\output\backup\20260409_134501
+
