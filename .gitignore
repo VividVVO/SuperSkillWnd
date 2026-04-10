@@ -19,6 +19,7 @@ obj/
 skill/
 .claude/
 docs/
+output/
 
 # C/C++
 *.obj
