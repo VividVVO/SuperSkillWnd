@@ -91,6 +91,13 @@ namespace SuperSkillTool
         // Tool output directory
         public static readonly string ToolRoot = DefaultToolRoot;
 
+        /// <summary>
+        /// Directory where tool configuration data files are stored
+        /// (pending_skills.json, custom_mount_ids.json, etc.).
+        /// Defaults to ToolRoot (current working directory).
+        /// </summary>
+        public static string ConfigDataDir = DefaultToolRoot;
+
         public static string OutputDir;
         public static string BackupRoot;
 
@@ -156,6 +163,10 @@ namespace SuperSkillTool
         /// </summary>
         public static void RecomputeDerivedPaths()
         {
+            ConfigDataDir = NormalizeDirectoryLikePath(ConfigDataDir);
+            if (string.IsNullOrWhiteSpace(ConfigDataDir))
+                ConfigDataDir = ToolRoot;
+
             ServerRootDir = NormalizeDirectoryLikePath(ServerRootDir);
             if (string.IsNullOrWhiteSpace(ServerRootDir))
                 ServerRootDir = DefaultServerRoot;

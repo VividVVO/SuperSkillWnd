@@ -551,6 +551,8 @@ public class MainForm : Form
 
 	private TextBox txtGameDataBaseDir;
 
+	private TextBox txtConfigDataDir;
+
 	private TextBox txtDefaultCarrierId;
 
 	private TextBox txtLog;
@@ -581,9 +583,9 @@ public class MainForm : Form
 
 	private string _lastMountTipText = "";
 
-	private static readonly string PendingSkillsJson = Path.Combine(PathConfig.ToolRoot, "pending_skills.json");
+	private static string PendingSkillsJson => Path.Combine(PathConfig.ConfigDataDir, "pending_skills.json");
 
-	private static readonly string CustomMountIdsJson = Path.Combine(PathConfig.ToolRoot, "custom_mount_ids.json");
+	private static string CustomMountIdsJson => Path.Combine(PathConfig.ConfigDataDir, "custom_mount_ids.json");
 
 	private Dictionary<int, Dictionary<string, object>> _superSkillsCfgById = new Dictionary<int, Dictionary<string, object>>();
 
@@ -2189,6 +2191,7 @@ public class MainForm : Form
 		txtServerRootDir = AddSettingRow(panel, ref y, "服务端目录根路径:", PathConfig.ServerRootDir, browse: true);
 		txtGameDataBaseDir = AddSettingRow(panel, ref y, "游戏Data目录根路径:", PathConfig.GameDataBaseDir, browse: true);
 		txtOutputDir = AddSettingRow(panel, ref y, "输出目录:", PathConfig.OutputDir, browse: true);
+		txtConfigDataDir = AddSettingRow(panel, ref y, "配置数据目录:", PathConfig.ConfigDataDir, browse: true);
 
 		Label lblAutoDerived = new Label
 		{
@@ -3911,6 +3914,7 @@ public class MainForm : Form
 		SetControlTip(txtServerRootDir, "服务端根目录。其余服务端路径会自动派生。");
 		SetControlTip(txtOutputDir, "SQL、清单、备份等输出目录。");
 		SetControlTip(txtGameDataBaseDir, "游戏 Data 根目录。其余 Skill/Character/TamingMob 路径会自动派生。");
+		SetControlTip(txtConfigDataDir, "配置数据保存目录（pending_skills.json、custom_mount_ids.json 等）。默认为当前运行目录。");
 		SetControlTip(txtDefaultCarrierId, "默认超级SP载体技能ID。");
 		SetControlTip(txtLog, "运行日志输出区。失败原因会显示在这里。");
 
@@ -8210,6 +8214,9 @@ public class MainForm : Form
 		PathConfig.ServerRootDir = txtServerRootDir.Text.Trim();
 		PathConfig.GameDataBaseDir = txtGameDataBaseDir.Text.Trim();
 		PathConfig.OutputDir = txtOutputDir.Text.Trim();
+		string newConfigDir = (txtConfigDataDir?.Text ?? "").Trim();
+		if (!string.IsNullOrWhiteSpace(newConfigDir))
+			PathConfig.ConfigDataDir = newConfigDir;
 		if (string.IsNullOrWhiteSpace(PathConfig.OutputDir))
 		{
 			PathConfig.OutputDir = Path.Combine(PathConfig.ServerRootDir, "output");
@@ -8222,6 +8229,7 @@ public class MainForm : Form
 		txtServerRootDir.Text = PathConfig.ServerRootDir;
 		txtGameDataBaseDir.Text = PathConfig.GameDataBaseDir;
 		txtOutputDir.Text = PathConfig.OutputDir;
+		if (txtConfigDataDir != null) txtConfigDataDir.Text = PathConfig.ConfigDataDir;
 		LoadConfigSnapshots();
 		SettingsManager.Save();
 		LoadSkillLibrary(forceReload: true);
@@ -8235,6 +8243,7 @@ public class MainForm : Form
 		txtServerRootDir.Text = "G:\\code\\dasheng099";
 		txtGameDataBaseDir.Text = "G:\\code\\mxd\\Data";
 		txtOutputDir.Text = Path.Combine(txtServerRootDir.Text.Trim(), "output");
+		if (txtConfigDataDir != null) txtConfigDataDir.Text = PathConfig.ToolRoot;
 		txtDefaultCarrierId.Text = "1001038";
 		SyncCarrierSkillIdEditors(txtDefaultCarrierId);
 	}

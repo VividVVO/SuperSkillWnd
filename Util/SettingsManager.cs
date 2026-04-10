@@ -67,6 +67,10 @@ namespace SuperSkillTool
 
                 PathConfig.OutputDir = SimpleJson.GetString(obj, "outputDir", PathConfig.OutputDir);
 
+                string configDataDir = SimpleJson.GetString(obj, "configDataDir", "");
+                if (!string.IsNullOrWhiteSpace(configDataDir))
+                    PathConfig.ConfigDataDir = configDataDir;
+
                 PathConfig.DefaultCharacterId = SimpleJson.GetInt(obj, "defaultCharacterId", PathConfig.DefaultCharacterId);
                 PathConfig.DefaultSuperSpCarrierSkillId = SimpleJson.GetInt(obj, "defaultSuperSpCarrierSkillId", PathConfig.DefaultSuperSpCarrierSkillId);
                 PathConfig.DefaultSuperSpCarrierMaxLevel = Math.Max(1, SimpleJson.GetInt(obj, "defaultSuperSpCarrierMaxLevel", PathConfig.DefaultSuperSpCarrierMaxLevel));
@@ -94,6 +98,7 @@ namespace SuperSkillTool
             obj["serverRootDir"] = PathConfig.ServerRootDir;
             obj["gameDataBaseDir"] = PathConfig.GameDataBaseDir;
             obj["outputDir"] = PathConfig.OutputDir;
+            obj["configDataDir"] = PathConfig.ConfigDataDir;
 
             // Compatibility keys (derived)
             obj["serverWzRoot"] = PathConfig.ServerWzRoot;
