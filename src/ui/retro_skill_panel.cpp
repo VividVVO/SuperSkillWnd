@@ -11,15 +11,31 @@
 
 static const ImU32 kRetroSkillTextColor = IM_COL32(85, 85, 85, 255);
 
-static void DrawOutlinedText(ImDrawList* dl, const ImVec2& pos, ImU32 color, const char* text, float mainScale, float fontSize = 0.0f)
+static void DrawOutlinedText(ImDrawList* dl, const ImVec2& pos, ImU32 color, const char* text, float mainScale, float fontSize = 0.0f, float glyphSpacing = 0.0f)
 {
     const ImVec2 alignedPos(floorf(pos.x), floorf(pos.y));
     (void)mainScale;
 
     const float resolvedFontSize = (fontSize > 0.0f) ? fontSize : ImGui::GetFontSize();
-    if (RetroSkillDWriteDrawText(dl, alignedPos, color, text, resolvedFontSize))
+    if (RetroSkillDWriteDrawTextEx(dl, alignedPos, color, text, resolvedFontSize, glyphSpacing))
         return;
 
+    if (fontSize > 0.0f)
+    {
+        ImFont* font = ImGui::GetFont();
+        dl->AddText(font, fontSize, alignedPos, color, text);
+        return;
+    }
+
+    dl->AddText(alignedPos, color, text);
+}
+
+static void DrawPlainImGuiText(ImDrawList* dl, const ImVec2& pos, ImU32 color, const char* text, float fontSize = 0.0f)
+{
+    if (!dl || !text || !text[0])
+        return;
+
+    const ImVec2 alignedPos(floorf(pos.x), floorf(pos.y));
     if (fontSize > 0.0f)
     {
         ImFont* font = ImGui::GetFont();
@@ -414,23 +430,25 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
             char superSpValue[32] = {};
             sprintf_s(superSpValue, "%d", state.superSkillPoints);
 
-            const float superSpCellWidth = 6.0f * mainScale;
-            const float superSpCellHeight = 9.0f * mainScale;
-            const float superSpCenterX = panelPos.x + (141.0f + 9.0f) * mainScale;
+            // The current ImGui atlas renders a 9px request closer to ~6px visually,
+            // so we oversize the draw call to land near a true 9px visible height.
+            const float superSpFontSizePx = 13.5f;
+            const float superSpRightX = panelPos.x + 160.0f * mainScale;
             const float superSpCenterY = panelPos.y + (258.0f + 3.0f) * mainScale;
-            const size_t superSpLen = strlen(superSpValue);
-            const float superSpTextWidth = (float)superSpLen * superSpCellWidth;
+            ImFont* font = ImGui::GetFont();
+            const ImVec2 superSpTextSize = font
+                ? font->CalcTextSizeA(superSpFontSizePx, FLT_MAX, 0.0f, superSpValue)
+                : ImGui::CalcTextSize(superSpValue);
             const ImVec2 superSpPos(
-                floorf(superSpCenterX - superSpTextWidth * 0.5f),
-                floorf(superSpCenterY - superSpCellHeight * 0.5f));
+                floorf(superSpRightX - superSpTextSize.x),
+                floorf(superSpCenterY - superSpTextSize.y * 0.5f));
 
-            DrawOutlinedText(
+            DrawPlainImGuiText(
                 dl,
                 superSpPos,
                 kRetroSkillTextColor,
                 superSpValue,
-                mainScale,
-                floorf(9.0f * mainScale));
+                superSpFontSizePx);
         }
 
         auto& skills = (state.activeTab == 0) ? state.passiveSkills : state.activeSkills;
@@ -565,8 +583,8 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
                            IM_COL32(25, 27, 31, 255), 4.0f * mainScale, 0, 1.0f * mainScale);
             }
 
-            ImVec2 textPos(skillBoxPos.x + 41.0f * mainScale, skillBoxPos.y + 1.0f * mainScale);
-            DrawOutlinedText(dl, textPos, kRetroSkillTextColor, skill.name.c_str(), mainScale);
+            ImVec2 textPos(skillBoxPos.x + 41.0f * mainScale, skillBoxPos.y + 3.0f * mainScale);
+            DrawOutlinedText(dl, textPos, kRetroSkillTextColor, skill.name.c_str(), mainScale, 0.0f, 1.0f * mainScale);
 
             char levelText[32];
             sprintf_s(levelText, "%d", skill.level);

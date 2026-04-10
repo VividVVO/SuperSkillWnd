@@ -34,6 +34,7 @@ namespace
         int pixelHeight = 0;
         int numericCellWidth = 0;
         int numericCellHeight = 0;
+        int glyphSpacing = 0;
 
         bool operator<(const TextStyleKey& other) const
         {
@@ -43,7 +44,9 @@ namespace
                 return pixelHeight < other.pixelHeight;
             if (numericCellWidth != other.numericCellWidth)
                 return numericCellWidth < other.numericCellWidth;
-            return numericCellHeight < other.numericCellHeight;
+            if (numericCellHeight != other.numericCellHeight)
+                return numericCellHeight < other.numericCellHeight;
+            return glyphSpacing < other.glyphSpacing;
         }
     };
 
@@ -160,20 +163,20 @@ namespace
 
         if (shape == GlyphShape_Cjk)
         {
-            *outWidth = 11;
-            *outHeight = 12;
+            *outWidth = ClampInt(sourceWidth, 1, 11);
+            *outHeight = ClampInt(sourceHeight, 1, 12);
             return;
         }
 
         if (shape == GlyphShape_Latin)
         {
-            *outWidth = 6;
-            *outHeight = 12;
+            *outWidth = ClampInt(sourceWidth, 1, 6);
+            *outHeight = ClampInt(sourceHeight, 1, 12);
             return;
         }
 
         *outWidth = MaxInt(1, sourceWidth);
-        *outHeight = 12;
+        *outHeight = ClampInt(sourceHeight, 1, 12);
     }
 
     std::vector<unsigned int> ResampleNearest(const std::vector<unsigned int>& sourcePixels, int sourceWidth, int sourceHeight, int targetWidth, int targetHeight)
@@ -413,11 +416,12 @@ namespace
         return (fontSize > 0.0f && fontSize <= 9.5f) ? 12 : 11;
     }
 
-    TextStyleKey ResolveStyle(const std::wstring& text, float fontSize)
+    TextStyleKey ResolveStyle(const std::wstring& text, float fontSize, float glyphSpacing)
     {
         TextStyleKey style = {};
         style.numeric = IsNumericLikeText(text);
         style.pixelHeight = ResolvePixelHeight(style.numeric, fontSize);
+        style.glyphSpacing = (int)floorf(glyphSpacing + 0.5f);
         if (style.numeric)
         {
             if (fontSize > 0.0f && fontSize <= 9.5f)
@@ -800,7 +804,7 @@ void RetroSkillDWriteOnDeviceReset(LPDIRECT3DDEVICE9 device)
         g_renderer.device = device;
 }
 
-bool RetroSkillDWriteDrawText(ImDrawList* drawList, const ImVec2& pos, ImU32 color, const char* text, float fontSize)
+bool RetroSkillDWriteDrawTextEx(ImDrawList* drawList, const ImVec2& pos, ImU32 color, const char* text, float fontSize, float glyphSpacing)
 {
     if (!drawList || !text || !text[0] || !g_renderer.initialized || !EnsureDeviceAndDc(nullptr))
         return false;
@@ -809,7 +813,7 @@ bool RetroSkillDWriteDrawText(ImDrawList* drawList, const ImVec2& pos, ImU32 col
     if (wideText.empty())
         return false;
 
-    const TextStyleKey style = ResolveStyle(wideText, fontSize);
+    const TextStyleKey style = ResolveStyle(wideText, fontSize, glyphSpacing);
     float cursorX = floorf(pos.x);
     float cursorY = floorf(pos.y);
     const float startX = cursorX;
@@ -849,10 +853,15 @@ bool RetroSkillDWriteDrawText(ImDrawList* drawList, const ImVec2& pos, ImU32 col
             renderedAnything = true;
         }
 
-        cursorX += (float)glyph->advance;
+        cursorX += (float)glyph->advance + (float)style.glyphSpacing;
     }
 
     return renderedAnything;
+}
+
+bool RetroSkillDWriteDrawText(ImDrawList* drawList, const ImVec2& pos, ImU32 color, const char* text, float fontSize)
+{
+    return RetroSkillDWriteDrawTextEx(drawList, pos, color, text, fontSize, 0.0f);
 }
 
 void RetroSkillDWriteRegisterNativeGlyphLookup(void* /*trampoline*/)

@@ -175,6 +175,8 @@ const DWORD ADDR_STR_SkillExMainBackgrnd = 0x00E67CD0; // L"UI/UIWindow2.img/Ski
 const DWORD ADDR_BD08A0    = 0x00BD08A0;  // CWndMan注册函数(__thiscall)
 const DWORD ADDR_B9B800    = 0x00B9B800;  // CWnd背景绘制(__thiscall)
 const DWORD ADDR_B9F6E0    = 0x00B9F6E0;  // RenderAll
+const DWORD ADDR_BBC965    = 0x00BBC965;  // sub_BBC460: call sub_B9F6E0 之后
+const DWORD ADDR_BBC96E    = 0x00BBC96E;  // sub_BBC460: post-B9F6E0 续接点（call sub_B9A400）
 
 // ============================================================================
 // CWnd对象偏移（DWORD index, 实际字节 = index * 4）
@@ -225,6 +227,12 @@ const DWORD ADDR_StatusBar      = 0x00F6A18C;  // *(DWORD*)此地址 = StatusBar
 const DWORD ADDR_5E6F90         = 0x005E6F90;  // sub_5E6F90
 // 通用发包入口：栈参数 [esp+4]=packetData, [esp+8]=packetLen，packet[0..1]=opcode
 const DWORD ADDR_43D94D         = 0x0043D94D;  // send packet
+const DWORD ADDR_417240         = 0x00417240;  // COutPacket::Encode4 (__thiscall, push value)
+const DWORD ADDR_4D63A0         = 0x004D63A0;  // CWvsContext / network session send (__thiscall, push COutPacket*)
+const DWORD ADDR_750C20         = 0x00750C20;  // COutPacket ctor/init (__thiscall, push opcode)
+const DWORD ADDR_B4C450         = 0x00B4C450;  // game tick getter
+const DWORD ADDR_NetClient      = 0x00F5A07C;  // active network/session object used by sub_4D63A0
+const DWORD ADDR_4020B0         = 0x004020B0;  // game free (__thiscall ecx=ADDR_GameHeap, push alloc)
 
 // ============================================================================
 // 技能释放分类链（证据来自 xdbg trace）

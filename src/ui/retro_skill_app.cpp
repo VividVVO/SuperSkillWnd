@@ -78,7 +78,18 @@ namespace
         return RetroSkill_SuppressDefault;
     }
 
+    float GetRetroCursorFixedYOffset(RetroSkillAssets& assets, UITexture* currentTex)
+    {
+        (void)assets;
+        float y = -4.0f;
+        UITexture* hoverA = GetRetroSkillTexture(assets, "mouse.normal.1");
+        if (currentTex && hoverA && currentTex == hoverA)
+            y += 2.0f;
+        return y;
+    }
+
     static DefaultBehaviorController g_defaultBehaviorController;
+
 }
 
 enum MouseState { MS_NORMAL, MS_PRESSED, MS_DRAG, MS_HOVER_INSTANT, MS_HOVER_LOOP_A, MS_HOVER_LOOP_B };
@@ -163,7 +174,8 @@ void RenderRetroSkillCursorOverlay(RetroSkillRuntimeState& state, RetroSkillAsse
 
     if (mouseTex && mouseTex->texture)
     {
-        ImVec2 cursorMin(mousePos.x, mousePos.y - (3.0f * mainScale));
+        const float extraYOffset = GetRetroCursorFixedYOffset(assets, mouseTex) * mainScale;
+        ImVec2 cursorMin(mousePos.x, mousePos.y + extraYOffset);
         ImVec2 cursorMax(mousePos.x + mouseTex->width * mainScale,
                        cursorMin.y + mouseTex->height * mainScale);
         dl->AddImage((ImTextureID)mouseTex->texture, cursorMin, cursorMax);

@@ -1,0 +1,31 @@
+**********************************************************************
+** Visual Studio 2026 Developer Command Prompt v18.4.2
+** Copyright (c) 2026 Microsoft Corporation
+**********************************************************************
+[vcvarsall.bat] Environment initialized for: 'x86'
+=== vcvars32 OK ===
+[1/3] Compiling resources ...
+[2/3] Compiling sources ...
+dllmain.cpp
+win32_input_spoof.cpp
+skill_local_data.cpp
+skill_overlay_source.cpp
+skill_overlay_source_manager.cpp
+skill_overlay_source_game.cpp
+skill_overlay_bridge.cpp
+retro_skill_app.cpp
+retro_skill_assets.cpp
+retro_skill_panel.cpp
+retro_skill_state.cpp
+retro_skill_text_dwrite.cpp
+super_imgui_overlay.cpp
+imgui.cpp
+imgui_draw.cpp
+imgui_tables.cpp
+imgui_widgets.cpp
+imgui_impl_dx9.cpp
+imgui_impl_win32.cpp
+正在生成代码...
+[3/3] Linking SuperSkillWnd.dll ...
+
+=== BUILD OK: build\Debug\SuperSkillWnd.dll ===

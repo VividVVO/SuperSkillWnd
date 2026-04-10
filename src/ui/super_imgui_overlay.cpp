@@ -13,6 +13,7 @@
 
 #include <string>
 #include <cfloat>
+#include <vector>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -52,10 +53,198 @@ namespace
     };
 
     SuperOverlayRuntime g_overlay;
+    std::vector<RECT> g_overlayVisiblePieces;
+    LONG g_overlayClipLogBudget = 32;
 
     bool GetClientMousePointFromMessage(HWND hwnd, UINT msg, LPARAM lParam, POINT* outPoint);
     bool IsPointInsidePanel(int x, int y);
     bool OverlayOwnsMouseInput();
+
+    bool RectHasArea(const RECT& rc)
+    {
+        return rc.right > rc.left && rc.bottom > rc.top;
+    }
+
+    RECT MakeRectXYWH(int x, int y, int w, int h)
+    {
+        RECT rc = { x, y, x + w, y + h };
+        return rc;
+    }
+
+    void AppendRectIfValid(std::vector<RECT>& rects, const RECT& rc)
+    {
+        if (RectHasArea(rc))
+            rects.push_back(rc);
+    }
+
+    void SubtractRectFromPiece(const RECT& src, const RECT& cut, std::vector<RECT>& out)
+    {
+        RECT inter = {};
+        if (!IntersectRect(&inter, &src, &cut))
+        {
+            out.push_back(src);
+            return;
+        }
+
+        RECT top = { src.left, src.top, src.right, inter.top };
+        RECT bottom = { src.left, inter.bottom, src.right, src.bottom };
+        RECT left = { src.left, inter.top, inter.left, inter.bottom };
+        RECT right = { inter.right, inter.top, src.right, inter.bottom };
+
+        AppendRectIfValid(out, top);
+        AppendRectIfValid(out, bottom);
+        AppendRectIfValid(out, left);
+        AppendRectIfValid(out, right);
+    }
+
+    uintptr_t GetActiveSkillWndObj()
+    {
+        if (SafeIsBadReadPtr((void*)ADDR_SkillWndEx, 4))
+            return 0;
+        return *(uintptr_t*)ADDR_SkillWndEx;
+    }
+
+    bool GetOverlayPanelRect(RECT* outRect)
+    {
+        if (!outRect || g_overlay.anchorX <= -9000 || g_overlay.anchorY <= -9000)
+            return false;
+        const PanelMetrics metrics = GetPanelMetrics(g_overlay.mainScale);
+        *outRect = MakeRectXYWH(
+            g_overlay.anchorX,
+            g_overlay.anchorY,
+            (int)metrics.width,
+            (int)metrics.height);
+        return true;
+    }
+
+    bool GetCWndRectForOverlayClip(uintptr_t wndObj, RECT* outRect)
+    {
+        if (!wndObj || !outRect)
+            return false;
+
+        const int w = CWnd_GetWidth(wndObj);
+        const int h = CWnd_GetHeight(wndObj);
+        if (w <= 0 || h <= 0 || w > 4096 || h > 4096)
+            return false;
+
+        int x = CWnd_GetRenderX(wndObj);
+        int y = CWnd_GetRenderY(wndObj);
+        if (x < -10000 || x > 10000 || y < -10000 || y > 10000)
+        {
+            x = CWnd_GetX(wndObj);
+            y = CWnd_GetY(wndObj);
+        }
+        if (x < -10000 || x > 10000 || y < -10000 || y > 10000)
+            return false;
+
+        *outRect = MakeRectXYWH(x, y, w, h);
+        return true;
+    }
+
+    int GetCWndZOrderValueForOverlay(uintptr_t wndObj)
+    {
+        if (!wndObj || SafeIsBadReadPtr((void*)(wndObj + CWND_OFF_ZORDER * 4), 4))
+            return 0;
+        return *(int*)(wndObj + CWND_OFF_ZORDER * 4);
+    }
+
+    bool IsIgnoredPanelOccluder(uintptr_t wndObj, uintptr_t skillWndObj)
+    {
+        if (!wndObj)
+            return true;
+        if (wndObj == skillWndObj)
+            return true;
+        return false;
+    }
+
+    bool UpdateOverlayVisiblePieces(const char* reason)
+    {
+        g_overlayVisiblePieces.clear();
+
+        RECT panelRect = {};
+        if (!GetOverlayPanelRect(&panelRect))
+            return false;
+
+        RECT skillRect = {};
+        const uintptr_t skillWndObj = GetActiveSkillWndObj();
+        if (skillWndObj && GetCWndRectForOverlayClip(skillWndObj, &skillRect))
+        {
+            RECT clipped = {};
+            if (!IntersectRect(&clipped, &panelRect, &skillRect))
+                return false;
+            panelRect = clipped;
+        }
+
+        std::vector<RECT> pieces;
+        pieces.push_back(panelRect);
+
+        std::vector<RECT> occluders;
+        if (!SafeIsBadReadPtr((void*)ADDR_CWndMan, 4))
+        {
+                const uintptr_t wndMan = *(uintptr_t*)ADDR_CWndMan;
+            if (wndMan)
+            {
+                const uintptr_t topBase = wndMan + CWNDMAN_TOPLEVEL_OFF;
+                for (int i = 0; i < 256; ++i)
+                {
+                    const uintptr_t slotAddr = topBase + i * 4;
+                    if (SafeIsBadReadPtr((void*)slotAddr, 4))
+                        break;
+
+                    const uintptr_t wndObj = *(DWORD*)slotAddr;
+                    if (IsIgnoredPanelOccluder(wndObj, skillWndObj))
+                        continue;
+
+                    RECT wndRect = {};
+                    RECT inter = {};
+                    if (!GetCWndRectForOverlayClip(wndObj, &wndRect))
+                        continue;
+                    if (!IntersectRect(&inter, &panelRect, &wndRect))
+                        continue;
+
+                    bool duplicate = false;
+                    for (size_t k = 0; k < occluders.size(); ++k)
+                    {
+                        if (EqualRect(&occluders[k], &wndRect))
+                        {
+                            duplicate = true;
+                            break;
+                        }
+                    }
+                    if (!duplicate)
+                        occluders.push_back(wndRect);
+                }
+            }
+        }
+
+        for (size_t i = 0; i < occluders.size() && !pieces.empty(); ++i)
+        {
+            std::vector<RECT> nextPieces;
+            nextPieces.reserve(pieces.size() * 2 + 4);
+            for (size_t j = 0; j < pieces.size(); ++j)
+                SubtractRectFromPiece(pieces[j], occluders[i], nextPieces);
+            pieces.swap(nextPieces);
+            if (pieces.size() > 64)
+                pieces.resize(64);
+        }
+
+        for (size_t i = 0; i < pieces.size(); ++i)
+            AppendRectIfValid(g_overlayVisiblePieces, pieces[i]);
+
+        LONG after = InterlockedDecrement(&g_overlayClipLogBudget);
+        if (after >= 0)
+        {
+            WriteLogFmt("[PanelClip] reason=%s panel=(%ld,%ld,%ld,%ld) skill=%s(%ld,%ld,%ld,%ld) occluders=%d pieces=%d",
+                reason ? reason : "-",
+                panelRect.left, panelRect.top, panelRect.right, panelRect.bottom,
+                RectHasArea(skillRect) ? "Y" : "N",
+                skillRect.left, skillRect.top, skillRect.right, skillRect.bottom,
+                (int)occluders.size(),
+                (int)g_overlayVisiblePieces.size());
+        }
+
+        return !g_overlayVisiblePieces.empty();
+    }
 
     bool IsMouseMessage(UINT msg)
     {
@@ -300,6 +489,17 @@ namespace
     {
         if (g_overlay.anchorX <= -9000 || g_overlay.anchorY <= -9000)
             return false;
+        if (UpdateOverlayVisiblePieces("hit"))
+        {
+            for (size_t i = 0; i < g_overlayVisiblePieces.size(); ++i)
+            {
+                const RECT& rc = g_overlayVisiblePieces[i];
+                if (x >= rc.left && x < rc.right && y >= rc.top && y < rc.bottom)
+                    return true;
+            }
+            return false;
+        }
+
         const PanelMetrics metrics = GetPanelMetrics(g_overlay.mainScale);
         return x >= g_overlay.anchorX &&
                x < (int)(g_overlay.anchorX + metrics.width) &&
@@ -350,7 +550,7 @@ namespace
 
     bool IsOverlayWindowInteractive()
     {
-        return g_overlay.hwnd && (::GetForegroundWindow() == g_overlay.hwnd);
+        return g_overlay.hwnd != nullptr;
     }
 
     bool AreAnyPhysicalMouseButtonsDown()
@@ -773,6 +973,7 @@ void SuperImGuiOverlaySetVisible(bool visible)
     {
         g_overlay.mouseCapture = false;
         g_overlay.mouseHover = false;
+        g_overlayVisiblePieces.clear();
         UpdateCursorSuppression(false);
     }
 }
@@ -786,6 +987,7 @@ void SuperImGuiOverlaySetAnchor(int x, int y)
 void SuperImGuiOverlayResetPanelState()
 {
     ResetRetroSkillData(g_overlay.state);
+    g_overlayVisiblePieces.clear();
 }
 
 void SuperImGuiOverlayOnDeviceLost()
@@ -876,6 +1078,7 @@ void SuperImGuiOverlayRender(IDirect3DDevice9* device)
     ImGui::SetCurrentContext(g_overlay.context);
     ImGuiIO& io = ImGui::GetIO();
     io.MouseDrawCursor = false;
+    UpdateOverlayVisiblePieces("render");
 
     if (g_overlay.mouseCapture && !AreAnyPhysicalMouseButtonsDown())
     {

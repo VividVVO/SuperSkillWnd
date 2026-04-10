@@ -131,17 +131,21 @@ inline int CWnd_GetHomeY(uintptr_t cwnd)
 // ============================================================================
 struct TexturedVertex { float x, y, z, rhw; DWORD color; float u, v; };
 #define D3DFVF_TLVERTEX (D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1)
+struct SolidVertex { float x, y, z, rhw; DWORD color; };
+#define D3DFVF_SOLIDVERTEX (D3DFVF_XYZRHW | D3DFVF_DIFFUSE)
 
-inline void DrawTexturedQuad(IDirect3DDevice9* dev, IDirect3DTexture9* tex,
-                             float x, float y, float w, float h, DWORD color = 0xFFFFFFFF)
+inline void DrawTexturedQuadUV(IDirect3DDevice9* dev, IDirect3DTexture9* tex,
+                               float x, float y, float w, float h,
+                               float u0, float v0, float u1, float v1,
+                               DWORD color = 0xFFFFFFFF)
 {
     if (!dev || !tex) return;
 
     TexturedVertex verts[4] = {
-        { x,     y,     0.5f, 1.0f, color, 0.0f, 0.0f },
-        { x + w, y,     0.5f, 1.0f, color, 1.0f, 0.0f },
-        { x,     y + h, 0.5f, 1.0f, color, 0.0f, 1.0f },
-        { x + w, y + h, 0.5f, 1.0f, color, 1.0f, 1.0f },
+        { x,     y,     0.5f, 1.0f, color, u0, v0 },
+        { x + w, y,     0.5f, 1.0f, color, u1, v0 },
+        { x,     y + h, 0.5f, 1.0f, color, u0, v1 },
+        { x + w, y + h, 0.5f, 1.0f, color, u1, v1 },
     };
 
     IDirect3DStateBlock9* pSB = nullptr;
@@ -185,4 +189,56 @@ inline void DrawTexturedQuad(IDirect3DDevice9* dev, IDirect3DTexture9* tex,
     pSB->Apply();
     pSB->Release();
     dev->SetTexture(0, nullptr);
+}
+
+inline void DrawTexturedQuad(IDirect3DDevice9* dev, IDirect3DTexture9* tex,
+                             float x, float y, float w, float h, DWORD color = 0xFFFFFFFF)
+{
+    DrawTexturedQuadUV(dev, tex, x, y, w, h, 0.0f, 0.0f, 1.0f, 1.0f, color);
+}
+
+inline void DrawSolidQuad(IDirect3DDevice9* dev, float x, float y, float w, float h, DWORD color)
+{
+    if (!dev || w <= 0.0f || h <= 0.0f) return;
+
+    SolidVertex verts[4] = {
+        { x,     y,     0.5f, 1.0f, color },
+        { x + w, y,     0.5f, 1.0f, color },
+        { x,     y + h, 0.5f, 1.0f, color },
+        { x + w, y + h, 0.5f, 1.0f, color },
+    };
+
+    IDirect3DStateBlock9* pSB = nullptr;
+    if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &pSB))) return;
+    pSB->Capture();
+
+    dev->SetVertexShader(nullptr);
+    dev->SetPixelShader(nullptr);
+    dev->SetTexture(0, nullptr);
+    dev->SetTexture(1, nullptr);
+    dev->SetFVF(D3DFVF_SOLIDVERTEX);
+    dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    dev->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, FALSE);
+    dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
+    dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0x0000000F);
+    dev->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+    dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    dev->SetRenderState(D3DRS_LIGHTING, FALSE);
+    dev->SetRenderState(D3DRS_ZENABLE, FALSE);
+    dev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    dev->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+    dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+    dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+
+    dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, verts, sizeof(SolidVertex));
+
+    pSB->Apply();
+    pSB->Release();
 }

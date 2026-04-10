@@ -31,7 +31,6 @@ static HWND    g_GameHwnd       = nullptr;
 static WNDPROC g_OriginalWndProc = nullptr;
 static HMODULE g_hModule        = nullptr;
 static bool    g_LastOverlaySuppressMouse = false;
-static bool    g_MouseSuppressFallbackActive = false;
 
 // SkillWndEx this 指针（sub_9E17D0 中捕获）
 static volatile uintptr_t g_SkillWndThis = 0;
@@ -48,16 +47,9 @@ static IDirect3DTexture9* g_texBtnNormal = nullptr;
 static IDirect3DTexture9* g_texBtnHover = nullptr;
 static IDirect3DTexture9* g_texBtnPressed = nullptr;
 static IDirect3DTexture9* g_texBtnDisabled = nullptr;
-static IDirect3DTexture9* g_texCursorNormal = nullptr;
-static IDirect3DTexture9* g_texCursorHoverA = nullptr;
-static IDirect3DTexture9* g_texCursorHoverB = nullptr;
-static IDirect3DTexture9* g_texCursorPressed = nullptr;
 static volatile LONG g_PresentBtnDrawLogBudget = 32;
 static volatile LONG g_BtnD3DDrawLogBudget = 40;
 static volatile LONG g_SkillBtnD3DDrawLogBudget = 40;
-static volatile LONG g_SuperBtnClipLogBudget = 40;
-static volatile LONG g_PostUiTimingTestLogBudget = 48;
-static volatile LONG g_PresentCursorDrawLogBudget = 24;
 
 // 技能管理器
 static SkillManager g_SkillMgr;
@@ -70,7 +62,6 @@ static uintptr_t g_SuperBtnSkinDonorObj = 0; // 实例级换肤 donor 按钮（�
 static uintptr_t g_SuperBtnCompareObj = 0;   // A/B验证：保留原版BtMacro实例，供SuperBtn借用draw object
 static uintptr_t g_SuperBtnStateDonorObj[5] = {};
 static bool g_SuperBtnStateDonorPatched[5] = {};
-static bool g_SuperBtnSelfStatePatched[5] = {};
 static DWORD g_SuperBtnStateDonorRetryTick[5] = {};
 static bool g_SuperBtnForcedStableNormalMode = false;
 static void* g_SuperBtnCachedDrawObj = nullptr; // v16.3: 缓存 SuperBtn state=0 的 resolve 结果，避免被游戏引擎资源树重建破坏
@@ -115,11 +106,9 @@ static const int ROUTEB_CHILD_ALLOC_SIZE = 0xAE8;
 static const int SUPER_CHILD_DONOR_MODE = 1; // 9DDB30 的 a2 实际是“伪指针型 ctrlID”；3001 -> a2-750 的有效模式是 1..4，不是 2251
 static const DWORD SKILLWND_GONE_DEBOUNCE_MS = 800;
 static const bool ENABLE_NATIVE_BUTTON_INSTANCE_SKIN = true;
-static const bool ENABLE_SUPERBTN_D3D_BUTTON_MODE = true; // v18.0: D3D button with clipped visible rects
-static const bool ENABLE_POST_B9F6E0_NATIVE_TIMING_TEST = false; // 关闭 v18.1 的 post-B9F6E0 纯色块实验，回到可见按钮基线
 static const bool ENABLE_SUPERBTN_STATE_DRAWOBJ_OVERRIDE = false; // 稳定模式：停用 ExBtMacro 叶子draw object override，避免 hover 命中坏资源链
 static const bool ENABLE_SUPERBTN_DRAWOBJ_AB_FALLBACK = false; // dump 已证实 compare 按钮只适合诊断，不再参与正式显示
-static const bool ENABLE_SUPERBTN_NATIVE_DONOR_DRAWOBJ = false; // v18.0: D3D-clipped button skips donor state chain
+static const bool ENABLE_SUPERBTN_NATIVE_DONOR_DRAWOBJ = true; // v17.4b: 回到按钮可见的 donor 基线
 static const bool ENABLE_SUPERBTN_SELF_DRAWOBJ_PATCH = false; // 自 patch 会命中共享 draw object，导致原版宏按钮一起被改
 static const bool ENABLE_SUPERBTN_RUNTIME_WRAPPER_PATCH = false; // v17.4b: 停用错误的 +0x3C wrapper patch
 static const bool ENABLE_NATIVE_BUTTON_SKIN_REMAP = false; // 先关闭按钮换图实验，恢复渲染稳定性
@@ -132,7 +121,7 @@ static const bool ENABLE_MOVE_FOCUS_SYNC = false;   // v10.3: MoveFocusSync 会�
 static const bool ENABLE_PRESENT_NATIVE_CHILD_UPDATE = false; // v10.4+: native child 不再每帧在 Present 中搬运，先消除抽搐/视口漂移
 static const bool ENABLE_REFRESH_NATIVE_CHILD_UPDATE = false; // v10.6: native child 不再在 refresh hook 中高频搬运，优先消除拖动抽搐
 static const char* SAVE_STATE_PATH = "G:\\code\\c++\\SuperSkillWnd\\skill\\save_state.json";
-static const char* BUILD_MARKER = "v18.0e-2026-04-09-cursor-minus4-hoverA-plus2-no-carrier-direct-ui-align";
+static const char* BUILD_MARKER = "v17.7d-2026-04-08-rect-write-hook-fix";
 static const wchar_t* SUPER_BTN_RES_PATH = L"UI/UIWindow2.img/Skill/main/BtMacro";
 static const wchar_t* SUPER_BTN_RES_PATH_ALT = L"/UIWindow2.img/Skill/main/BtMacro";
 static int g_PanelDrawX = -9999;
@@ -157,30 +146,12 @@ static CpuButtonBitmap1555 g_SuperBtnCpuNormal;
 static CpuButtonBitmap1555 g_SuperBtnCpuHover;
 static CpuButtonBitmap1555 g_SuperBtnCpuPressed;
 static CpuButtonBitmap1555 g_SuperBtnCpuDisabled;
-
-struct SuperBtnVisiblePiece
-{
-    RECT screen = {};
-    float u0 = 0.0f;
-    float v0 = 0.0f;
-    float u1 = 1.0f;
-    float v1 = 1.0f;
-};
-
-static std::vector<SuperBtnVisiblePiece> g_SuperBtnVisiblePieces;
-static DWORD g_SuperBtnD3DVisualState = 0;
-static bool g_SuperBtnD3DPressed = false;
-static bool g_SuperBtnD3DHover = false;
-static DWORD g_SuperBtnD3DHoverStartTick = 0;
+static bool g_SuperBtnSelfStatePatched[5] = {};
 
 static void UpdateSuperCWnd();
 static void SetSuperWndVisible(uintptr_t wndObj, int showVal);
 static void __fastcall SuperCWndDraw(uintptr_t thisPtr, void* edxUnused, int* clipRegion);
-static bool GetSkillWndAnchorPos(uintptr_t skillWndThis, int* outX, int* outY);
-static bool GetSkillWndComPos(uintptr_t skillWndThis, int* outX, int* outY);
 static void MarkSuperWndDirty(uintptr_t wndObj, const char* logTag);
-static void ForwardGameMouseOffscreenNow();
-static void UpdateGameMouseSuppressionFallback(bool suppressMouse);
 static void RefreshGameCursorImmediately();
 static void ClearGameVariant(VARIANTARG* pv);
 static void ReleaseUiObj(void* obj);
@@ -189,379 +160,6 @@ static bool IsPointInRectPad(int mx, int my, int x, int y, int w, int h, int pad
 static bool GetExpectedButtonRectCom(int* outX, int* outY, int* outW, int* outH);
 static bool GetExpectedButtonRectVt(int* outX, int* outY, int* outW, int* outH);
 static void LogSuperButtonGeometry(const char* tag);
-static void DrawPostB9F6E0NativeTimingTest();
-static void DrawSuperButtonCursorInPresent(IDirect3DDevice9* pDevice);
-static bool RectHasArea(const RECT& rc)
-{
-    return rc.right > rc.left && rc.bottom > rc.top;
-}
-
-static RECT MakeRectXYWH(int x, int y, int w, int h)
-{
-    RECT rc = { x, y, x + w, y + h };
-    return rc;
-}
-
-static bool GetCWndScreenRectByObj(uintptr_t wndObj, RECT* outRect)
-{
-    if (!wndObj || !outRect)
-        return false;
-
-    int w = CWnd_GetWidth(wndObj);
-    int h = CWnd_GetHeight(wndObj);
-    if (w <= 0 || h <= 0 || w > 4096 || h > 4096)
-        return false;
-
-    int x = CWnd_GetRenderX(wndObj);
-    int y = CWnd_GetRenderY(wndObj);
-    if (x < -10000 || x > 10000 || y < -10000 || y > 10000) {
-        x = CWnd_GetX(wndObj);
-        y = CWnd_GetY(wndObj);
-    }
-    if (x < -10000 || x > 10000 || y < -10000 || y > 10000)
-        return false;
-
-    *outRect = MakeRectXYWH(x, y, w, h);
-    return true;
-}
-
-static bool GetSkillWndScreenRectForD3D(RECT* outRect)
-{
-    if (!outRect || !g_SkillWndThis)
-        return false;
-
-    int x = 0;
-    int y = 0;
-    if (!GetSkillWndAnchorPos(g_SkillWndThis, &x, &y)) {
-        if (!GetSkillWndComPos(g_SkillWndThis, &x, &y))
-            return false;
-    }
-
-    int w = CWnd_GetWidth(g_SkillWndThis);
-    int h = CWnd_GetHeight(g_SkillWndThis);
-    if (w <= 0 || h <= 0 || w > 4096 || h > 4096)
-        return false;
-
-    *outRect = MakeRectXYWH(x, y, w, h);
-    return true;
-}
-
-static bool GetSuperButtonBaseRectForD3D(RECT* outRect)
-{
-    if (!outRect)
-        return false;
-
-    int x = 0, y = 0, w = 0, h = 0;
-    if (!GetExpectedButtonRectVt(&x, &y, &w, &h) &&
-        !GetExpectedButtonRectCom(&x, &y, &w, &h)) {
-        return false;
-    }
-
-    *outRect = MakeRectXYWH(x, y, w, h);
-    return true;
-}
-
-static void DrawPostB9F6E0NativeTimingTest()
-{
-    if (!ENABLE_POST_B9F6E0_NATIVE_TIMING_TEST || !g_pDevice)
-        return;
-
-    RECT rc = {};
-    if (!GetSuperButtonBaseRectForD3D(&rc)) {
-        if (GetSkillWndScreenRectForD3D(&rc)) {
-            rc.left += 10;
-            rc.top += 10;
-            rc.right = rc.left + 220;
-            rc.bottom = rc.top + 72;
-        } else {
-            rc = MakeRectXYWH(200, 200, 220, 72);
-        }
-    } else {
-        rc.left -= 16;
-        rc.top -= 16;
-        rc.right += 150;
-        rc.bottom += 32;
-    }
-
-    const DWORD color = (GetTickCount() / 250) & 1 ? 0xE0FF2060 : 0xE020D0FF;
-    bool ok = false;
-    __try {
-        DrawSolidQuad(
-            g_pDevice,
-            (float)rc.left,
-            (float)rc.top,
-            (float)(rc.right - rc.left),
-            (float)(rc.bottom - rc.top),
-            color);
-        ok = true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        ok = false;
-    }
-
-    LONG after = InterlockedDecrement(&g_PostUiTimingTestLogBudget);
-    if (after >= 0) {
-        WriteLogFmt("[PostUiTimingTest] ok=%d rect=(%ld,%ld,%ld,%ld) color=0x%08X btn=0x%08X dev=0x%08X",
-            ok ? 1 : 0,
-            rc.left, rc.top, rc.right, rc.bottom,
-            color,
-            (DWORD)g_SuperBtnObj,
-            (DWORD)(uintptr_t)g_pDevice);
-    }
-}
-
-static int GetCWndZOrderValue(uintptr_t wndObj)
-{
-    if (!wndObj || SafeIsBadReadPtr((void*)(wndObj + CWND_OFF_ZORDER * 4), 4))
-        return 0;
-    return *(int*)(wndObj + CWND_OFF_ZORDER * 4);
-}
-
-static bool IsIgnoredSuperBtnOccluder(uintptr_t wndObj)
-{
-    if (!wndObj)
-        return true;
-    if (wndObj == g_SkillWndThis || wndObj == g_SuperBtnObj || wndObj == g_SuperCWnd ||
-        wndObj == g_SuperBtnSkinDonorObj || wndObj == g_SuperBtnCompareObj)
-        return true;
-    for (int i = 0; i < 5; ++i) {
-        if (wndObj == g_SuperBtnStateDonorObj[i])
-            return true;
-    }
-    return false;
-}
-
-static void AppendRectIfValid(std::vector<RECT>& rects, const RECT& rc)
-{
-    if (RectHasArea(rc))
-        rects.push_back(rc);
-}
-
-static void SubtractRectFromPiece(const RECT& src, const RECT& cut, std::vector<RECT>& out)
-{
-    RECT inter = {};
-    if (!IntersectRect(&inter, &src, &cut)) {
-        out.push_back(src);
-        return;
-    }
-
-    RECT top = { src.left, src.top, src.right, inter.top };
-    RECT bottom = { src.left, inter.bottom, src.right, src.bottom };
-    RECT left = { src.left, inter.top, inter.left, inter.bottom };
-    RECT right = { inter.right, inter.top, src.right, inter.bottom };
-
-    AppendRectIfValid(out, top);
-    AppendRectIfValid(out, bottom);
-    AppendRectIfValid(out, left);
-    AppendRectIfValid(out, right);
-}
-
-static void CollectSuperBtnOccluderRects(const RECT& baseRect, std::vector<RECT>& outRects)
-{
-    if (SafeIsBadReadPtr((void*)ADDR_CWndMan, 4))
-        return;
-    uintptr_t wndMan = *(uintptr_t*)ADDR_CWndMan;
-    if (!wndMan)
-        return;
-
-    const uintptr_t topBase = wndMan + CWNDMAN_TOPLEVEL_OFF;
-    for (int i = 0; i < 256; ++i) {
-        uintptr_t slotAddr = topBase + i * 4;
-        if (SafeIsBadReadPtr((void*)slotAddr, 4))
-            break;
-        uintptr_t wndObj = *(DWORD*)slotAddr;
-        if (IsIgnoredSuperBtnOccluder(wndObj))
-            continue;
-
-        RECT wndRect = {};
-        RECT inter = {};
-        if (!GetCWndScreenRectByObj(wndObj, &wndRect))
-            continue;
-        if (!IntersectRect(&inter, &baseRect, &wndRect))
-            continue;
-
-        bool duplicate = false;
-        for (size_t k = 0; k < outRects.size(); ++k) {
-            if (EqualRect(&outRects[k], &wndRect)) {
-                duplicate = true;
-                break;
-            }
-        }
-        if (!duplicate)
-            outRects.push_back(wndRect);
-    }
-
-}
-
-static void ResetSuperBtnD3DInteractionState()
-{
-    g_SuperBtnD3DVisualState = 0;
-    g_SuperBtnD3DPressed = false;
-    g_SuperBtnD3DHover = false;
-    g_SuperBtnD3DHoverStartTick = 0;
-    g_SuperBtnVisiblePieces.clear();
-}
-
-static bool UpdateSuperBtnVisiblePieces(const char* reason)
-{
-    g_SuperBtnVisiblePieces.clear();
-    if (!ENABLE_SUPERBTN_D3D_BUTTON_MODE || !g_Ready || !g_NativeBtnCreated || !g_SkillWndThis)
-        return false;
-
-    RECT baseRect = {};
-    if (!GetSuperButtonBaseRectForD3D(&baseRect))
-        return false;
-
-    std::vector<RECT> pieces;
-    RECT skillRect = {};
-    RECT clippedBase = baseRect;
-    if (GetSkillWndScreenRectForD3D(&skillRect)) {
-        if (!IntersectRect(&clippedBase, &baseRect, &skillRect))
-            return false;
-    }
-    pieces.push_back(clippedBase);
-
-    std::vector<RECT> occluders;
-    CollectSuperBtnOccluderRects(baseRect, occluders);
-    for (size_t i = 0; i < occluders.size() && !pieces.empty(); ++i) {
-        std::vector<RECT> nextPieces;
-        nextPieces.reserve(pieces.size() * 2 + 4);
-        for (size_t j = 0; j < pieces.size(); ++j)
-            SubtractRectFromPiece(pieces[j], occluders[i], nextPieces);
-        pieces.swap(nextPieces);
-        if (pieces.size() > 32)
-            pieces.resize(32);
-    }
-
-    const float baseW = (float)(baseRect.right - baseRect.left);
-    const float baseH = (float)(baseRect.bottom - baseRect.top);
-    if (baseW <= 0.0f || baseH <= 0.0f)
-        return false;
-
-    for (size_t i = 0; i < pieces.size(); ++i) {
-        const RECT& rc = pieces[i];
-        if (!RectHasArea(rc))
-            continue;
-        SuperBtnVisiblePiece piece = {};
-        piece.screen = rc;
-        piece.u0 = (float)(rc.left - baseRect.left) / baseW;
-        piece.v0 = (float)(rc.top - baseRect.top) / baseH;
-        piece.u1 = (float)(rc.right - baseRect.left) / baseW;
-        piece.v1 = (float)(rc.bottom - baseRect.top) / baseH;
-        g_SuperBtnVisiblePieces.push_back(piece);
-    }
-
-    LONG after = InterlockedDecrement(&g_SuperBtnClipLogBudget);
-    if (after >= 0) {
-        WriteLogFmt("[BtnClip] reason=%s base=(%ld,%ld,%ld,%ld) skill=%s(%ld,%ld,%ld,%ld) occluders=%d pieces=%d state=%u",
-            reason ? reason : "-",
-            baseRect.left, baseRect.top, baseRect.right, baseRect.bottom,
-            RectHasArea(skillRect) ? "Y" : "N",
-            skillRect.left, skillRect.top, skillRect.right, skillRect.bottom,
-            (int)occluders.size(),
-            (int)g_SuperBtnVisiblePieces.size(),
-            (unsigned)g_SuperBtnD3DVisualState);
-    }
-
-    return !g_SuperBtnVisiblePieces.empty();
-}
-
-static bool IsPointInVisibleSuperBtnPieces(int mx, int my)
-{
-    if (!UpdateSuperBtnVisiblePieces("hit"))
-        return false;
-
-    for (size_t i = 0; i < g_SuperBtnVisiblePieces.size(); ++i) {
-        const RECT& rc = g_SuperBtnVisiblePieces[i].screen;
-        if (mx >= rc.left && mx < rc.right && my >= rc.top && my < rc.bottom)
-            return true;
-    }
-    return false;
-}
-
-static void ToggleSuperWnd(const char* srcTag = "unknown");
-
-static bool HandleSuperBtnD3DWndProc(HWND h, UINT m, WPARAM w, LPARAM l)
-{
-    UNREFERENCED_PARAMETER(h);
-    UNREFERENCED_PARAMETER(w);
-
-    if (ENABLE_POST_B9F6E0_NATIVE_TIMING_TEST)
-        return false;
-
-    if (!ENABLE_SUPERBTN_D3D_BUTTON_MODE || !g_Ready || !g_NativeBtnCreated || !g_SkillWndThis)
-        return false;
-
-    switch (m) {
-    case WM_CAPTURECHANGED:
-    case WM_KILLFOCUS:
-        ResetSuperBtnD3DInteractionState();
-        return false;
-    case WM_ACTIVATEAPP:
-        if (!w)
-            ResetSuperBtnD3DInteractionState();
-        return false;
-    default:
-        break;
-    }
-
-    if (m != WM_MOUSEMOVE && m != WM_LBUTTONDOWN && m != WM_LBUTTONUP)
-        return false;
-
-    const int mx = (short)LOWORD(l);
-    const int my = (short)HIWORD(l);
-    const bool hit = IsPointInVisibleSuperBtnPieces(mx, my);
-
-    if (m == WM_MOUSEMOVE) {
-        const bool wasHover = g_SuperBtnD3DHover;
-        g_SuperBtnD3DHover = hit;
-        if (g_SuperBtnD3DHover && !wasHover)
-            g_SuperBtnD3DHoverStartTick = GetTickCount();
-        else if (!g_SuperBtnD3DHover)
-            g_SuperBtnD3DHoverStartTick = 0;
-        g_SuperBtnD3DVisualState = g_SuperBtnD3DPressed ? 1u : (hit ? 3u : 0u);
-        if ((hit || g_SuperBtnD3DPressed) && !Win32InputSpoofIsInstalled())
-            ForwardGameMouseOffscreenNow();
-        return hit || g_SuperBtnD3DPressed;
-    }
-
-    if (m == WM_LBUTTONDOWN) {
-        if (!hit)
-            return false;
-        g_SuperBtnD3DPressed = true;
-        g_SuperBtnD3DHover = true;
-        if (!g_SuperBtnD3DHoverStartTick)
-            g_SuperBtnD3DHoverStartTick = GetTickCount();
-        g_SuperBtnD3DVisualState = 1;
-        return true;
-    }
-
-    if (m == WM_LBUTTONUP) {
-        if (!g_SuperBtnD3DPressed)
-            return false;
-        g_SuperBtnD3DPressed = false;
-        g_SuperBtnD3DHover = hit;
-        if (g_SuperBtnD3DHover && !g_SuperBtnD3DHoverStartTick)
-            g_SuperBtnD3DHoverStartTick = GetTickCount();
-        else if (!g_SuperBtnD3DHover)
-            g_SuperBtnD3DHoverStartTick = 0;
-        g_SuperBtnD3DVisualState = hit ? 3u : 0u;
-        if (hit) {
-            g_LastNativeMsgToggleTick = GetTickCount();
-            ToggleSuperWnd("d3d_btn");
-        }
-        return true;
-    }
-
-    return false;
-}
-
-static bool ShouldSuppressGameMouseForSuperBtnD3D()
-{
-    if (!ENABLE_SUPERBTN_D3D_BUTTON_MODE || !g_Ready || !g_NativeBtnCreated || !g_SkillWndThis)
-        return false;
-    return g_SuperBtnD3DPressed || g_SuperBtnD3DHover;
-}
-
 static void LogNativeButtonCoreFields(uintptr_t btnObj, const char* tag);
 static int __fastcall hkButtonDrawCurrentState(uintptr_t thisPtr, void* edxUnused, int x, int y, int a4);
 static DWORD GetCurrentSuperBtnState();
@@ -570,12 +168,7 @@ static const CpuButtonBitmap1555* GetSuperBtnCpuBitmapForState(DWORD state);
 static bool PatchSuperBtnDonorDrawObjectsFromResources();
 static bool ForceSuperButtonAllStatesToNormalDonor(uintptr_t btnObj);
 static bool PatchSuperBtnOwnDrawObjectsFromResources(uintptr_t btnObj, const char* reason = nullptr);
- void ResetSuperBtnD3DInteractionState();
-static bool UpdateSuperBtnVisiblePieces(const char* reason = nullptr);
-static bool IsPointInVisibleSuperBtnPieces(int mx, int my);
-static bool HandleSuperBtnD3DWndProc(HWND h, UINT m, WPARAM w, LPARAM l);
-static bool ShouldSuppressGameMouseForSuperBtnD3D();
-static void ToggleSuperWnd(const char* srcTag);
+static bool PatchSuperBtnCurrentWrapperFromResources(uintptr_t btnObj, const char* reason = nullptr);
 
 // SkillWnd坐标：优先走 this+4 的vtable(0x30/0x34)，与原sub_9E17D0一致
 static bool GetSkillWndAnchorPos(uintptr_t skillWndThis, int* outX, int* outY)
@@ -716,41 +309,6 @@ static void RefreshGameCursorImmediately()
     CallWindowProc(g_OriginalWndProc, g_GameHwnd, WM_SETCURSOR, (WPARAM)g_GameHwnd, MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
 }
 
-static void ForwardGameMouseOffscreenNow()
-{
-    if (!g_GameHwnd || !g_OriginalWndProc)
-        return;
-
-    CallWindowProc(g_OriginalWndProc, g_GameHwnd, WM_MOUSEMOVE, 0, Win32InputSpoofMakeOffscreenMouseLParam());
-    CallWindowProc(g_OriginalWndProc, g_GameHwnd, WM_SETCURSOR, (WPARAM)g_GameHwnd, MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
-}
-
-static void UpdateGameMouseSuppressionFallback(bool suppressMouse)
-{
-    if (Win32InputSpoofIsInstalled())
-    {
-        g_MouseSuppressFallbackActive = false;
-        return;
-    }
-
-    if (suppressMouse)
-    {
-        ForwardGameMouseOffscreenNow();
-        SetCursor(nullptr);
-        if (!g_MouseSuppressFallbackActive)
-            WriteLog("[MouseSuppressFallback] ON");
-        g_MouseSuppressFallbackActive = true;
-        return;
-    }
-
-    if (g_MouseSuppressFallbackActive)
-    {
-        WriteLog("[MouseSuppressFallback] OFF");
-        g_MouseSuppressFallbackActive = false;
-        RefreshGameCursorImmediately();
-    }
-}
-
 typedef int (__cdecl *tCloneVariant)(VARIANTARG* pvarg, VARIANTARG* pvargSrc);
 typedef int (__thiscall *tQueryDrawIface)(void** outIface, void* obj);
 typedef int (__thiscall *tAssignUiSlot)(DWORD* slot, void* obj);
@@ -770,7 +328,6 @@ static tButtonDrawCurrentState oButtonDrawCurrentState = nullptr;
 static tButtonMetricCurrent oButtonMetric507DF0 = nullptr;
 static tButtonMetricCurrent oButtonMetric507ED0 = nullptr;
 static tRefreshButtonState oButtonRefreshState5095A0 = nullptr;
-static void* oPostB9F6E0DrawContinue = nullptr;
 static volatile LONG g_SuperBtnCreateTraceScope = 0;
 static volatile LONG g_SuperBtnCreateTraceBudget = 0;
 static DWORD g_SuperBtnCreateTraceUntilTick = 0;
@@ -1782,77 +1339,6 @@ static IDirect3DTexture9* GetSuperBtnTextureForState(DWORD state)
     }
 }
 
-static IDirect3DTexture9* GetSuperCursorTextureForCurrentState()
-{
-    if (g_SuperBtnD3DPressed)
-        return g_texCursorPressed ? g_texCursorPressed : g_texCursorNormal;
-
-    if (g_SuperBtnD3DHover) {
-        const DWORD nowTick = GetTickCount();
-        const DWORD hoverStartTick = g_SuperBtnD3DHoverStartTick ? g_SuperBtnD3DHoverStartTick : nowTick;
-        const DWORD hoverElapsed = nowTick - hoverStartTick;
-        if (hoverElapsed < 500)
-            return g_texCursorHoverA ? g_texCursorHoverA : g_texCursorNormal;
-
-        const DWORD loopFrame = ((hoverElapsed - 500) / 500) & 1;
-        return loopFrame ? (g_texCursorHoverA ? g_texCursorHoverA : g_texCursorNormal)
-                         : (g_texCursorHoverB ? g_texCursorHoverB : g_texCursorNormal);
-    }
-
-    return g_texCursorNormal;
-}
-
-static float GetSuperCursorFixedYOffset(IDirect3DTexture9* currentTex)
-{
-    // User-confirmed baseline:
-    // 1. whole custom cursor should sit 4px higher than the raw mouse point
-    // 2. only the second/taller frame (mouse.normal.1) should move 2px downward
-    float y = -4.0f;
-    if (currentTex && currentTex == g_texCursorHoverA)
-        y += 2.0f;
-    return y;
-}
-
-static void DrawSuperButtonCursorInPresent(IDirect3DDevice9* pDevice)
-{
-    if (!pDevice || !g_GameHwnd)
-        return;
-    if (!ShouldSuppressGameMouseForSuperBtnD3D())
-        return;
-    if (SuperImGuiOverlayShouldSuppressGameMouse())
-        return;
-
-    IDirect3DTexture9* tex = GetSuperCursorTextureForCurrentState();
-    if (!tex)
-        return;
-
-    POINT pt = {};
-    if (!GetCursorPos(&pt) || !ScreenToClient(g_GameHwnd, &pt))
-        return;
-
-    D3DSURFACE_DESC desc = {};
-    if (FAILED(tex->GetLevelDesc(0, &desc)))
-        return;
-
-    const float drawX = floorf((float)pt.x);
-    const float extraYOffset = GetSuperCursorFixedYOffset(tex);
-    const float drawY = floorf((float)pt.y + extraYOffset);
-    DrawTexturedQuad(pDevice, tex, drawX, drawY, (float)desc.Width, (float)desc.Height);
-
-    LONG after = InterlockedDecrement(&g_PresentCursorDrawLogBudget);
-    if (after >= 0) {
-        WriteLogFmt("[PresentCursorDraw] hover=%d pressed=%d pos=(%d,%d) draw=(%.1f,%.1f) tex=0x%08X size=%ux%u extraY=%.1f",
-            g_SuperBtnD3DHover ? 1 : 0,
-            g_SuperBtnD3DPressed ? 1 : 0,
-            pt.x, pt.y,
-            drawX, drawY,
-            (DWORD)(uintptr_t)tex,
-            (unsigned)desc.Width,
-            (unsigned)desc.Height,
-            extraYOffset);
-    }
-}
-
 static bool DrawSuperButtonStateOnNativeSurface(uintptr_t thisPtr, DWORD state, int drawX, int drawY)
 {
     if (!thisPtr || state > 4)
@@ -1950,14 +1436,6 @@ static bool DrawSuperButtonTextureInNativeDraw(uintptr_t thisPtr, DWORD state)
 
 static bool DrawSuperButtonTextureInSkillWndDraw(uintptr_t skillWndThis)
 {
-    if (ENABLE_POST_B9F6E0_NATIVE_TIMING_TEST)
-        return false;
-
-    if (ENABLE_SUPERBTN_D3D_BUTTON_MODE) {
-        UNREFERENCED_PARAMETER(skillWndThis);
-        return false;
-    }
-
     // v17.5: 在 SkillWnd draw handler 尾部手动调 507020 绘制按钮。
     // 关键修复：调用 oButtonDrawCurrentState (trampoline) 会绕过 hkButtonDrawCurrentState，
     // 因此必须在此处手动做状态归一化 + donor slot 借用，否则 hover/pressed 状态下
@@ -2098,64 +1576,7 @@ static DWORD GetCurrentSuperBtnState()
 
 static void DrawSuperButtonTextureInPresent(IDirect3DDevice9* pDevice)
 {
-    if (ENABLE_POST_B9F6E0_NATIVE_TIMING_TEST)
-        return;
-
-    if (!pDevice || !g_NativeBtnCreated || !g_SuperBtnObj)
-        return;
-
-    if (ENABLE_SUPERBTN_D3D_BUTTON_MODE) {
-        if (!g_TexturesLoaded)
-            return;
-        if (!UpdateSuperBtnVisiblePieces("present_draw"))
-            return;
-
-        IDirect3DTexture9* tex = GetSuperBtnTextureForState(g_SuperBtnD3DVisualState);
-        if (!tex)
-            return;
-
-        bool ok = false;
-        for (size_t i = 0; i < g_SuperBtnVisiblePieces.size(); ++i) {
-            const SuperBtnVisiblePiece& piece = g_SuperBtnVisiblePieces[i];
-            const RECT& rc = piece.screen;
-            const int w = rc.right - rc.left;
-            const int h = rc.bottom - rc.top;
-            if (w <= 0 || h <= 0)
-                continue;
-
-            __try {
-                DrawTexturedQuadUV(
-                    pDevice,
-                    tex,
-                    (float)rc.left,
-                    (float)rc.top,
-                    (float)w,
-                    (float)h,
-                    piece.u0,
-                    piece.v0,
-                    piece.u1,
-                    piece.v1);
-                ok = true;
-            } __except (EXCEPTION_EXECUTE_HANDLER) {
-            }
-        }
-
-        if (ok)
-            g_SuperBtnLastDrawTick = GetTickCount();
-
-        LONG after = InterlockedDecrement(&g_PresentBtnDrawLogBudget);
-        if (after >= 0) {
-            WriteLogFmt("[PresentBtnDraw] ok=%d state=%u pieces=%d tex=0x%08X btn=0x%08X",
-                ok ? 1 : 0,
-                (unsigned)g_SuperBtnD3DVisualState,
-                (int)g_SuperBtnVisiblePieces.size(),
-                (DWORD)(uintptr_t)tex,
-                (DWORD)g_SuperBtnObj);
-        }
-        return;
-    }
-
-    if (!ENABLE_PRESENT_SUPERBTN_DRAW)
+    if (!ENABLE_PRESENT_SUPERBTN_DRAW || !pDevice || !g_NativeBtnCreated || !g_SuperBtnObj)
         return;
 
     DWORD state = GetCurrentSuperBtnState();
@@ -3724,44 +3145,6 @@ static IDirect3DTexture9* LoadTextureFromResource(IDirect3DDevice9* dev, int res
     return tex;
 }
 
-static IDirect3DTexture9* LoadTextureFromFilePath(IDirect3DDevice9* dev, const char* path)
-{
-    if (!dev || !path || !path[0])
-        return nullptr;
-
-    int w = 0, h = 0, ch = 0;
-    unsigned char* pixels = stbi_load(path, &w, &h, &ch, 4);
-    if (!pixels) {
-        WriteLogFmt("[Tex] stbi_load(file) failed path=%s", path);
-        return nullptr;
-    }
-
-    IDirect3DTexture9* tex = nullptr;
-    if (FAILED(dev->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr))) {
-        stbi_image_free(pixels);
-        return nullptr;
-    }
-
-    D3DLOCKED_RECT lr = {};
-    if (SUCCEEDED(tex->LockRect(0, &lr, nullptr, 0))) {
-        for (int y2 = 0; y2 < h; y2++) {
-            unsigned char* src = pixels + y2 * w * 4;
-            unsigned char* dst = (unsigned char*)lr.pBits + y2 * lr.Pitch;
-            for (int x2 = 0; x2 < w; x2++) {
-                dst[x2*4+0] = src[x2*4+2];
-                dst[x2*4+1] = src[x2*4+1];
-                dst[x2*4+2] = src[x2*4+0];
-                dst[x2*4+3] = src[x2*4+3];
-            }
-        }
-        tex->UnlockRect(0);
-    }
-
-    stbi_image_free(pixels);
-    WriteLogFmt("[Tex] Loaded file: %s -> %dx%d", path, w, h);
-    return tex;
-}
-
 static void LoadAllTextures(IDirect3DDevice9* dev)
 {
     if (g_TexturesLoaded || !dev) return;
@@ -3770,14 +3153,9 @@ static void LoadAllTextures(IDirect3DDevice9* dev)
     g_texBtnHover = LoadTextureFromResource(dev, IDR_BTN_HOVER);
     g_texBtnPressed = LoadTextureFromResource(dev, IDR_BTN_PRESSED);
     g_texBtnDisabled = LoadTextureFromResource(dev, IDR_BTN_DISABLED);
-    g_texCursorNormal = LoadTextureFromFilePath(dev, "G:\\code\\UI\\SkillEx\\System.mouse.normal.png");
-    g_texCursorHoverA = LoadTextureFromFilePath(dev, "G:\\code\\UI\\SkillEx\\System.mouse.normal.1.png");
-    g_texCursorHoverB = LoadTextureFromFilePath(dev, "G:\\code\\UI\\SkillEx\\System.mouse.normal.2.png");
-    g_texCursorPressed = LoadTextureFromFilePath(dev, "G:\\code\\UI\\SkillEx\\System.mouse.pressed.png");
     g_TexturesLoaded = true;
-    WriteLogFmt("[Tex] loaded panel=%p btn=[%p,%p,%p,%p] cursor=[%p,%p,%p,%p]",
-        g_texPanelBg, g_texBtnNormal, g_texBtnHover, g_texBtnPressed, g_texBtnDisabled,
-        g_texCursorNormal, g_texCursorHoverA, g_texCursorHoverB, g_texCursorPressed);
+    WriteLogFmt("[Tex] loaded panel=%p btn=[%p,%p,%p,%p]",
+        g_texPanelBg, g_texBtnNormal, g_texBtnHover, g_texBtnPressed, g_texBtnDisabled);
 }
 
 static void ReleaseAllD3D9Textures(const char* reason)
@@ -3791,10 +3169,6 @@ static void ReleaseAllD3D9Textures(const char* reason)
     if (g_texBtnHover) { g_texBtnHover->Release(); g_texBtnHover = nullptr; }
     if (g_texBtnPressed) { g_texBtnPressed->Release(); g_texBtnPressed = nullptr; }
     if (g_texBtnDisabled) { g_texBtnDisabled->Release(); g_texBtnDisabled = nullptr; }
-    if (g_texCursorNormal) { g_texCursorNormal->Release(); g_texCursorNormal = nullptr; }
-    if (g_texCursorHoverA) { g_texCursorHoverA->Release(); g_texCursorHoverA = nullptr; }
-    if (g_texCursorHoverB) { g_texCursorHoverB->Release(); g_texCursorHoverB = nullptr; }
-    if (g_texCursorPressed) { g_texCursorPressed->Release(); g_texCursorPressed = nullptr; }
     g_TexturesLoaded = false;
 }
 
@@ -3989,12 +3363,7 @@ static bool CreateSuperButton(uintptr_t skillWndThis)
             (DWORD)g_SuperBtnObj, GetExceptionCode());
     }
 
-    if (ENABLE_SUPERBTN_D3D_BUTTON_MODE) {
-        MoveNativeButtonRaw(g_SuperBtnObj, -4096, -4096, "BtnHideD3D");
-        ResetSuperBtnD3DInteractionState();
-    } else {
-        MoveNativeButtonRaw(g_SuperBtnObj, BTN_X_OFFSET, BTN_Y_OFFSET, "BtnMoveCreate");
-    }
+    MoveNativeButtonRaw(g_SuperBtnObj, BTN_X_OFFSET, BTN_Y_OFFSET, "BtnMoveCreate");
     SeedSuperBtnMetricOverridesIfEmpty(BTN_METRIC_FALLBACK_X, BTN_METRIC_FALLBACK_Y, "BtnMetricSeedCreate");
     if (ENABLE_SUPERBTN_SELF_DRAWOBJ_PATCH) {
         PatchSuperBtnOwnDrawObjectsFromResources(g_SuperBtnObj, "create");
@@ -4003,7 +3372,7 @@ static bool CreateSuperButton(uintptr_t skillWndThis)
         PatchSuperBtnCurrentWrapperFromResources(g_SuperBtnObj, "create");
     }
 
-    if (!ENABLE_SUPERBTN_D3D_BUTTON_MODE && (ENABLE_SUPERBTN_STATE_DRAWOBJ_OVERRIDE || ENABLE_SUPERBTN_DRAWOBJ_AB_FALLBACK || ENABLE_SUPERBTN_NATIVE_DONOR_DRAWOBJ) &&
+    if ((ENABLE_SUPERBTN_STATE_DRAWOBJ_OVERRIDE || ENABLE_SUPERBTN_DRAWOBJ_AB_FALLBACK || ENABLE_SUPERBTN_NATIVE_DONOR_DRAWOBJ) &&
         (usedPath == reinterpret_cast<const unsigned short*>(SUPER_BTN_RES_PATH) ||
          usedPath == reinterpret_cast<const unsigned short*>(SUPER_BTN_RES_PATH_ALT)))
     {
@@ -4411,7 +3780,6 @@ static void ResetSuperRuntimeState(bool closeWnd, const char* reason)
     }
     g_SuperCWnd = 0;
     g_NativeBtnCreated = false;
-    ResetSuperBtnD3DInteractionState();
     g_NativeWndCreated = false;
     g_SuperUsesSkillWndSecondSlot = false;
 }
@@ -4459,7 +3827,7 @@ static void OnSkillWndPointerObserved(uintptr_t observed, const char* srcTag)
 // 切换超级技能栏窗口显示/隐藏
 // 复刻 sub_9E9B50 的逻辑
 // ============================================================================
-static void ToggleSuperWnd(const char* srcTag)
+static void ToggleSuperWnd(const char* srcTag = "unknown")
 {
     if (!g_SkillWndThis) return;
 
@@ -4506,7 +3874,6 @@ static bool IsPointInRectPad(int mx, int my, int x, int y, int w, int h, int pad
 
 static bool TryToggleByMousePoint(int mx, int my, const char* srcTag)
 {
-    if (ENABLE_SUPERBTN_D3D_BUTTON_MODE) return false;
     if (!g_Ready || !g_NativeBtnCreated || !g_SkillWndThis) return false;
 
     DWORD now = GetTickCount();
@@ -4848,7 +4215,7 @@ static int __cdecl hkSkillWndDrawHandler(uintptr_t thisPtr, int clipRegion)
     }
 
     if (thisPtr == g_SkillWndThis) {
-        if (g_NativeBtnCreated && g_SuperBtnObj && !ENABLE_SUPERBTN_D3D_BUTTON_MODE) {
+        if (g_NativeBtnCreated && g_SuperBtnObj) {
             MoveSuperButtonToExpectedPos("BtnMoveDraw");
         }
         DrawSuperButtonTextureInSkillWndDraw(thisPtr);
@@ -4866,19 +4233,6 @@ __declspec(naked) static void hkSkillWndDrawNaked()
         call hkSkillWndDrawHandler
         add esp, 8
         ret 4
-    }
-}
-
-__declspec(naked) static void hkPostB9F6E0DrawNaked()
-{
-    __asm {
-        pushfd
-        pushad
-        call DrawPostB9F6E0NativeTimingTest
-        popad
-        popfd
-        mov eax, oPostB9F6E0DrawContinue
-        jmp eax
     }
 }
 
@@ -5485,14 +4839,6 @@ static LRESULT CALLBACK GameWndProc(HWND h, UINT m, WPARAM w, LPARAM l)
         return 0;
     }
 
-    if (m == WM_SETCURSOR && g_MouseSuppressFallbackActive) {
-        SetCursor(nullptr);
-        return TRUE;
-    }
-
-    if (HandleSuperBtnD3DWndProc(h, m, w, l))
-        return 0;
-
     // 兜底：即使原生消息没分发到sub_9ECFD0，也保证按钮可点
     // 注意：不能吞掉 WM_LBUTTONUP，否则原生按钮状态机会丢失 mouseUp，光标可能卡在 pressed
     if (g_Ready && g_NativeBtnCreated && !oSkillWndMsg) {
@@ -5837,13 +5183,11 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* pDevice,
         }
 
         DrawSuperButtonTextureInPresent(pDevice);
-        DrawSuperButtonCursorInPresent(pDevice);
 
-        const bool suppressMouse = SuperImGuiOverlayShouldSuppressGameMouse() || ShouldSuppressGameMouseForSuperBtnD3D();
+        const bool suppressMouse = SuperImGuiOverlayShouldSuppressGameMouse();
         if (Win32InputSpoofIsInstalled()) {
             Win32InputSpoofSetSuppressMouse(suppressMouse);
         }
-        UpdateGameMouseSuppressionFallback(suppressMouse);
         if (g_LastOverlaySuppressMouse && !suppressMouse) {
             RefreshGameCursorImmediately();
         }
@@ -6395,24 +5739,6 @@ static bool SetupSkillWndDrawHook()
     return true;
 }
 
-static bool SetupPostB9F6E0TimingTestHook()
-{
-    if (!ENABLE_POST_B9F6E0_NATIVE_TIMING_TEST)
-        return true;
-
-    oPostB9F6E0DrawContinue = GenericInlineHook5(
-        (BYTE*)ADDR_BBC965,
-        (void*)hkPostB9F6E0DrawNaked,
-        9);
-    if (!oPostB9F6E0DrawContinue) {
-        WriteLog("[PostUiTimingTest] hook failed at BBC965");
-        return false;
-    }
-
-    WriteLogFmt("[PostUiTimingTest] OK(BBC965): tramp=0x%08X", (DWORD)(uintptr_t)oPostB9F6E0DrawContinue);
-    return true;
-}
-
 // ============================================================================
 // SkillWnd 析构 Hook安装
 // ============================================================================
@@ -6486,7 +5812,6 @@ static DWORD WINAPI InitThread(LPVOID)
     g_SuperChildHooksReady = childDrawHookOk && moveHookOk && refreshHookOk;
     if (!SetupSkillWndHook())  { WriteLog("SkillWnd hook failed (non-fatal)"); }
     if (!SetupSkillWndDrawHook()) { WriteLog("SkillWnd draw hook failed (non-fatal)"); }
-    if (!SetupPostB9F6E0TimingTestHook()) { WriteLog("PostUiTimingTest hook failed (non-fatal)"); }
     if (!SetupSkillListBuildFilterHook()) { WriteLog("SkillListFilter hook failed (non-fatal)"); }
     if (!SetupSkillWndDtorHook()) { WriteLog("SkillWnd dtor hook failed (non-fatal)"); }
     if (!SetupMsgHook())       { WriteLog("MsgHook failed (non-fatal)"); }
