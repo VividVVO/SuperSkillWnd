@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <d3d9.h>
 
+struct ImFont;
+
 bool SuperImGuiOverlayEnsureInitialized(HWND hwnd, IDirect3DDevice9* device, float mainScale, const char* assetPath);
 void SuperImGuiOverlayShutdown();
 void SuperImGuiOverlaySetVisible(bool visible);
@@ -17,3 +19,4 @@ bool SuperImGuiOverlayWantsMouseCapture();
 bool SuperImGuiOverlayShouldSuppressGameMouse();
 void SuperImGuiOverlayCancelMouseCapture();
 HWND SuperImGuiOverlayGetGameHwnd();
+ImFont* SuperImGuiOverlayGetConsolasFont();

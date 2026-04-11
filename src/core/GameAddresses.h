@@ -130,6 +130,9 @@ const DWORD ADDR_9E1770 = 0x009E1770;  // SkillWndEx刷新 helper (__thiscall, r
 const DWORD ADDR_56D630 = 0x0056D630;  // 原生 child move API (__thiscall ecx=child, push x, y)
 const DWORD ADDR_9DC220 = 0x009DC220;  // SkillWndEx 官方 second-child create/replace 包装链 (__thiscall, push mode)
 const DWORD ADDR_9D93A0 = 0x009D93A0;  // SkillWndEx second-child release helper (__thiscall ecx=this+3044, push 0)
+const DWORD ADDR_VT_SkillWndSecondChild1 = 0x00E66C00; // 9DB2B0 official 0x84 child VT1
+const DWORD ADDR_VT_SkillWndSecondChild2 = 0x00E66BA8; // 9DB2B0 official 0x84 child VT2
+const DWORD ADDR_VT_SkillWndSecondChild3 = 0x00E66BA4; // 9DB2B0 official 0x84 child VT3
 
 // donor child（历史路线，52A670 已证明不是长期底壳）
 const DWORD ADDR_52A670 = 0x0052A670;  // donor child ctor (__thiscall)
@@ -207,7 +210,7 @@ const int SW_OFF_NAME_FONT  = 729;  // 名称字体
 // ============================================================================
 // CWndMan内部偏移
 // ============================================================================
-const DWORD CWNDMAN_TOPLEVEL_OFF = 19060;  // 0x4A74 toplevel窗口数组
+const DWORD CWNDMAN_TOPLEVEL_OFF = 19060;  // 0x4A74 toplevel窗口vector data指针
 const DWORD CWNDMAN_CASE32_OFF   = 18224;  // MacroWnd注册slot偏移（sub_BD0620参数）
 
 // CWnd注册到CWndMan（引用计数+存储指针）

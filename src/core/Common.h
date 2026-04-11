@@ -67,6 +67,8 @@ inline int CWnd_GetY(uintptr_t cwnd)
 
 inline void CWnd_SetHomePos(uintptr_t cwnd, int x, int y)
 {
+    // 仅适用于已确认拥有 +2756/+2760 字段的大对象（如 A996B0-family）。
+    // 不要用于 SkillWnd official second-child：该对象只有 0x84 字节。
     if (!cwnd || SafeIsBadReadPtr((void*)(cwnd + 2756), 4)) return;
     *(int*)(cwnd + 2756) = x;
     *(int*)(cwnd + 2760) = y;
@@ -116,12 +118,14 @@ inline void CWnd_SetRenderPos(uintptr_t cwnd, int x, int y)
 
 inline int CWnd_GetHomeX(uintptr_t cwnd)
 {
+    // 仅适用于已确认拥有 +2756/+2760 字段的大对象。
     if (!cwnd || SafeIsBadReadPtr((void*)(cwnd + 2756), 4)) return 0;
     return *(int*)(cwnd + 2756);
 }
 
 inline int CWnd_GetHomeY(uintptr_t cwnd)
 {
+    // 仅适用于已确认拥有 +2756/+2760 字段的大对象。
     if (!cwnd || SafeIsBadReadPtr((void*)(cwnd + 2760), 4)) return 0;
     return *(int*)(cwnd + 2760);
 }

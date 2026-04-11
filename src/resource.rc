@@ -1,7 +1,38 @@
 #include "resource.h"
 
-IDR_BTN_NORMAL    RCDATA  "G:\\code\\UI\\SkillEx\\SkillEx.surpe.normal.png"
-IDR_BTN_HOVER     RCDATA  "G:\\code\\UI\\SkillEx\\SkillEx.surpe.mouseOver.png"
-IDR_BTN_PRESSED   RCDATA  "G:\\code\\UI\\SkillEx\\SkillEx.surpe.pressed.png"
-IDR_BTN_DISABLED  RCDATA  "G:\\code\\UI\\SkillEx\\SkillEx.surpe.disabled.png"
-IDR_PANEL_BG      RCDATA  "G:\\code\\UI\\SkillEx\\SkillEx.main.png"
+IDR_BTN_NORMAL    RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.surpe.normal.png"
+IDR_BTN_HOVER     RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.surpe.mouseOver.png"
+IDR_BTN_PRESSED   RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.surpe.pressed.png"
+IDR_BTN_DISABLED  RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.surpe.disabled.png"
+IDR_PANEL_BG      RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.main.png"
+
+IDR_PANEL_TAB_PASSIVE_NORMAL  RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.Passive.0.png"
+IDR_PANEL_TAB_PASSIVE_ACTIVE  RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.Passive.1.png"
+IDR_PANEL_TAB_ACTIVE_NORMAL   RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.ActivePassive.0.png"
+IDR_PANEL_TAB_ACTIVE_ACTIVE   RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.ActivePassive.1.png"
+
+IDR_PANEL_INIT_NORMAL         RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.initial.normal.png"
+IDR_PANEL_INIT_MOUSEOVER      RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.initial.mouseOver.png"
+IDR_PANEL_INIT_PRESSED        RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.inital.pressed.png"
+IDR_PANEL_INIT_DISABLED       RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.inital.disabled.png"
+
+IDR_PANEL_SCROLL_NORMAL       RCDATA  "..\\..\\UI\\SkillEx\\OptionMenu.scroll.2.png"
+IDR_PANEL_SCROLL_PRESSED      RCDATA  "..\\..\\UI\\SkillEx\\OptionMenu.scroll.1.png"
+
+IDR_PANEL_SPUP_NORMAL         RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.main.BtSpUp.normal.0.png"
+IDR_PANEL_SPUP_DISABLED       RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.main.BtSpUp.disabled.0.png"
+IDR_PANEL_SPUP_PRESSED        RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.main.BtSpUp.pressed.0.png"
+IDR_PANEL_SPUP_MOUSEOVER      RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.main.BtSpUp.mouseOver.0.png"
+
+IDR_PANEL_SKILL_ROW_NORMAL    RCDATA  "..\\..\\UI\\SkillEx\\Skill.main.skill0.png"
+IDR_PANEL_SKILL_ROW_UPGRADE   RCDATA  "..\\..\\UI\\SkillEx\\Skill.main.skill1.png"
+
+IDR_PANEL_TYPEICON_ACTIVE     RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.TypeIcon.0.png"
+IDR_PANEL_TYPEICON_UNUSED     RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.TypeIcon.1.png"
+IDR_PANEL_TYPEICON_PASSIVE    RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.TypeIcon.2.png"
+
+IDR_CURSOR_NORMAL             RCDATA  "..\\..\\UI\\SkillEx\\System.mouse.normal.png"
+IDR_CURSOR_HOVER_A            RCDATA  "..\\..\\UI\\SkillEx\\System.mouse.normal.1.png"
+IDR_CURSOR_HOVER_B            RCDATA  "..\\..\\UI\\SkillEx\\System.mouse.normal.2.png"
+IDR_CURSOR_PRESSED            RCDATA  "..\\..\\UI\\SkillEx\\System.mouse.pressed.png"
+IDR_CURSOR_DRAG               RCDATA  "..\\..\\UI\\SkillEx\\System.mouse.Drag.png"

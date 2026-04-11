@@ -33,6 +33,8 @@ struct SkillEntry {
     std::string tooltipPreview;
     std::string tooltipDescription;
     std::string tooltipDetail;
+    std::string tooltipCurrentDetail;
+    std::string tooltipNextDetail;
 };
 
 struct QuickSlotBinding {

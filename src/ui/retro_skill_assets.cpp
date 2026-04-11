@@ -1,50 +1,24 @@
 #include "retro_skill_assets.h"
+
+#include "resource.h"
 #include "skill/skill_local_data.h"
 #include "util/stb_image.h"
 
-static bool CreateTextureFromRgba(LPDIRECT3DDEVICE9 device, const unsigned char* data, int width, int height, UITexture& outTexture)
-{
-    HRESULT hr = device->CreateTexture(
-        width,
-        height,
-        1,
-        0,
-        D3DFMT_A8R8G8B8,
-        D3DPOOL_MANAGED,
-        &outTexture.texture,
-        nullptr
-    );
+#include "core/Common.h"
 
-    if (FAILED(hr))
+static bool CreateTextureFromRgba(const RetroDeviceRef& deviceRef, const unsigned char* data, int width, int height, UITexture& outTexture)
+{
+    outTexture.texture = nullptr;
+    if (!RetroCreateBackendTextureFromRgba(deviceRef, data, width, height, &outTexture.texture))
         return false;
 
-    D3DLOCKED_RECT lockedRect;
-    hr = outTexture.texture->LockRect(0, &lockedRect, nullptr, 0);
-    if (SUCCEEDED(hr))
-    {
-        for (int y = 0; y < height; y++)
-        {
-            unsigned char* dstRow = (unsigned char*)lockedRect.pBits + y * lockedRect.Pitch;
-            const unsigned char* srcRow = data + y * width * 4;
-
-            for (int x = 0; x < width; x++)
-            {
-                dstRow[x * 4 + 0] = srcRow[x * 4 + 2];
-                dstRow[x * 4 + 1] = srcRow[x * 4 + 1];
-                dstRow[x * 4 + 2] = srcRow[x * 4 + 0];
-                dstRow[x * 4 + 3] = srcRow[x * 4 + 3];
-            }
-        }
-
-        outTexture.texture->UnlockRect(0);
-    }
-
+    outTexture.backend = deviceRef.backend;
     outTexture.width = width;
     outTexture.height = height;
-    return SUCCEEDED(hr);
+    return true;
 }
 
-static bool LoadTextureInternalFromMemory(LPDIRECT3DDEVICE9 device, const unsigned char* fileData, size_t fileSize, UITexture& outTexture)
+static bool LoadTextureInternalFromMemory(const RetroDeviceRef& deviceRef, const unsigned char* fileData, size_t fileSize, UITexture& outTexture)
 {
     int width = 0;
     int height = 0;
@@ -53,12 +27,12 @@ static bool LoadTextureInternalFromMemory(LPDIRECT3DDEVICE9 device, const unsign
     if (!data)
         return false;
 
-    const bool ok = CreateTextureFromRgba(device, data, width, height, outTexture);
+    const bool ok = CreateTextureFromRgba(deviceRef, data, width, height, outTexture);
     stbi_image_free(data);
     return ok;
 }
 
-static bool LoadTextureInternal(LPDIRECT3DDEVICE9 device, const char* filename, UITexture& outTexture)
+static bool LoadTextureInternal(const RetroDeviceRef& deviceRef, const char* filename, UITexture& outTexture)
 {
     int width = 0;
     int height = 0;
@@ -67,27 +41,132 @@ static bool LoadTextureInternal(LPDIRECT3DDEVICE9 device, const char* filename, 
     if (!data)
         return false;
 
-    const bool ok = CreateTextureFromRgba(device, data, width, height, outTexture);
+    const bool ok = CreateTextureFromRgba(deviceRef, data, width, height, outTexture);
     stbi_image_free(data);
     return ok;
 }
 
-bool LoadRetroSkillTexture(LPDIRECT3DDEVICE9 device, const char* filename, UITexture& outTexture)
+bool LoadRetroSkillTexture(const RetroDeviceRef& deviceRef, const char* filename, UITexture& outTexture)
 {
-    return LoadTextureInternal(device, filename, outTexture);
+    return LoadTextureInternal(deviceRef, filename, outTexture);
 }
 
-bool LoadRetroSkillTextureFromMemory(LPDIRECT3DDEVICE9 device, const unsigned char* data, size_t size, UITexture& outTexture)
+bool LoadRetroSkillTextureFromMemory(const RetroDeviceRef& deviceRef, const unsigned char* data, size_t size, UITexture& outTexture)
 {
-    return LoadTextureInternalFromMemory(device, data, size, outTexture);
+    return LoadTextureInternalFromMemory(deviceRef, data, size, outTexture);
 }
 
-bool LoadAllRetroSkillAssets(RetroSkillAssets& assets, LPDIRECT3DDEVICE9 device, const char* assetPath)
+static HMODULE GetCurrentModuleHandle()
 {
-    auto loadOne = [&](const char* key, const char* fileName) {
+    HMODULE module = nullptr;
+    if (::GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(&GetCurrentModuleHandle),
+            &module) && module)
+    {
+        return module;
+    }
+
+    // Fallback: try known DLL names
+    module = ::GetModuleHandleA("SS.dll");
+    if (module) return module;
+    module = ::GetModuleHandleA("hook.dll");
+    if (module) return module;
+
+    WriteLog("[Assets] GetCurrentModuleHandle: all methods failed");
+    return nullptr;
+}
+
+static bool LoadResourceBytes(int resourceId, std::vector<unsigned char>& outBytes)
+{
+    outBytes.clear();
+
+    HMODULE module = GetCurrentModuleHandle();
+    if (!module)
+    {
+        WriteLogFmt("[Assets] LoadResourceBytes(%d) FAIL: no module handle", resourceId);
+        return false;
+    }
+
+    HRSRC resource = ::FindResourceA(module, MAKEINTRESOURCEA(resourceId), RT_RCDATA);
+    if (!resource)
+    {
+        WriteLogFmt("[Assets] LoadResourceBytes(%d) FAIL: FindResource returned null (module=0x%08X)", resourceId, (unsigned)(uintptr_t)module);
+        return false;
+    }
+
+    HGLOBAL resourceData = ::LoadResource(module, resource);
+    DWORD resourceSize = ::SizeofResource(module, resource);
+    if (!resourceData || resourceSize == 0)
+    {
+        WriteLogFmt("[Assets] LoadResourceBytes(%d) FAIL: LoadResource or size=0", resourceId);
+        return false;
+    }
+
+    const void* lockedData = ::LockResource(resourceData);
+    if (!lockedData)
+    {
+        WriteLogFmt("[Assets] LoadResourceBytes(%d) FAIL: LockResource", resourceId);
+        return false;
+    }
+
+    const unsigned char* bytes = static_cast<const unsigned char*>(lockedData);
+    outBytes.assign(bytes, bytes + resourceSize);
+    return true;
+}
+
+static bool LoadTextureFromResource(const RetroDeviceRef& deviceRef, int resourceId, UITexture& outTexture)
+{
+    std::vector<unsigned char> fileBytes;
+    if (!LoadResourceBytes(resourceId, fileBytes) || fileBytes.empty())
+        return false;
+
+    return LoadTextureInternalFromMemory(deviceRef, &fileBytes[0], fileBytes.size(), outTexture);
+}
+
+bool LoadAllRetroSkillAssets(RetroSkillAssets& assets, const RetroDeviceRef& deviceRef, const char* assetPath)
+{
+    (void)assetPath;
+
+    struct EmbeddedTextureSpec
+    {
+        const char* key;
+        int resourceId;
+    };
+
+    static const EmbeddedTextureSpec kEmbeddedTextures[] = {
+        { "main", IDR_PANEL_BG },
+        { "Passive.0", IDR_PANEL_TAB_PASSIVE_NORMAL },
+        { "Passive.1", IDR_PANEL_TAB_PASSIVE_ACTIVE },
+        { "ActivePassive.0", IDR_PANEL_TAB_ACTIVE_NORMAL },
+        { "ActivePassive.1", IDR_PANEL_TAB_ACTIVE_ACTIVE },
+        { "initial.normal", IDR_PANEL_INIT_NORMAL },
+        { "initial.mouseOver", IDR_PANEL_INIT_MOUSEOVER },
+        { "initial.pressed", IDR_PANEL_INIT_PRESSED },
+        { "scroll", IDR_PANEL_SCROLL_NORMAL },
+        { "scroll.pressed", IDR_PANEL_SCROLL_PRESSED },
+        { "BtSpUp.normal", IDR_PANEL_SPUP_NORMAL },
+        { "BtSpUp.disabled", IDR_PANEL_SPUP_DISABLED },
+        { "BtSpUp.pressed", IDR_PANEL_SPUP_PRESSED },
+        { "BtSpUp.mouseOver", IDR_PANEL_SPUP_MOUSEOVER },
+        { "skill0", IDR_PANEL_SKILL_ROW_NORMAL },
+        { "skill1", IDR_PANEL_SKILL_ROW_UPGRADE },
+        { "TypeIcon.0", IDR_PANEL_TYPEICON_ACTIVE },
+        { "TypeIcon.2", IDR_PANEL_TYPEICON_PASSIVE },
+        { "surpe.normal", IDR_BTN_NORMAL },
+        { "surpe.mouseOver", IDR_BTN_HOVER },
+        { "surpe.pressed", IDR_BTN_PRESSED },
+        { "surpe.disabled", IDR_BTN_DISABLED },
+        { "mouse.normal", IDR_CURSOR_NORMAL },
+        { "mouse.normal.1", IDR_CURSOR_HOVER_A },
+        { "mouse.normal.2", IDR_CURSOR_HOVER_B },
+        { "mouse.pressed", IDR_CURSOR_PRESSED },
+        { "mouse.drag", IDR_CURSOR_DRAG },
+    };
+
+    auto loadOne = [&](const char* key, int resourceId) {
         UITexture texture;
-        std::string path = std::string(assetPath) + fileName;
-        if (LoadTextureInternal(device, path.c_str(), texture))
+        if (LoadTextureFromResource(deviceRef, resourceId, texture))
             assets.textures[key] = texture;
     };
 
@@ -96,7 +175,7 @@ bool LoadAllRetroSkillAssets(RetroSkillAssets& assets, LPDIRECT3DDEVICE9 device,
         if (SkillLocalDataGetIconPngBytes(skillId, pngBytes) && !pngBytes.empty())
         {
             UITexture texture;
-            if (LoadTextureInternalFromMemory(device, &pngBytes[0], pngBytes.size(), texture))
+            if (LoadTextureInternalFromMemory(deviceRef, &pngBytes[0], pngBytes.size(), texture))
                 assets.skillIcons[skillId] = texture;
         }
 
@@ -104,7 +183,7 @@ bool LoadAllRetroSkillAssets(RetroSkillAssets& assets, LPDIRECT3DDEVICE9 device,
         if (SkillLocalDataGetIconMouseOverPngBytes(skillId, mouseOverBytes) && !mouseOverBytes.empty())
         {
             UITexture texture;
-            if (LoadTextureInternalFromMemory(device, &mouseOverBytes[0], mouseOverBytes.size(), texture))
+            if (LoadTextureInternalFromMemory(deviceRef, &mouseOverBytes[0], mouseOverBytes.size(), texture))
                 assets.skillIconsMouseOver[skillId] = texture;
         }
 
@@ -112,38 +191,15 @@ bool LoadAllRetroSkillAssets(RetroSkillAssets& assets, LPDIRECT3DDEVICE9 device,
         if (SkillLocalDataGetIconDisabledPngBytes(skillId, disabledBytes) && !disabledBytes.empty())
         {
             UITexture texture;
-            if (LoadTextureInternalFromMemory(device, &disabledBytes[0], disabledBytes.size(), texture))
+            if (LoadTextureInternalFromMemory(deviceRef, &disabledBytes[0], disabledBytes.size(), texture))
                 assets.skillIconsDisabled[skillId] = texture;
         }
     };
 
-    loadOne("main", "SkillEx.main.png");
-    loadOne("Passive.0", "SkillEx.Passive.0.png");
-    loadOne("Passive.1", "SkillEx.Passive.1.png");
-    loadOne("ActivePassive.0", "SkillEx.ActivePassive.0.png");
-    loadOne("ActivePassive.1", "SkillEx.ActivePassive.1.png");
-    loadOne("initial.normal", "SkillEx.initial.normal.png");
-    loadOne("initial.mouseOver", "SkillEx.initial.mouseOver.png");
-    loadOne("initial.pressed", "SkillEx.inital.pressed.png");
-    loadOne("scroll", "OptionMenu.scroll.2.png");
-    loadOne("scroll.pressed", "OptionMenu.scroll.1.png");
-    loadOne("BtSpUp.normal", "SkillEx.main.BtSpUp.normal.0.png");
-    loadOne("BtSpUp.disabled", "SkillEx.main.BtSpUp.disabled.0.png");
-    loadOne("BtSpUp.pressed", "SkillEx.main.BtSpUp.pressed.0.png");
-    loadOne("BtSpUp.mouseOver", "SkillEx.main.BtSpUp.mouseOver.0.png");
-    loadOne("skill0", "Skill.main.skill0.png");
-    loadOne("skill1", "Skill.main.skill1.png");
-    loadOne("TypeIcon.0", "SkillEx.TypeIcon.0.png");
-    loadOne("TypeIcon.2", "SkillEx.TypeIcon.2.png");
-    loadOne("surpe.normal", "SkillEx.surpe.normal.png");
-    loadOne("surpe.mouseOver", "SkillEx.surpe.mouseOver.png");
-    loadOne("surpe.pressed", "SkillEx.surpe.pressed.png");
-    loadOne("surpe.disabled", "SkillEx.surpe.disabled.png");
-    loadOne("mouse.normal", "System.mouse.normal.png");
-    loadOne("mouse.normal.1", "System.mouse.normal.1.png");
-    loadOne("mouse.normal.2", "System.mouse.normal.2.png");
-    loadOne("mouse.pressed", "System.mouse.pressed.png");
-    loadOne("mouse.drag", "System.mouse.Drag.png");
+    for (size_t i = 0; i < sizeof(kEmbeddedTextures) / sizeof(kEmbeddedTextures[0]); ++i)
+        loadOne(kEmbeddedTextures[i].key, kEmbeddedTextures[i].resourceId);
+
+    WriteLogFmt("[Assets] embedded textures loaded: %d/%d", (int)assets.textures.size(), (int)(sizeof(kEmbeddedTextures) / sizeof(kEmbeddedTextures[0])));
 
     SkillLocalDataInitialize();
     std::vector<int> skillIds;
@@ -159,28 +215,28 @@ void CleanupRetroSkillAssets(RetroSkillAssets& assets)
     for (auto& pair : assets.textures)
     {
         if (pair.second.texture)
-            pair.second.texture->Release();
+            RetroReleaseBackendTexture(pair.second.texture, pair.second.backend);
     }
     assets.textures.clear();
 
     for (auto& pair : assets.skillIcons)
     {
         if (pair.second.texture)
-            pair.second.texture->Release();
+            RetroReleaseBackendTexture(pair.second.texture, pair.second.backend);
     }
     assets.skillIcons.clear();
 
     for (auto& pair : assets.skillIconsMouseOver)
     {
         if (pair.second.texture)
-            pair.second.texture->Release();
+            RetroReleaseBackendTexture(pair.second.texture, pair.second.backend);
     }
     assets.skillIconsMouseOver.clear();
 
     for (auto& pair : assets.skillIconsDisabled)
     {
         if (pair.second.texture)
-            pair.second.texture->Release();
+            RetroReleaseBackendTexture(pair.second.texture, pair.second.backend);
     }
     assets.skillIconsDisabled.clear();
 }

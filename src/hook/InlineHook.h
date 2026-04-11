@@ -3,59 +3,15 @@
 // InlineHook.h — x86 inline hook 引擎（从原项目验证代码迁移）
 //
 #include <windows.h>
+#include "hde32.h"
 
 // ============================================================================
-// x86指令长度计算（简易反汇编）
+// x86指令长度计算（委托给 hde32 表驱动反汇编引擎）
 // ============================================================================
 inline size_t GetX86InstructionLength(const BYTE* code)
 {
-    auto modrm_disp_len = [](BYTE modrm, bool hasSib) -> size_t {
-        BYTE mod = (modrm >> 6) & 0x3;
-        BYTE rm  = modrm & 0x7;
-        size_t len = 0;
-        if (hasSib) len += 1;
-        if (mod == 0) {
-            if (rm == 5) len += 4;
-        } else if (mod == 1) {
-            len += 1;
-        } else if (mod == 2) {
-            len += 4;
-        }
-        return len;
-    };
-
-    switch (code[0]) {
-    case 0x50: case 0x51: case 0x52: case 0x53:
-    case 0x55: case 0x56: case 0x57:
-    case 0x58: case 0x59: case 0x5A: case 0x5B:
-    case 0x5D: case 0x5E: case 0x5F:
-    case 0xCC: return 1;
-    case 0x6A: case 0xEB: return 2;
-    case 0x33: return 2;
-    case 0x68: case 0xA1: case 0xE8: case 0xE9: return 5;
-    case 0x81: return 6;
-    case 0x83: return 3;
-    case 0x89:
-    case 0x8B:
-    case 0x8D:
-    {
-        BYTE modrm = code[1];
-        bool hasSib = ((modrm & 0x07) == 0x04) && (((modrm >> 6) & 0x3) != 0x3);
-        return 2 + modrm_disp_len(modrm, hasSib);
-    }
-    case 0x64:
-        if (code[1] == 0xA1 || code[1] == 0xA3) return 6;
-        break;
-    case 0xC7:
-        if (code[1] == 0x45) return 7;
-        if (code[1] == 0x44) return 8;
-        break;
-    case 0xC6:
-        if (code[1] == 0x45) return 4;
-        if (code[1] == 0x44) return 5;
-        break;
-    }
-    return 0;
+    unsigned int len = hde32_len(code);
+    return (size_t)len;
 }
 
 inline size_t CalculateRelocatedByteCount(const BYTE* code, size_t minBytes)
@@ -145,25 +101,19 @@ inline void* InstallInlineHook(DWORD targetAddr, void* hookFunc)
 }
 
 // ============================================================================
-// 最小拷贝长度计算（D3D9函数常用前言）
+// 最小拷贝长度计算（使用通用指令长度解析）
 // ============================================================================
 inline int CalcMinCopyLen(BYTE* p)
 {
     int len = 0;
     while (len < 5) {
-        BYTE b = p[len];
-        if ((b >= 0x50 && b <= 0x5F) || b == 0x90 || b == 0xC3 || b == 0xCC)
-            { len += 1; continue; }
-        if (b == 0x8B || b == 0x33 || b == 0x3B || b == 0x85 || b == 0x89 || b == 0x31 || b == 0x29)
-            { len += 2; continue; }
-        if (b == 0x83) { len += 3; continue; }
-        if (b == 0x81) { len += 6; continue; }
-        if (b >= 0xB8 && b <= 0xBF) { len += 5; continue; }
-        if (b == 0x6A) { len += 2; continue; }
-        if (b == 0x68) { len += 5; continue; }
-        if (b == 0x0F) { len += 2; continue; }
-        if (b == 0x8D) { len += 3; continue; }
-        len += 2;
+        size_t instrLen = GetX86InstructionLength(p + len);
+        if (instrLen == 0) {
+            // Unknown instruction — try minimum safe skip
+            len += 1;
+            continue;
+        }
+        len += (int)instrLen;
     }
     return len;
 }

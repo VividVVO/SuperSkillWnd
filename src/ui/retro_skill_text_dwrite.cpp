@@ -74,7 +74,8 @@ namespace
 
     struct GlyphTexture
     {
-        IDirect3DTexture9* texture = nullptr;
+        void* texture = nullptr;
+        RetroRenderBackend backend = RetroRenderBackend_D3D9;
         int width = 0;
         int height = 0;
         int advance = 0;
@@ -85,7 +86,7 @@ namespace
 
     struct RendererState
     {
-        LPDIRECT3DDEVICE9 device = nullptr;
+        RetroDeviceRef deviceRef;
         HDC dc = nullptr;
         bool initialized = false;
         std::map<FontResourceKey, FontResource> fonts;
@@ -124,6 +125,15 @@ namespace
         GlyphShape_Punctuation = 3,
     };
 
+    static bool IsFullWidthPunctuation(wchar_t ch)
+    {
+        if (ch >= 0x3000 && ch <= 0x303F) return true;
+        if (ch >= 0xFF01 && ch <= 0xFF5E) return true;
+        if (ch >= 0x2018 && ch <= 0x201F) return true;
+        if (ch == 0x2014 || ch == 0x2015 || ch == 0x2026) return true;
+        return false;
+    }
+
     GlyphShapeClass ClassifyGlyphShape(wchar_t ch)
     {
         if (ch >= L'0' && ch <= L'9')
@@ -133,6 +143,9 @@ namespace
             return GlyphShape_Latin;
 
         if ((ch >= 0x4E00 && ch <= 0x9FFF) || (ch >= 0x3400 && ch <= 0x4DBF))
+            return GlyphShape_Cjk;
+
+        if (IsFullWidthPunctuation(ch))
             return GlyphShape_Cjk;
 
         return GlyphShape_Punctuation;
@@ -248,7 +261,17 @@ namespace
         if (!outTopColor || !outBottomColor)
             return;
 
+        const unsigned int r = (inputColor >> IM_COL32_R_SHIFT) & 0xFF;
+        const unsigned int g = (inputColor >> IM_COL32_G_SHIFT) & 0xFF;
+        const unsigned int b = (inputColor >> IM_COL32_B_SHIFT) & 0xFF;
         const unsigned int alpha = (inputColor >> IM_COL32_A_SHIFT) & 0xFF;
+        if (r == 0xFF && g == 0xFF && b == 0xFF)
+        {
+            *outTopColor = inputColor;
+            *outBottomColor = inputColor;
+            return;
+        }
+
         if (!IsNearlyGray(inputColor))
         {
             *outTopColor = inputColor;
@@ -261,7 +284,7 @@ namespace
         *outBottomColor = unifiedGray;
     }
 
-    void AddGlyphQuad(ImDrawList* drawList, IDirect3DTexture9* texture, const ImVec2& minPos, const ImVec2& maxPos, ImU32 topColor, ImU32 bottomColor)
+    void AddGlyphQuad(ImDrawList* drawList, void* texture, const ImVec2& minPos, const ImVec2& maxPos, ImU32 topColor, ImU32 bottomColor)
     {
         if (!drawList || !texture)
             return;
@@ -285,8 +308,7 @@ namespace
     {
         if (glyph.texture)
         {
-            glyph.texture->Release();
-            glyph.texture = nullptr;
+            RetroReleaseBackendTexture(glyph.texture, glyph.backend);
         }
         glyph.width = 0;
         glyph.height = 0;
@@ -322,12 +344,12 @@ namespace
         g_renderer.fonts.clear();
     }
 
-    bool EnsureDeviceAndDc(LPDIRECT3DDEVICE9 device)
+    bool EnsureDeviceAndDc(const RetroDeviceRef* deviceRef)
     {
-        if (device)
-            g_renderer.device = device;
+        if (deviceRef && deviceRef->device)
+            g_renderer.deviceRef = *deviceRef;
 
-        if (!g_renderer.device)
+        if (!g_renderer.deviceRef.device)
             return false;
 
         if (!g_renderer.dc)
@@ -411,7 +433,11 @@ namespace
     int ResolvePixelHeight(bool numeric, float fontSize)
     {
         if (!numeric)
-            return 12;
+        {
+            if (fontSize > 0.0f)
+                return ClampInt((int)floorf(fontSize + 0.5f), 8, 20);
+            return 11;
+        }
 
         return (fontSize > 0.0f && fontSize <= 9.5f) ? 12 : 11;
     }
@@ -537,43 +563,15 @@ namespace
         return advance;
     }
 
-    bool CreateTextureFromArgbPixels(const std::vector<unsigned int>& pixels, int width, int height, IDirect3DTexture9** outTexture)
+    bool CreateTextureFromArgbPixels(const std::vector<unsigned int>& pixels, int width, int height, GlyphTexture* outGlyph)
     {
-        if (!outTexture || !g_renderer.device || width <= 0 || height <= 0)
+        if (!outGlyph || !g_renderer.deviceRef.device || width <= 0 || height <= 0)
             return false;
 
-        *outTexture = nullptr;
-
-        IDirect3DTexture9* texture = nullptr;
-        if (FAILED(g_renderer.device->CreateTexture(
-            width,
-            height,
-            1,
-            0,
-            D3DFMT_A8R8G8B8,
-            D3DPOOL_MANAGED,
-            &texture,
-            nullptr)))
-        {
+        outGlyph->texture = nullptr;
+        outGlyph->backend = g_renderer.deviceRef.backend;
+        if (!RetroCreateBackendTextureFromArgb32(g_renderer.deviceRef, pixels.data(), width, height, &outGlyph->texture))
             return false;
-        }
-
-        D3DLOCKED_RECT locked = {};
-        if (FAILED(texture->LockRect(0, &locked, nullptr, 0)))
-        {
-            texture->Release();
-            return false;
-        }
-
-        for (int y = 0; y < height; ++y)
-        {
-            unsigned char* dstRow = (unsigned char*)locked.pBits + y * locked.Pitch;
-            const unsigned char* srcRow = (const unsigned char*)&pixels[(size_t)y * (size_t)width];
-            memcpy(dstRow, srcRow, (size_t)width * sizeof(unsigned int));
-        }
-
-        texture->UnlockRect(0);
-        *outTexture = texture;
         return true;
     }
 
@@ -702,7 +700,7 @@ namespace
             finalTextureHeight = numericCellHeight;
         }
 
-        if (!CreateTextureFromArgbPixels(pixels, finalTextureWidth, finalTextureHeight, &outGlyph->texture))
+        if (!CreateTextureFromArgbPixels(pixels, finalTextureWidth, finalTextureHeight, outGlyph))
             return false;
 
         outGlyph->width = finalTextureWidth;
@@ -765,11 +763,58 @@ namespace
         }
         return style.numeric ? 8 : 12;
     }
+
+    ImVec2 MeasureWideTextInternal(const std::wstring& wideText, const TextStyleKey& style)
+    {
+        ImVec2 result(0.0f, 0.0f);
+        if (wideText.empty())
+            return result;
+
+        float cursorX = 0.0f;
+        float maxWidth = 0.0f;
+        const float lineHeight = (float)ResolveLineHeight(style);
+        float totalHeight = lineHeight;
+
+        for (size_t i = 0; i < wideText.size(); ++i)
+        {
+            const wchar_t ch = wideText[i];
+            if (ch == L'\r')
+                continue;
+
+            if (ch == L'\n')
+            {
+                if (cursorX > maxWidth)
+                    maxWidth = cursorX;
+                cursorX = 0.0f;
+                totalHeight += lineHeight;
+                continue;
+            }
+
+            GlyphTexture* glyph = AcquireGlyph(style, ch);
+            if (!glyph)
+                continue;
+
+            cursorX += (float)glyph->advance + (float)style.glyphSpacing;
+        }
+
+        if (cursorX > maxWidth)
+            maxWidth = cursorX;
+
+        if (maxWidth > 0.0f && !wideText.empty())
+            maxWidth -= (float)style.glyphSpacing;
+
+        if (maxWidth < 0.0f)
+            maxWidth = 0.0f;
+
+        result.x = maxWidth;
+        result.y = totalHeight;
+        return result;
+    }
 }
 
-bool RetroSkillDWriteInitialize(LPDIRECT3DDEVICE9 device)
+bool RetroSkillDWriteInitialize(const RetroDeviceRef& deviceRef)
 {
-    if (!EnsureDeviceAndDc(device))
+    if (!EnsureDeviceAndDc(&deviceRef))
         return false;
 
     g_renderer.initialized = true;
@@ -788,7 +833,7 @@ void RetroSkillDWriteShutdown()
         g_renderer.dc = nullptr;
     }
 
-    g_renderer.device = nullptr;
+    g_renderer.deviceRef = RetroDeviceRef{};
     g_renderer.initialized = false;
 }
 
@@ -796,12 +841,14 @@ void RetroSkillDWriteOnDeviceLost()
 {
 }
 
-void RetroSkillDWriteOnDeviceReset(LPDIRECT3DDEVICE9 device)
+void RetroSkillDWriteOnDeviceReset(const RetroDeviceRef& deviceRef)
 {
-    if (device && g_renderer.device && device != g_renderer.device)
+    if (deviceRef.device &&
+        g_renderer.deviceRef.device &&
+        (deviceRef.device != g_renderer.deviceRef.device || deviceRef.backend != g_renderer.deviceRef.backend))
         ClearGlyphCache();
-    if (device)
-        g_renderer.device = device;
+    if (deviceRef.device)
+        g_renderer.deviceRef = deviceRef;
 }
 
 bool RetroSkillDWriteDrawTextEx(ImDrawList* drawList, const ImVec2& pos, ImU32 color, const char* text, float fontSize, float glyphSpacing)
@@ -862,6 +909,24 @@ bool RetroSkillDWriteDrawTextEx(ImDrawList* drawList, const ImVec2& pos, ImU32 c
 bool RetroSkillDWriteDrawText(ImDrawList* drawList, const ImVec2& pos, ImU32 color, const char* text, float fontSize)
 {
     return RetroSkillDWriteDrawTextEx(drawList, pos, color, text, fontSize, 0.0f);
+}
+
+ImVec2 RetroSkillDWriteMeasureTextEx(const char* text, float fontSize, float glyphSpacing)
+{
+    if (!text || !text[0] || !g_renderer.initialized || !EnsureDeviceAndDc(nullptr))
+        return ImVec2(0.0f, 0.0f);
+
+    const std::wstring wideText = Utf8ToWide(text);
+    if (wideText.empty())
+        return ImVec2(0.0f, 0.0f);
+
+    const TextStyleKey style = ResolveStyle(wideText, fontSize, glyphSpacing);
+    return MeasureWideTextInternal(wideText, style);
+}
+
+ImVec2 RetroSkillDWriteMeasureText(const char* text, float fontSize)
+{
+    return RetroSkillDWriteMeasureTextEx(text, fontSize, 0.0f);
 }
 
 void RetroSkillDWriteRegisterNativeGlyphLookup(void* /*trampoline*/)

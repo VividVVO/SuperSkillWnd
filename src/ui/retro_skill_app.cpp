@@ -85,6 +85,12 @@ namespace
         UITexture* hoverA = GetRetroSkillTexture(assets, "mouse.normal.1");
         if (currentTex && hoverA && currentTex == hoverA)
             y += 2.0f;
+        UITexture* hoverB = GetRetroSkillTexture(assets, "mouse.normal.2");
+        if (currentTex && hoverB && currentTex == hoverB)
+            y += 5.0f;
+        UITexture* pressed = GetRetroSkillTexture(assets, "mouse.pressed");
+        if (currentTex && pressed && currentTex == pressed)
+            y += 2.0f;
         return y;
     }
 
@@ -94,10 +100,10 @@ namespace
 
 enum MouseState { MS_NORMAL, MS_PRESSED, MS_DRAG, MS_HOVER_INSTANT, MS_HOVER_LOOP_A, MS_HOVER_LOOP_B };
 
-void InitializeRetroSkillApp(RetroSkillRuntimeState& state, RetroSkillAssets& assets, LPDIRECT3DDEVICE9 device, const char* assetPath)
+void InitializeRetroSkillApp(RetroSkillRuntimeState& state, RetroSkillAssets& assets, const RetroDeviceRef& deviceRef, const char* assetPath)
 {
     ResetRetroSkillData(state);
-    LoadAllRetroSkillAssets(assets, device, assetPath);
+    LoadAllRetroSkillAssets(assets, deviceRef, assetPath);
 }
 
 void ShutdownRetroSkillApp(RetroSkillAssets& assets)

@@ -43,7 +43,7 @@ struct RetroSkillBehaviorHooks {
     void* userData = nullptr;
 };
 
-void InitializeRetroSkillApp(RetroSkillRuntimeState& state, RetroSkillAssets& assets, LPDIRECT3DDEVICE9 device, const char* assetPath);
+void InitializeRetroSkillApp(RetroSkillRuntimeState& state, RetroSkillAssets& assets, const RetroDeviceRef& deviceRef, const char* assetPath);
 void ShutdownRetroSkillApp(RetroSkillAssets& assets);
 void ConfigureRetroSkillDefaultBehaviorHooks(RetroSkillBehaviorHooks& hooks, RetroSkillRuntimeState& state);
 void RenderRetroSkillCursorOverlay(RetroSkillRuntimeState& state, RetroSkillAssets& assets, float mainScale);

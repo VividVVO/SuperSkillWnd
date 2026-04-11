@@ -16,7 +16,9 @@
 #include "hook/win32_input_spoof.h"
 #include "resource.h"
 #include "ui/super_imgui_overlay.h"
+#include "ui/super_imgui_overlay_d3d8.h"
 #include "ui/retro_skill_text_dwrite.h"
+#include "d3d8/d3d8_renderer.h"
 #include <cwchar>
 #include <intrin.h>
 #include <vector>
@@ -39,6 +41,9 @@ static volatile uintptr_t g_SkillWndThis = 0;
 // 超级面板状态
 static volatile bool g_SuperExpanded = false;
 static volatile bool g_Ready         = false;
+
+// D3D 模式检测：运行时判断游戏用 D3D8 还是 D3D9
+static bool g_IsD3D8Mode = false;
 
 // D3D9（面板纹理绘制用，后续迁移到原生后可移除）
 static IDirect3DDevice9* g_pDevice = nullptr;
@@ -93,7 +98,7 @@ static DWORD* g_CustomVTable1     = nullptr;
 static bool g_SuperChildHooksReady = false;
 static bool g_SuperUsesSkillWndSecondSlot = false;
 static const bool ENABLE_IMGUI_OVERLAY_PANEL = true;
-static const char* IMGUI_PANEL_ASSET_PATH = "G:\\code\\UI\\SkillEx\\";
+static const char* IMGUI_PANEL_ASSET_PATH = "";
 
 // ============================================================================
 // 布局常量
@@ -132,7 +137,7 @@ static const bool ENABLE_MOVE_FOCUS_SYNC = false;   // v10.3: MoveFocusSync 会�
 static const bool ENABLE_PRESENT_NATIVE_CHILD_UPDATE = false; // v10.4+: native child 不再每帧在 Present 中搬运，先消除抽搐/视口漂移
 static const bool ENABLE_REFRESH_NATIVE_CHILD_UPDATE = false; // v10.6: native child 不再在 refresh hook 中高频搬运，优先消除拖动抽搐
 static const char* SAVE_STATE_PATH = "G:\\code\\c++\\SuperSkillWnd\\skill\\save_state.json";
-static const char* BUILD_MARKER = "v18.0e-2026-04-09-cursor-minus4-hoverA-plus2-no-carrier-direct-ui-align";
+static const char* BUILD_MARKER = "v20.3-2026-04-11-second-child-safety";
 static const wchar_t* SUPER_BTN_RES_PATH = L"UI/UIWindow2.img/Skill/main/BtMacro";
 static const wchar_t* SUPER_BTN_RES_PATH_ALT = L"/UIWindow2.img/Skill/main/BtMacro";
 static int g_PanelDrawX = -9999;
@@ -316,6 +321,35 @@ static int GetCWndZOrderValue(uintptr_t wndObj)
     return *(int*)(wndObj + CWND_OFF_ZORDER * 4);
 }
 
+static bool GetCWndManTopLevelVector(uintptr_t* outVec, int* outCount, int maxCount)
+{
+    if (!outVec || !outCount || maxCount <= 0)
+        return false;
+    *outVec = 0;
+    *outCount = 0;
+
+    if (SafeIsBadReadPtr((void*)ADDR_CWndMan, 4))
+        return false;
+    uintptr_t wndMan = *(uintptr_t*)ADDR_CWndMan;
+    if (!wndMan || SafeIsBadReadPtr((void*)(wndMan + CWNDMAN_TOPLEVEL_OFF), 4))
+        return false;
+
+    // CWndMan+0x4A74 is a vector data pointer, not an inline array.
+    uintptr_t vec = *(uintptr_t*)(wndMan + CWNDMAN_TOPLEVEL_OFF);
+    if (!vec || vec < 4 || SafeIsBadReadPtr((void*)(vec - 4), 4))
+        return false;
+
+    int count = *(int*)(vec - 4);
+    if (count <= 0 || count > 4096)
+        return false;
+    if (count > maxCount)
+        count = maxCount;
+
+    *outVec = vec;
+    *outCount = count;
+    return true;
+}
+
 static bool IsIgnoredSuperBtnOccluder(uintptr_t wndObj)
 {
     if (!wndObj)
@@ -357,15 +391,13 @@ static void SubtractRectFromPiece(const RECT& src, const RECT& cut, std::vector<
 
 static void CollectSuperBtnOccluderRects(const RECT& baseRect, std::vector<RECT>& outRects)
 {
-    if (SafeIsBadReadPtr((void*)ADDR_CWndMan, 4))
-        return;
-    uintptr_t wndMan = *(uintptr_t*)ADDR_CWndMan;
-    if (!wndMan)
+    uintptr_t topVec = 0;
+    int topCount = 0;
+    if (!GetCWndManTopLevelVector(&topVec, &topCount, 512))
         return;
 
-    const uintptr_t topBase = wndMan + CWNDMAN_TOPLEVEL_OFF;
-    for (int i = 0; i < 256; ++i) {
-        uintptr_t slotAddr = topBase + i * 4;
+    for (int i = 0; i < topCount; ++i) {
+        uintptr_t slotAddr = topVec + i * 4;
         if (SafeIsBadReadPtr((void*)slotAddr, 4))
             break;
         uintptr_t wndObj = *(DWORD*)slotAddr;
@@ -3280,10 +3312,43 @@ static void LogNativeChildSurfaceShape(uintptr_t wndObj, const char* logTag)
         wndW, wndH, (DWORD)surfaceObj, canvasW, canvasH, logicalW2, logicalH2);
 }
 
+static bool IsOfficialSecondChildObject(uintptr_t wndObj, bool allowCustomVT1)
+{
+    if (!wndObj || SafeIsBadReadPtr((void*)wndObj, 0x84)) {
+        return false;
+    }
+
+    DWORD vt1 = *(DWORD*)(wndObj + 0x00);
+    DWORD vt2 = *(DWORD*)(wndObj + 0x04);
+    DWORD vt3 = *(DWORD*)(wndObj + 0x08);
+    bool vt1Ok = (vt1 == ADDR_VT_SkillWndSecondChild1);
+    if (!vt1Ok && allowCustomVT1 && g_CustomVTable1) {
+        vt1Ok = (vt1 == (DWORD)g_CustomVTable1);
+    }
+
+    if (!vt1Ok || vt2 != ADDR_VT_SkillWndSecondChild2 || vt3 != ADDR_VT_SkillWndSecondChild3) {
+        return false;
+    }
+
+    int refCount = *(int*)(wndObj + CWND_OFF_REFCNT * 4);
+    int width = *(int*)(wndObj + CWND_OFF_W * 4);
+    int height = *(int*)(wndObj + CWND_OFF_H * 4);
+    return refCount > 0 && refCount < 100 && width > 0 && height > 0 && width <= 4096 && height <= 4096;
+}
+
 static bool ApplySuperChildCustomDrawVTable(uintptr_t wndObj)
 {
     if (!wndObj || SafeIsBadReadPtr((void*)wndObj, 0x0C)) {
         WriteLog("[NativeWnd] FAIL: custom vtable target unreadable");
+        return false;
+    }
+
+    if (!IsOfficialSecondChildObject(wndObj, false)) {
+        DWORD vt1 = SafeIsBadReadPtr((void*)wndObj, 12) ? 0 : *(DWORD*)(wndObj + 0x00);
+        DWORD vt2 = SafeIsBadReadPtr((void*)wndObj, 12) ? 0 : *(DWORD*)(wndObj + 0x04);
+        DWORD vt3 = SafeIsBadReadPtr((void*)wndObj, 12) ? 0 : *(DWORD*)(wndObj + 0x08);
+        WriteLogFmt("[NativeWnd] FAIL: custom vtable target is not official second-child vt=(%08X,%08X,%08X)",
+            vt1, vt2, vt3);
         return false;
     }
 
@@ -3770,10 +3835,10 @@ static void LoadAllTextures(IDirect3DDevice9* dev)
     g_texBtnHover = LoadTextureFromResource(dev, IDR_BTN_HOVER);
     g_texBtnPressed = LoadTextureFromResource(dev, IDR_BTN_PRESSED);
     g_texBtnDisabled = LoadTextureFromResource(dev, IDR_BTN_DISABLED);
-    g_texCursorNormal = LoadTextureFromFilePath(dev, "G:\\code\\UI\\SkillEx\\System.mouse.normal.png");
-    g_texCursorHoverA = LoadTextureFromFilePath(dev, "G:\\code\\UI\\SkillEx\\System.mouse.normal.1.png");
-    g_texCursorHoverB = LoadTextureFromFilePath(dev, "G:\\code\\UI\\SkillEx\\System.mouse.normal.2.png");
-    g_texCursorPressed = LoadTextureFromFilePath(dev, "G:\\code\\UI\\SkillEx\\System.mouse.pressed.png");
+    g_texCursorNormal = LoadTextureFromResource(dev, IDR_CURSOR_NORMAL);
+    g_texCursorHoverA = LoadTextureFromResource(dev, IDR_CURSOR_HOVER_A);
+    g_texCursorHoverB = LoadTextureFromResource(dev, IDR_CURSOR_HOVER_B);
+    g_texCursorPressed = LoadTextureFromResource(dev, IDR_CURSOR_PRESSED);
     g_TexturesLoaded = true;
     WriteLogFmt("[Tex] loaded panel=%p btn=[%p,%p,%p,%p] cursor=[%p,%p,%p,%p]",
         g_texPanelBg, g_texBtnNormal, g_texBtnHover, g_texBtnPressed, g_texBtnDisabled,
@@ -3840,16 +3905,22 @@ static void __fastcall SuperCWndDraw(uintptr_t thisPtr, void* /*edx_unused*/, in
     if (!g_SuperExpanded) return;
 
     if (g_DrawCallCount < 20) {
-        int hx = CWnd_GetHomeX(thisPtr);
-        int hy = CWnd_GetHomeY(thisPtr);
         int cx = CWnd_GetX(thisPtr);
         int cy = CWnd_GetY(thisPtr);
         int rx = CWnd_GetRenderX(thisPtr);
         int ry = CWnd_GetRenderY(thisPtr);
         int w = *(int*)(thisPtr + 10*4);
         int h = *(int*)(thisPtr + 11*4);
-        WriteLogFmt("[Draw] #%d home=(%d,%d) com=(%d,%d) render=(%d,%d) size=%dx%d",
-            g_DrawCallCount, hx, hy, cx, cy, rx, ry, w, h);
+        if (IsOfficialSecondChildObject(thisPtr, true)) {
+            int refCount = *(int*)(thisPtr + CWND_OFF_REFCNT * 4);
+            WriteLogFmt("[Draw] #%d officialSecond=1 ref=%d com=(%d,%d) render=(%d,%d) size=%dx%d",
+                g_DrawCallCount, refCount, cx, cy, rx, ry, w, h);
+        } else {
+            int hx = CWnd_GetHomeX(thisPtr);
+            int hy = CWnd_GetHomeY(thisPtr);
+            WriteLogFmt("[Draw] #%d officialSecond=0 home=(%d,%d) com=(%d,%d) render=(%d,%d) size=%dx%d",
+                g_DrawCallCount, hx, hy, cx, cy, rx, ry, w, h);
+        }
         g_DrawCallCount++;
     }
 
@@ -4185,7 +4256,7 @@ static bool CreateSuperWnd(uintptr_t skillWndThis)
 
     if (ENABLE_IMGUI_OVERLAY_PANEL) {
         if (!g_GameHwnd || !g_pDevice) {
-            WriteLog("[ImGuiOverlay] FAIL: hwnd/device not ready");
+            WriteLogFmt("[ImGuiOverlay] FAIL: hwnd/device not ready (hwnd=0x%08X device=0x%08X)", (DWORD)(uintptr_t)g_GameHwnd, (DWORD)(uintptr_t)g_pDevice);
             return false;
         }
 
@@ -4260,10 +4331,10 @@ static bool CreateSuperWnd(uintptr_t skillWndThis)
     RebuildNativeChildSurface(wndObj, xPos, yPos, PANEL_W, PANEL_H, "NativeWndSecondSlotResize");
     LogNativeChildSurfaceShape(wndObj, "NativeWndInitSecondSlot");
 
-    // Step 3: 同步三组常见坐标，避免 draw/move 初期取到旧值
+    // Step 3: 同步官方 0x84 child 内部安全坐标，避免 draw/move 初期取到旧值。
+    // 注意：official second-child 不是 A996B0-family，不能写 +2756/+2760 home 坐标。
     CWnd_SetRenderPos(wndObj, xPos, yPos);
     CWnd_SetComPos(wndObj, xPos, yPos);
-    CWnd_SetHomePos(wndObj, xPos, yPos);
 
     // Step 4: 替换 VT1 draw 槽位，接入我们的面板绘制
     if (!ApplySuperChildCustomDrawVTable(wndObj)) {
@@ -4275,8 +4346,7 @@ static bool CreateSuperWnd(uintptr_t skillWndThis)
     // Step 5: 再补一次 move，确保初始化后逻辑位置与我们的锚点一致
     MoveNativeChildWnd(wndObj, xPos, yPos, "NativeWndInitMove");
 
-    // Step 6: child 默认隐藏，真正展开时再 show/vis
-    SetSuperWndVisible(wndObj, 0);
+    // Step 6: official second-child 没有可靠 show/hide 槽位；收起时走 close+release。
     MarkSuperWndDirty(wndObj, "NativeWndInit");
 
     g_SuperCWnd = wndObj;
@@ -4294,6 +4364,16 @@ static void SetSuperWndVisible(uintptr_t wndObj, int showVal)
     }
 
     if (!wndObj) return;
+
+    if (IsOfficialSecondChildObject(wndObj, true)) {
+        static int s_officialSecondVisibleNoopLogCount = 0;
+        if (s_officialSecondVisibleNoopLogCount < 8) {
+            WriteLogFmt("[Visible] official second-child has no reliable show/hide slot; no-op show=%d wnd=0x%08X",
+                showVal, (DWORD)wndObj);
+            s_officialSecondVisibleNoopLogCount++;
+        }
+        return;
+    }
 
     uintptr_t thisForVT2 = wndObj + 4;  // 与sub_9E9B50一致
     if (SafeIsBadReadPtr((void*)thisForVT2, 4)) return;
@@ -4381,8 +4461,13 @@ static void DestroySuperWndOnly(const char* reason)
 static void ResetSuperRuntimeState(bool closeWnd, const char* reason)
 {
     if (ENABLE_IMGUI_OVERLAY_PANEL) {
-        SuperImGuiOverlaySetVisible(false);
-        SuperImGuiOverlayResetPanelState();
+        if (g_IsD3D8Mode) {
+            SuperD3D8OverlaySetVisible(false);
+            SuperD3D8OverlayResetPanelState();
+        } else {
+            SuperImGuiOverlaySetVisible(false);
+            SuperImGuiOverlayResetPanelState();
+        }
     }
 
     if (closeWnd && g_SuperCWnd) {
@@ -4471,6 +4556,14 @@ static void ToggleSuperWnd(const char* srcTag)
 
     g_SuperExpanded = !g_SuperExpanded;
     WriteLogFmt("[Toggle:%s] expanded=%d", srcTag ? srcTag : "unknown", g_SuperExpanded);
+
+    // D3D8 mode owns the shared ImGui panel from hkD3D8Present.
+    // It does not need the D3D9 CreateSuperWnd route or a native child window.
+    if (g_IsD3D8Mode) {
+        WriteLogFmt("[Toggle] D3D8 mode: panel %s", g_SuperExpanded ? "ON" : "OFF");
+        return;
+    }
+
     if (g_SuperExpanded && !g_NativeWndCreated) {
         WriteLog(ENABLE_IMGUI_OVERLAY_PANEL ? "[Toggle] creating imgui overlay panel..." : "[Toggle] creating official second-slot super child...");
         if (CreateSuperWnd(g_SkillWndThis)) {
@@ -5406,15 +5499,19 @@ static void UpdateSuperCWnd()
     g_PanelDrawY = panelY;
 
     if (ENABLE_IMGUI_OVERLAY_PANEL) {
-        SuperImGuiOverlaySetAnchor(g_PanelDrawX, g_PanelDrawY);
+        if (g_IsD3D8Mode)
+            SuperD3D8OverlaySetAnchor(g_PanelDrawX, g_PanelDrawY);
+        else
+            SuperImGuiOverlaySetAnchor(g_PanelDrawX, g_PanelDrawY);
         if ((g_PanelDrawX != s_lastPanelX || g_PanelDrawY != s_lastPanelY) && g_UpdatePosLogCount < 200) {
             int swComX = 0, swComY = 0, swVtX = 0, swVtY = 0;
             bool hasCom = GetSkillWndComPos(g_SkillWndThis, &swComX, &swComY);
             bool hasVt = GetSkillWndAnchorPos(g_SkillWndThis, &swVtX, &swVtY);
-            WriteLogFmt("[UpdatePos] src=%s panel=(%d,%d) swCom=%s(%d,%d) swVt=%s(%d,%d) overlay=imgui",
+            WriteLogFmt("[UpdatePos] src=%s panel=(%d,%d) swCom=%s(%d,%d) swVt=%s(%d,%d) overlay=%s",
                 src, g_PanelDrawX, g_PanelDrawY,
                 hasCom ? "Y" : "N", swComX, swComY,
-                hasVt ? "Y" : "N", swVtX, swVtY);
+                hasVt ? "Y" : "N", swVtX, swVtY,
+                g_IsD3D8Mode ? "imgui_d3d8" : "imgui_d3d9");
             g_UpdatePosLogCount++;
         }
         s_lastPanelX = g_PanelDrawX;
@@ -5465,11 +5562,17 @@ static LRESULT CALLBACK GameWndProc(HWND h, UINT m, WPARAM w, LPARAM l)
         switch (m) {
         case WM_CAPTURECHANGED:
         case WM_KILLFOCUS:
-            SuperImGuiOverlayCancelMouseCapture();
+            if (g_IsD3D8Mode)
+                SuperD3D8OverlayCancelMouseCapture();
+            else
+                SuperImGuiOverlayCancelMouseCapture();
             break;
         case WM_ACTIVATEAPP:
             if (!w) {
-                SuperImGuiOverlayCancelMouseCapture();
+                if (g_IsD3D8Mode)
+                    SuperD3D8OverlayCancelMouseCapture();
+                else
+                    SuperImGuiOverlayCancelMouseCapture();
             }
             break;
         default:
@@ -5511,12 +5614,16 @@ static LRESULT CALLBACK GameWndProc(HWND h, UINT m, WPARAM w, LPARAM l)
     }
 
     if (ENABLE_IMGUI_OVERLAY_PANEL && g_SuperExpanded) {
-        if (m == WM_MOUSEACTIVATE && SuperImGuiOverlayShouldSuppressGameMouse()) {
+        if (m == WM_MOUSEACTIVATE && (g_IsD3D8Mode ? SuperD3D8OverlayShouldSuppressGameMouse() : SuperImGuiOverlayShouldSuppressGameMouse())) {
             return MA_NOACTIVATEANDEAT;
         }
 
-        bool overlayHandled = SuperImGuiOverlayHandleWndProc(h, m, w, l);
-        bool suppressGameMouse = SuperImGuiOverlayShouldSuppressGameMouse();
+        bool overlayHandled = g_IsD3D8Mode ?
+            SuperD3D8OverlayHandleWndProc(h, m, w, l) :
+            SuperImGuiOverlayHandleWndProc(h, m, w, l);
+        bool suppressGameMouse = g_IsD3D8Mode ?
+            SuperD3D8OverlayShouldSuppressGameMouse() :
+            SuperImGuiOverlayShouldSuppressGameMouse();
 
         if (!overlayHandled) {
             switch (m) {
@@ -5534,7 +5641,10 @@ static LRESULT CALLBACK GameWndProc(HWND h, UINT m, WPARAM w, LPARAM l)
             case WM_XBUTTONDBLCLK:
             case WM_MOUSEWHEEL:
             case WM_MOUSEHWHEEL:
-                SuperImGuiOverlayCancelMouseCapture();
+                if (g_IsD3D8Mode)
+                    SuperD3D8OverlayCancelMouseCapture();
+                else
+                    SuperImGuiOverlayCancelMouseCapture();
                 if (Win32InputSpoofIsInstalled()) {
                     Win32InputSpoofSetSuppressMouse(false);
                 }
@@ -5650,13 +5760,91 @@ typedef HRESULT (__stdcall *tReset)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
 typedef HRESULT (__stdcall *tResetEx)(IDirect3DDevice9Ex*, D3DPRESENT_PARAMETERS*, D3DDISPLAYMODEEX*);
 static HRESULT __stdcall hkReset(IDirect3DDevice9* pDevice, D3DPRESENT_PARAMETERS* pPresentationParameters);
 static HRESULT __stdcall hkResetEx(IDirect3DDevice9Ex* pDevice, D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMODEEX* pFullscreenDisplayMode);
+static HRESULT __stdcall hkPresent(IDirect3DDevice9* pDevice, const RECT* pSourceRect, const RECT* pDestRect, HWND hDestWindowOverride, const RGNDATA* pDirtyRegion);
 static tPresent oPresent = nullptr;
 static tReset oReset = nullptr;
 static tResetEx oResetEx = nullptr;
+typedef HRESULT (__stdcall *tEndScene)(IDirect3DDevice9*);
+static tEndScene oEndScene = nullptr;
+static tPresent g_LiveDevicePresent = nullptr;
+static bool g_LivePresentVtableHooked = false;
 static tReset g_LiveDeviceReset = nullptr;
 static tResetEx g_LiveDeviceResetEx = nullptr;
 static void** g_LiveDeviceVTable9 = nullptr;
 static void** g_LiveDeviceVTable9Ex = nullptr;
+
+// Forward declarations for CreateDevice interception strategy
+static HRESULT __stdcall hkEndScene(IDirect3DDevice9* pDevice);
+static bool PatchLiveDeviceVTableEntry(void** vtable, int index, void* hookFunc, void** outOriginal);
+static void EnsureLiveDeviceResetHooks(IDirect3DDevice9* pDevice);
+
+// --- CreateDevice interception strategy ---
+// When inline hooks on Present/EndScene don't fire (e.g., D3D9on12, wrapper layers),
+// we hook Direct3DCreate9 -> vtable-hook IDirect3D9::CreateDevice -> vtable-hook the real device's Present.
+typedef IDirect3D9* (WINAPI *tDirect3DCreate9Fn)(UINT SDKVersion);
+typedef HRESULT (__stdcall *tCreateDevice)(IDirect3D9*, UINT, D3DDEVTYPE, HWND, DWORD, D3DPRESENT_PARAMETERS*, IDirect3DDevice9**);
+static tDirect3DCreate9Fn oDirectCreate9 = nullptr;
+static tCreateDevice oCreateDevice = nullptr;
+static bool g_DeviceCapturedViaCreateHook = false;
+
+static HRESULT __stdcall hkCreateDevice(IDirect3D9* pD3D, UINT Adapter, D3DDEVTYPE DeviceType,
+    HWND hFocusWindow, DWORD BehaviorFlags, D3DPRESENT_PARAMETERS* pPP, IDirect3DDevice9** ppDevice)
+{
+    HRESULT hr = oCreateDevice(pD3D, Adapter, DeviceType, hFocusWindow, BehaviorFlags, pPP, ppDevice);
+    if (SUCCEEDED(hr) && ppDevice && *ppDevice && !g_DeviceCapturedViaCreateHook)
+    {
+        IDirect3DDevice9* pDevice = *ppDevice;
+        g_pDevice = pDevice;
+        g_DeviceCapturedViaCreateHook = true;
+        WriteLogFmt("[D3D9-CreateHook] Captured real device=0x%08X type=%d", (DWORD)(uintptr_t)pDevice, (int)DeviceType);
+
+        // Vtable-hook Present on the real device
+        void** vtable = *(void***)pDevice;
+        if (vtable)
+        {
+            void* origPresent = nullptr;
+            if (PatchLiveDeviceVTableEntry(vtable, 17, (void*)hkPresent, &origPresent))
+            {
+                if (origPresent && origPresent != (void*)hkPresent)
+                    g_LiveDevicePresent = (tPresent)origPresent;
+                g_LivePresentVtableHooked = true;
+                WriteLogFmt("[D3D9-CreateHook] Present vtable hooked orig=0x%08X", (DWORD)(uintptr_t)origPresent);
+            }
+
+            void* origEndScene = nullptr;
+            if (PatchLiveDeviceVTableEntry(vtable, 42, (void*)hkEndScene, &origEndScene))
+            {
+                if (origEndScene && origEndScene != (void*)hkEndScene && !oEndScene)
+                    oEndScene = (tEndScene)origEndScene;
+                WriteLogFmt("[D3D9-CreateHook] EndScene vtable hooked orig=0x%08X", (DWORD)(uintptr_t)origEndScene);
+            }
+        }
+        EnsureLiveDeviceResetHooks(pDevice);
+    }
+    return hr;
+}
+
+static IDirect3D9* WINAPI hkDirect3DCreate9(UINT SDKVersion)
+{
+    IDirect3D9* pD3D = oDirectCreate9(SDKVersion);
+    if (pD3D)
+    {
+        WriteLogFmt("[D3D9-CreateHook] Direct3DCreate9 called SDK=%d result=0x%08X", SDKVersion, (DWORD)(uintptr_t)pD3D);
+        // Vtable-hook CreateDevice (index 16) on the real IDirect3D9
+        void** vtable = *(void***)pD3D;
+        if (vtable)
+        {
+            void* origCreateDevice = nullptr;
+            if (PatchLiveDeviceVTableEntry(vtable, 16, (void*)hkCreateDevice, &origCreateDevice))
+            {
+                if (origCreateDevice && origCreateDevice != (void*)hkCreateDevice)
+                    oCreateDevice = (tCreateDevice)origCreateDevice;
+                WriteLogFmt("[D3D9-CreateHook] CreateDevice vtable hooked orig=0x%08X", (DWORD)(uintptr_t)origCreateDevice);
+            }
+        }
+    }
+    return pD3D;
+}
 
 static bool PatchLiveDeviceVTableEntry(void** vtable, int index, void* hookFunc, void** outOriginal)
 {
@@ -5779,11 +5967,49 @@ static HRESULT __stdcall hkResetEx(IDirect3DDevice9Ex* pDevice, D3DPRESENT_PARAM
     return hr;
 }
 
+// EndScene hook — fallback device capture when Present inline hook misses
+// (e.g., game uses D3D9Ex or wrapper d3d9.dll with different Present address)
+static HRESULT __stdcall hkEndScene(IDirect3DDevice9* pDevice)
+{
+    if (pDevice && !g_pDevice)
+    {
+        g_pDevice = pDevice;
+        WriteLogFmt("[D3D9] EndScene captured device=0x%08X", (DWORD)(uintptr_t)pDevice);
+
+        // Vtable-hook Present on the live device so hkPresent fires from now on
+        if (!g_LivePresentVtableHooked)
+        {
+            void** vtable = *(void***)pDevice;
+            if (vtable)
+            {
+                void* origPresent = nullptr;
+                if (PatchLiveDeviceVTableEntry(vtable, 17, (void*)hkPresent, &origPresent))
+                {
+                    if (origPresent && origPresent != (void*)hkPresent)
+                        g_LiveDevicePresent = (tPresent)origPresent;
+                    g_LivePresentVtableHooked = true;
+                    WriteLogFmt("[D3D9] live vtbl Present patched vtbl=0x%08X orig=0x%08X",
+                        (DWORD)(uintptr_t)vtable, (DWORD)(uintptr_t)g_LiveDevicePresent);
+                }
+            }
+        }
+
+        EnsureLiveDeviceResetHooks(pDevice);
+    }
+
+    return oEndScene(pDevice);
+}
+
 static HRESULT __stdcall hkPresent(IDirect3DDevice9* pDevice,
     const RECT* pSourceRect, const RECT* pDestRect,
     HWND hDestWindowOverride, const RGNDATA* pDirtyRegion)
 {
     g_pDevice = pDevice;
+
+    // Choose the correct original Present to call at the end:
+    // - oPresent = inline hook trampoline (works when inline hook caught the right function)
+    // - g_LiveDevicePresent = vtable original (works when EndScene fallback patched vtable)
+    tPresent fnOrigPresent = oPresent ? oPresent : g_LiveDevicePresent;
     EnsureLiveDeviceResetHooks(pDevice);
 
     // 纹理加载（一次性，面板用）
@@ -5828,6 +6054,8 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* pDevice,
             }
         }
 
+        DrawSuperButtonTextureInPresent(pDevice);
+
         if (g_SkillWndThis && g_SuperExpanded) {
             UpdateSuperCWnd();
             SuperImGuiOverlaySetVisible(true);
@@ -5836,7 +6064,6 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* pDevice,
             SuperImGuiOverlaySetVisible(false);
         }
 
-        DrawSuperButtonTextureInPresent(pDevice);
         DrawSuperButtonCursorInPresent(pDevice);
 
         const bool suppressMouse = SuperImGuiOverlayShouldSuppressGameMouse() || ShouldSuppressGameMouseForSuperBtnD3D();
@@ -5849,7 +6076,7 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* pDevice,
         }
         g_LastOverlaySuppressMouse = suppressMouse;
 
-        return oPresent(pDevice, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
+        return fnOrigPresent ? fnOrigPresent(pDevice, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion) : D3D_OK;
     }
 
     // 每帧刷新扩展层锚点（真正绘制在 sub_9DEE30 里做）
@@ -5899,7 +6126,7 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9* pDevice,
         s_prevLBtnDown = isDown;
     }
 
-    return oPresent(pDevice, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
+    return fnOrigPresent ? fnOrigPresent(pDevice, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion) : D3D_OK;
 }
 
 // ============================================================================
@@ -5915,13 +6142,26 @@ static bool SetupD3D9Hook()
     HWND hWnd = CreateWindowA("SSWDummy", "", WS_OVERLAPPEDWINDOW, 0, 0, 100, 100,
         NULL, NULL, wc.hInstance, NULL);
 
-    IDirect3D9* pD3D = Direct3DCreate9(D3D_SDK_VERSION);
+    // Use the d3d9.dll that the game actually loaded (may be a wrapper/proxy in the game dir)
+    // rather than always calling the system Direct3DCreate9
+    typedef IDirect3D9* (WINAPI *tDirect3DCreate9)(UINT);
+    tDirect3DCreate9 pfnCreate9 = nullptr;
+    HMODULE hD3D9 = ::GetModuleHandleA("d3d9.dll");
+    if (hD3D9)
+        pfnCreate9 = (tDirect3DCreate9)::GetProcAddress(hD3D9, "Direct3DCreate9");
+    if (!pfnCreate9)
+        pfnCreate9 = Direct3DCreate9; // fallback to linked import
+
+    IDirect3D9* pD3D = pfnCreate9(D3D_SDK_VERSION);
     if (!pD3D) {
         WriteLog("[D3D9] FAIL: Direct3DCreate9");
         DestroyWindow(hWnd);
         UnregisterClassA("SSWDummy", wc.hInstance);
         return false;
     }
+
+    WriteLogFmt("[D3D9] d3d9.dll=0x%08X create9=0x%08X",
+        (DWORD)(uintptr_t)hD3D9, (DWORD)(uintptr_t)pfnCreate9);
 
     D3DPRESENT_PARAMETERS d3dpp = {};
     d3dpp.Windowed = TRUE;
@@ -5930,8 +6170,14 @@ static bool SetupD3D9Hook()
     d3dpp.hDeviceWindow = hWnd;
 
     IDirect3DDevice9* pDev = nullptr;
-    HRESULT hr = pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_NULLREF,
+    // Try HAL first (shares vtable with real game device), fall back to NULLREF
+    HRESULT hr = pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
         hWnd, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &d3dpp, &pDev);
+    if (FAILED(hr) || !pDev) {
+        WriteLogFmt("[D3D9] HAL device failed (hr=0x%08X), trying NULLREF", (DWORD)hr);
+        hr = pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_NULLREF,
+            hWnd, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &d3dpp, &pDev);
+    }
 
     if (FAILED(hr) || !pDev) {
         pD3D->Release();
@@ -5942,7 +6188,29 @@ static bool SetupD3D9Hook()
 
     DWORD* vtable = *(DWORD**)pDev;
     DWORD presentAddr = vtable[17];
+    DWORD endSceneAddr = vtable[42];
     BYTE* pPresent = FollowJmpChain((void*)presentAddr);
+    BYTE* pEndScene = FollowJmpChain((void*)endSceneAddr);
+
+    WriteLogFmt("[D3D9] vtable=0x%08X Present=[0x%08X->0x%08X] EndScene=[0x%08X->0x%08X]",
+        (DWORD)(uintptr_t)vtable,
+        presentAddr, (DWORD)(uintptr_t)pPresent,
+        endSceneAddr, (DWORD)(uintptr_t)pEndScene);
+
+    // Detect which module owns these functions
+    {
+        HMODULE hModPresent = nullptr, hModEndScene = nullptr;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            (LPCWSTR)pPresent, &hModPresent);
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            (LPCWSTR)pEndScene, &hModEndScene);
+        char modNameP[260] = {}, modNameE[260] = {};
+        if (hModPresent) GetModuleFileNameA(hModPresent, modNameP, sizeof(modNameP));
+        if (hModEndScene) GetModuleFileNameA(hModEndScene, modNameE, sizeof(modNameE));
+        WriteLogFmt("[D3D9] Present in: %s", modNameP[0] ? modNameP : "(unknown)");
+        WriteLogFmt("[D3D9] EndScene in: %s", modNameE[0] ? modNameE : "(unknown)");
+    }
+
     int copyLen = CalcMinCopyLen(pPresent);
     if (copyLen < 5) copyLen = 5;
     oReset = nullptr;
@@ -5952,18 +6220,386 @@ static bool SetupD3D9Hook()
 
     oPresent = (tPresent)GenericInlineHook5(pPresent, (void*)hkPresent, copyLen);
     if (!oPresent) {
-        WriteLog("[D3D9] Hook failed");
+        WriteLog("[D3D9] Present inline hook failed (will rely on EndScene fallback)");
+    }
+
+    // EndScene fallback: hook vtable[42] to capture device even if Present inline hook
+    // doesn't match the game's actual Present function (e.g., D3D9Ex / wrapper d3d9.dll)
+    int esLen = CalcMinCopyLen(pEndScene);
+    if (esLen < 5) esLen = 5;
+    oEndScene = (tEndScene)GenericInlineHook5(pEndScene, (void*)hkEndScene, esLen);
+    if (!oEndScene) {
+        WriteLog("[D3D9] EndScene inline hook failed");
+    }
+
+    if (!oPresent && !oEndScene) {
+        WriteLog("[D3D9] FAIL: both Present and EndScene hooks failed");
         pDev->Release(); pD3D->Release();
         DestroyWindow(hWnd);
         UnregisterClassA("SSWDummy", wc.hInstance);
         return false;
     }
 
-    WriteLogFmt("[D3D9] Hooked OK, reset=vtable_only present=0x%08X resetEx=vtable_only",
-        (DWORD)oPresent);
+    WriteLogFmt("[D3D9] Hooked OK, present=0x%08X endScene=0x%08X reset=vtable_only",
+        (DWORD)(uintptr_t)oPresent, (DWORD)(uintptr_t)oEndScene);
+
+    // --- Strategy 3: Hook Direct3DCreate9 to intercept device creation ---
+    // When inline hooks on Present/EndScene install but never fire (D3D9on12, wrapper layers,
+    // or the game's device uses a different vtable than our dummy device), this catches the
+    // real device at creation time and vtable-hooks its Present directly.
+    {
+        HMODULE hD3D9Live = ::GetModuleHandleA("d3d9.dll");
+        if (hD3D9Live)
+        {
+            BYTE* pCreate9 = (BYTE*)::GetProcAddress(hD3D9Live, "Direct3DCreate9");
+            if (pCreate9)
+            {
+                pCreate9 = FollowJmpChain(pCreate9);
+                int createLen = CalcMinCopyLen(pCreate9);
+                if (createLen < 5) createLen = 5;
+                oDirectCreate9 = (tDirect3DCreate9Fn)GenericInlineHook5(pCreate9, (void*)hkDirect3DCreate9, createLen);
+                if (oDirectCreate9)
+                    WriteLogFmt("[D3D9] Direct3DCreate9 hooked at 0x%08X (CreateDevice interception ready)", (DWORD)(uintptr_t)pCreate9);
+                else
+                    WriteLog("[D3D9] Direct3DCreate9 inline hook failed (non-fatal, game may have already called it)");
+            }
+        }
+    }
+
+    // --- Strategy 4: Vtable-patch the dummy device's vtable directly ---
+    // If the game creates a HAL device from the same d3d9.dll, it will share this vtable.
+    // The vtable lives in d3d9.dll's data segment and persists after pDev->Release().
+    // This catches D3D9on12 scenarios where inline hooks on the function body don't fire
+    // but the vtable entries are still used by the game device.
+    {
+        void** dummyVtable = *(void***)pDev;
+        if (dummyVtable)
+        {
+            void* origPresentVtbl = nullptr;
+            void* origEndSceneVtbl = nullptr;
+            if (PatchLiveDeviceVTableEntry(dummyVtable, 17, (void*)hkPresent, &origPresentVtbl))
+            {
+                // If inline hook already installed, the original function entry is patched with jmp->hkPresent
+                // so calling it would recurse. Only use vtable original when we DON'T have an inline trampoline.
+                if (!oPresent && !g_LiveDevicePresent && origPresentVtbl && origPresentVtbl != (void*)hkPresent)
+                    g_LiveDevicePresent = (tPresent)origPresentVtbl;
+                WriteLogFmt("[D3D9] dummy vtable Present patched orig=0x%08X (using=%s)",
+                    (DWORD)(uintptr_t)origPresentVtbl,
+                    oPresent ? "inline_tramp" : (g_LiveDevicePresent ? "vtbl_orig" : "none"));
+            }
+            if (PatchLiveDeviceVTableEntry(dummyVtable, 42, (void*)hkEndScene, &origEndSceneVtbl))
+            {
+                if (!oEndScene && origEndSceneVtbl && origEndSceneVtbl != (void*)hkEndScene)
+                    oEndScene = (tEndScene)origEndSceneVtbl;
+                WriteLogFmt("[D3D9] dummy vtable EndScene patched orig=0x%08X", (DWORD)(uintptr_t)origEndSceneVtbl);
+            }
+
+            // Also patch Reset (index 16) on the dummy vtable
+            void* origResetVtbl = nullptr;
+            if (PatchLiveDeviceVTableEntry(dummyVtable, 16, (void*)hkReset, &origResetVtbl))
+            {
+                if (!oReset && origResetVtbl && origResetVtbl != (void*)hkReset)
+                    oReset = (tReset)origResetVtbl;
+                WriteLogFmt("[D3D9] dummy vtable Reset patched orig=0x%08X", (DWORD)(uintptr_t)origResetVtbl);
+            }
+        }
+    }
+
     pDev->Release(); pD3D->Release();
     DestroyWindow(hWnd);
     UnregisterClassA("SSWDummy", wc.hInstance);
+    return true;
+}
+
+// ============================================================================
+// D3D8 兼容层 — 运行时检测 + D3D8 Present hook + shared ImGui panel
+// ============================================================================
+
+// D3D8 function pointer types (用 void* 代替 IDirect3DDevice8* 因为不包含 d3d8.h)
+typedef HRESULT (__stdcall *tD3D8Present)(void* pDevice8, const RECT*, const RECT*, HWND, const RGNDATA*);
+typedef HRESULT (__stdcall *tD3D8Reset)(void* pDevice8, void* pPresentationParameters);
+static tD3D8Present oD3D8Present = nullptr;
+static tD3D8Reset   oD3D8Reset  = nullptr;
+static HWND g_D3D8GameHwnd = nullptr;
+
+// D3D8 Present hook — 直接在游戏 D3D8 设备上渲染 overlay
+static HRESULT __stdcall hkD3D8Present(void* pDevice8,
+    const RECT* pSourceRect, const RECT* pDestRect,
+    HWND hDestWindowOverride, const RGNDATA* pDirtyRegion)
+{
+    // 首次调用：获取游戏 HWND
+    if (!g_D3D8GameHwnd) {
+        HWND hwnd = hDestWindowOverride;
+        if (!hwnd) hwnd = g_GameHwnd;
+        if (!hwnd) {
+            DWORD pid = GetCurrentProcessId();
+            struct FindCtx { DWORD pid; HWND result; };
+            FindCtx ctx = { pid, nullptr };
+            EnumWindows([](HWND h, LPARAM lp) -> BOOL {
+                FindCtx* c = (FindCtx*)lp;
+                DWORD wp;
+                GetWindowThreadProcessId(h, &wp);
+                if (wp == c->pid && IsWindowVisible(h)) {
+                    c->result = h;
+                    return FALSE;
+                }
+                return TRUE;
+            }, (LPARAM)&ctx);
+            hwnd = ctx.result;
+        }
+        if (hwnd) {
+            g_D3D8GameHwnd = hwnd;
+            if (!g_GameHwnd) g_GameHwnd = hwnd;
+            WriteLogFmt("[D3D8] first Present: hwnd=0x%08X", (DWORD)(uintptr_t)hwnd);
+        }
+    }
+
+    // 每帧同步 SkillWnd 全局指针
+    bool wasReady = g_Ready;
+    uintptr_t swGlobal = 0;
+    if (!SafeIsBadReadPtr((void*)ADDR_SkillWndEx, 4)) {
+        swGlobal = *(uintptr_t*)ADDR_SkillWndEx;
+    }
+    OnSkillWndPointerObserved(swGlobal, "d3d8_present");
+
+    if (!wasReady && g_Ready && g_SkillWndThis) {
+        WriteLogFmt("[D3D8-Present] SkillWnd: 0x%08X", (DWORD)g_SkillWndThis);
+        WriteLog("[D3D8-Present] Ready");
+    }
+
+    // Fallback 创建原生按钮
+    if (g_Ready && g_SkillWndThis && !oSkillWndInitChildren) {
+        if (!g_NativeBtnCreated) {
+            WriteLog("[D3D8-Present] Fallback create native button...");
+            if (CreateSuperButton(g_SkillWndThis))
+                WriteLog("[D3D8-Present] Fallback native button OK");
+            else
+                WriteLog("[D3D8-Present] Fallback native button FAILED");
+        }
+    }
+
+    if (ENABLE_IMGUI_OVERLAY_PANEL) {
+        if (!SuperD3D8OverlayIsInitialized() && g_D3D8GameHwnd && pDevice8) {
+            if (!SuperD3D8OverlayEnsureInitialized(g_D3D8GameHwnd, pDevice8, 1.0f, IMGUI_PANEL_ASSET_PATH)) {
+                static DWORD s_lastD3D8OverlayInitFailLogTick = 0;
+                DWORD now = GetTickCount();
+                if (now - s_lastD3D8OverlayInitFailLogTick > 1000) {
+                    WriteLogFmt("[D3D8ImGuiOverlay] ensure init failed in Present device=0x%08X hwnd=0x%08X",
+                        (DWORD)(uintptr_t)pDevice8, (DWORD)(uintptr_t)g_D3D8GameHwnd);
+                    s_lastD3D8OverlayInitFailLogTick = now;
+                }
+            }
+        }
+
+        if (g_SkillWndThis && g_SuperExpanded) {
+            UpdateSuperCWnd();
+            SuperD3D8OverlaySetVisible(true);
+            SuperD3D8OverlayRender(pDevice8);
+        } else if (SuperD3D8OverlayIsInitialized()) {
+            SuperD3D8OverlaySetVisible(false);
+        }
+
+        const bool suppressMouse = SuperD3D8OverlayShouldSuppressGameMouse() || ShouldSuppressGameMouseForSuperBtnD3D();
+        if (Win32InputSpoofIsInstalled()) {
+            Win32InputSpoofSetSuppressMouse(suppressMouse);
+        }
+        UpdateGameMouseSuppressionFallback(suppressMouse);
+        if (g_LastOverlaySuppressMouse && !suppressMouse) {
+            RefreshGameCursorImmediately();
+        }
+        g_LastOverlaySuppressMouse = suppressMouse;
+    }
+
+    // 调用原始 D3D8 Present
+    HRESULT hr = oD3D8Present ? oD3D8Present(pDevice8, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion) : D3D_OK;
+    return hr;
+}
+
+// D3D8 Reset hook — 释放 D3D8 纹理
+static HRESULT __stdcall hkD3D8Reset(void* pDevice8, void* pPresentationParameters)
+{
+    WriteLog("[D3D8] Reset called, releasing D3D8 textures");
+    if (ENABLE_IMGUI_OVERLAY_PANEL) {
+        SuperD3D8OverlayOnDeviceLost();
+    }
+
+    HRESULT hr = oD3D8Reset ? oD3D8Reset(pDevice8, pPresentationParameters) : D3DERR_INVALIDCALL;
+
+    if (SUCCEEDED(hr)) {
+        if (ENABLE_IMGUI_OVERLAY_PANEL) {
+            SuperD3D8OverlayOnDeviceReset(pDevice8);
+        }
+        WriteLog("[D3D8] Reset OK, overlay device objects refreshed");
+    } else {
+        WriteLogFmt("[D3D8] Reset FAIL hr=0x%08X", (DWORD)hr);
+    }
+    return hr;
+}
+
+// 安装 D3D8 hooks
+static bool SetupD3D8Hook()
+{
+    WriteLog("[D3D8] Setup...");
+
+    HMODULE hD3D8 = ::GetModuleHandleA("d3d8.dll");
+    if (!hD3D8) {
+        WriteLog("[D3D8] FAIL: d3d8.dll not loaded");
+        return false;
+    }
+
+    typedef void* (__stdcall *tDirect3DCreate8)(UINT);
+    tDirect3DCreate8 pfnCreate8 = (tDirect3DCreate8)::GetProcAddress(hD3D8, "Direct3DCreate8");
+    if (!pfnCreate8) {
+        WriteLog("[D3D8] FAIL: Direct3DCreate8 not found");
+        return false;
+    }
+
+    WriteLogFmt("[D3D8] d3d8.dll=0x%08X Direct3DCreate8=0x%08X",
+        (DWORD)(uintptr_t)hD3D8, (DWORD)(uintptr_t)pfnCreate8);
+
+    // 创建 dummy 窗口和 D3D8 设备来获取 vtable
+    WNDCLASSEXA wc = {sizeof(WNDCLASSEX), CS_CLASSDC, DefWindowProc, 0L, 0L,
+        GetModuleHandle(NULL), NULL, NULL, NULL, NULL, "SSWDummyD3D8", NULL};
+    RegisterClassExA(&wc);
+    HWND hWnd = CreateWindowA("SSWDummyD3D8", "", WS_OVERLAPPEDWINDOW, 0, 0, 100, 100,
+        NULL, NULL, wc.hInstance, NULL);
+
+    // 调用 Direct3DCreate8(220) — D3D8 SDK version
+    void* pD3D8 = pfnCreate8(220);
+    if (!pD3D8) {
+        WriteLog("[D3D8] FAIL: Direct3DCreate8 returned null");
+        DestroyWindow(hWnd);
+        UnregisterClassA("SSWDummyD3D8", wc.hInstance);
+        return false;
+    }
+
+    // IDirect3D8::CreateDevice = vtable[15]
+    // IDirect3D8 vtable: 0=QI, 1=AddRef, 2=Release, ..., 15=CreateDevice
+    DWORD* vtableD3D8 = *(DWORD**)pD3D8;
+
+    // 查询当前显示模式以获取有效的 BackBufferFormat
+    // IDirect3D8::GetAdapterDisplayMode = vtable[8]
+    // HRESULT GetAdapterDisplayMode(UINT Adapter, D3DDISPLAYMODE* pMode)
+    // D3DDISPLAYMODE: { Width(4), Height(4), RefreshRate(4), Format(4) } = 16 bytes
+    typedef HRESULT (__stdcall *tGetAdapterDisplayMode8)(void*, UINT, void*);
+    tGetAdapterDisplayMode8 pfnGetDisplayMode = (tGetAdapterDisplayMode8)vtableD3D8[8];
+    BYTE displayMode[16] = {};
+    DWORD backBufferFormat = 22; // D3DFMT_X8R8G8B8 fallback
+    if (pfnGetDisplayMode) {
+        HRESULT hrDM = pfnGetDisplayMode(pD3D8, 0, displayMode);
+        if (SUCCEEDED(hrDM)) {
+            DWORD dmFormat = *(DWORD*)(displayMode + 12); // Format at offset 12
+            if (dmFormat != 0) {
+                backBufferFormat = dmFormat;
+                WriteLogFmt("[D3D8] display mode: %dx%d fmt=%d",
+                    *(DWORD*)(displayMode + 0), *(DWORD*)(displayMode + 4), dmFormat);
+            }
+        }
+    }
+
+    // D3D8 D3DPRESENT_PARAMETERS layout (不同于 D3D9，没有 MultiSampleQuality):
+    //   0x00: BackBufferWidth (DWORD)
+    //   0x04: BackBufferHeight (DWORD)
+    //   0x08: BackBufferFormat (D3DFORMAT)  <-- D3D8 不支持 D3DFMT_UNKNOWN(0)！必须指定有效格式
+    //   0x0C: BackBufferCount (DWORD)
+    //   0x10: MultiSampleType (D3DMULTISAMPLE_TYPE)
+    //   0x14: SwapEffect (D3DSWAPEFFECT)
+    //   0x18: hDeviceWindow (HWND)
+    //   0x1C: Windowed (BOOL)
+    //   0x20: EnableAutoDepthStencil (BOOL)
+    //   0x24: AutoDepthStencilFormat (D3DFORMAT)
+    //   0x28: Flags (DWORD)
+    //   0x2C: FullScreen_RefreshRateInHz (UINT)
+    //   0x30: FullScreen_PresentationInterval (UINT)
+    BYTE d3dpp8[64] = {};
+    *(DWORD*)(d3dpp8 + 0x08) = backBufferFormat; // BackBufferFormat — 必须是有效格式
+    *(DWORD*)(d3dpp8 + 0x14) = 1; // SwapEffect = D3DSWAPEFFECT_DISCARD
+    *(HWND*)(d3dpp8 + 0x18) = hWnd; // hDeviceWindow
+    *(DWORD*)(d3dpp8 + 0x1C) = 1; // Windowed = TRUE
+
+    // 调用 IDirect3D8::CreateDevice (vtable[15])
+    // HRESULT CreateDevice(UINT Adapter, D3DDEVTYPE DeviceType, HWND hFocusWindow,
+    //                      DWORD BehaviorFlags, D3DPRESENT_PARAMETERS8* pPP, IDirect3DDevice8** ppDevice)
+    typedef HRESULT (__stdcall *tD3D8CreateDevice)(void* pD3D8, UINT, DWORD, HWND, DWORD, void*, void**);
+    tD3D8CreateDevice pfnCreateDevice8 = (tD3D8CreateDevice)vtableD3D8[15];
+
+    void* pDummyDevice8 = nullptr;
+    HRESULT hr = pfnCreateDevice8(pD3D8, 0, 1/*D3DDEVTYPE_HAL*/, hWnd,
+        0x20/*D3DCREATE_SOFTWARE_VERTEXPROCESSING*/, d3dpp8, &pDummyDevice8);
+
+    if (FAILED(hr) || !pDummyDevice8) {
+        WriteLogFmt("[D3D8] dummy device creation failed hr=0x%08X, trying NULLREF", (DWORD)hr);
+        // D3D8 没有 D3DDEVTYPE_NULLREF，尝试 REF (2)
+        hr = pfnCreateDevice8(pD3D8, 0, 2/*D3DDEVTYPE_REF*/, hWnd,
+            0x20, d3dpp8, &pDummyDevice8);
+    }
+
+    if (FAILED(hr) || !pDummyDevice8) {
+        WriteLogFmt("[D3D8] FAIL: all device creation attempts failed hr=0x%08X", (DWORD)hr);
+        // 释放 IDirect3D8 (vtable[2] = Release)
+        typedef ULONG (__stdcall *tRelease)(void*);
+        ((tRelease)vtableD3D8[2])(pD3D8);
+        DestroyWindow(hWnd);
+        UnregisterClassA("SSWDummyD3D8", wc.hInstance);
+        return false;
+    }
+
+    // 从 dummy device 获取 vtable
+    DWORD* vtableDevice8 = *(DWORD**)pDummyDevice8;
+    // IDirect3DDevice8 vtable indices:
+    //   14 = Reset
+    //   15 = Present
+    DWORD presentAddr = vtableDevice8[15];
+    DWORD resetAddr = vtableDevice8[14];
+
+    WriteLogFmt("[D3D8] device vtable=0x%08X Present=[%d]=0x%08X Reset=[%d]=0x%08X",
+        (DWORD)(uintptr_t)vtableDevice8, 15, presentAddr, 14, resetAddr);
+
+    // Inline hook D3D8 Present
+    BYTE* pPresent8 = FollowJmpChain((void*)presentAddr);
+    int copyLenPresent = CalcMinCopyLen(pPresent8);
+    if (copyLenPresent < 5) copyLenPresent = 5;
+    oD3D8Present = (tD3D8Present)GenericInlineHook5(pPresent8, (void*)hkD3D8Present, copyLenPresent);
+    if (!oD3D8Present) {
+        WriteLog("[D3D8] Present inline hook failed, trying vtable patch");
+        // Fallback: vtable patch
+        DWORD oldProt;
+        VirtualProtect(&vtableDevice8[15], sizeof(void*), PAGE_READWRITE, &oldProt);
+        oD3D8Present = (tD3D8Present)vtableDevice8[15];
+        vtableDevice8[15] = (DWORD)(uintptr_t)hkD3D8Present;
+        VirtualProtect(&vtableDevice8[15], sizeof(void*), oldProt, &oldProt);
+        WriteLogFmt("[D3D8] Present vtable patched, orig=0x%08X", (DWORD)(uintptr_t)oD3D8Present);
+    } else {
+        WriteLogFmt("[D3D8] Present inline hooked at 0x%08X tramp=0x%08X",
+            (DWORD)(uintptr_t)pPresent8, (DWORD)(uintptr_t)oD3D8Present);
+    }
+
+    // Inline hook D3D8 Reset
+    BYTE* pReset8 = FollowJmpChain((void*)resetAddr);
+    int copyLenReset = CalcMinCopyLen(pReset8);
+    if (copyLenReset < 5) copyLenReset = 5;
+    oD3D8Reset = (tD3D8Reset)GenericInlineHook5(pReset8, (void*)hkD3D8Reset, copyLenReset);
+    if (!oD3D8Reset) {
+        WriteLog("[D3D8] Reset inline hook failed, trying vtable patch");
+        DWORD oldProt;
+        VirtualProtect(&vtableDevice8[14], sizeof(void*), PAGE_READWRITE, &oldProt);
+        oD3D8Reset = (tD3D8Reset)vtableDevice8[14];
+        vtableDevice8[14] = (DWORD)(uintptr_t)hkD3D8Reset;
+        VirtualProtect(&vtableDevice8[14], sizeof(void*), oldProt, &oldProt);
+        WriteLogFmt("[D3D8] Reset vtable patched, orig=0x%08X", (DWORD)(uintptr_t)oD3D8Reset);
+    } else {
+        WriteLogFmt("[D3D8] Reset inline hooked at 0x%08X tramp=0x%08X",
+            (DWORD)(uintptr_t)pReset8, (DWORD)(uintptr_t)oD3D8Reset);
+    }
+
+    // 释放 dummy 设备和 IDirect3D8
+    typedef ULONG (__stdcall *tRelease)(void*);
+    ((tRelease)(*(DWORD**)pDummyDevice8)[2])(pDummyDevice8);
+    ((tRelease)vtableD3D8[2])(pD3D8);
+    DestroyWindow(hWnd);
+    UnregisterClassA("SSWDummyD3D8", wc.hInstance);
+
+    WriteLog("[D3D8] Hook setup complete");
     return true;
 }
 
@@ -6461,7 +7097,15 @@ static DWORD WINAPI InitThread(LPVOID)
     g_SkillMgr.Initialize();
     SkillOverlayBridgeInitialize(&g_SkillMgr);
 
-    if (!SetupD3D9Hook())      { WriteLog("D3D9 hook FAILED");    return 1; }
+    // 运行时检测 D3D8 还是 D3D9
+    if (::GetModuleHandleA("d3d8.dll")) {
+        g_IsD3D8Mode = true;
+        WriteLog("[D3D] Detected D3D8 mode (d3d8.dll loaded)");
+        if (!SetupD3D8Hook()) { WriteLog("D3D8 hook FAILED"); return 1; }
+    } else {
+        WriteLog("[D3D] Using D3D9 mode");
+        if (!SetupD3D9Hook()) { WriteLog("D3D9 hook FAILED"); return 1; }
+    }
     if (!SetupNativeButtonAssetPathHook()) { WriteLog("BtnSkinHook failed (non-fatal)"); }
     if (!SetupNativeButtonResolveHook()) { WriteLog("BtnResolveHook failed (non-fatal)"); }
     if (!SetupNativeButtonDrawHook()) { WriteLog("BtnDrawHook failed (non-fatal)"); }
@@ -6505,7 +7149,10 @@ static void CleanupSuperCWnd()
 {
     ResetSuperRuntimeState(false, "dll_detach");
     if (ENABLE_IMGUI_OVERLAY_PANEL) {
-        SuperImGuiOverlayShutdown();
+        if (g_IsD3D8Mode)
+            SuperD3D8OverlayShutdown();
+        else
+            SuperImGuiOverlayShutdown();
     }
     ReleaseAllD3D9Textures("dll_detach");
     SkillOverlayBridgeShutdown();

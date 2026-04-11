@@ -43,6 +43,7 @@ namespace
         IDirect3DDevice9* device = nullptr;
         ImGuiContext* context = nullptr;
         ImFont* mainFont = nullptr;
+        ImFont* consolasFont = nullptr;
         float mainScale = 1.0f;
         int anchorX = -9999;
         int anchorY = -9999;
@@ -102,6 +103,35 @@ namespace
         if (SafeIsBadReadPtr((void*)ADDR_SkillWndEx, 4))
             return 0;
         return *(uintptr_t*)ADDR_SkillWndEx;
+    }
+
+    bool GetCWndManTopLevelVector(uintptr_t* outVec, int* outCount, int maxCount)
+    {
+        if (!outVec || !outCount || maxCount <= 0)
+            return false;
+        *outVec = 0;
+        *outCount = 0;
+
+        if (SafeIsBadReadPtr((void*)ADDR_CWndMan, 4))
+            return false;
+        const uintptr_t wndMan = *(uintptr_t*)ADDR_CWndMan;
+        if (!wndMan || SafeIsBadReadPtr((void*)(wndMan + CWNDMAN_TOPLEVEL_OFF), 4))
+            return false;
+
+        // CWndMan+0x4A74 is a vector data pointer; the item count is stored at data[-1].
+        const uintptr_t vec = *(uintptr_t*)(wndMan + CWNDMAN_TOPLEVEL_OFF);
+        if (!vec || vec < 4 || SafeIsBadReadPtr((void*)(vec - 4), 4))
+            return false;
+
+        int count = *(int*)(vec - 4);
+        if (count <= 0 || count > 4096)
+            return false;
+        if (count > maxCount)
+            count = maxCount;
+
+        *outVec = vec;
+        *outCount = count;
+        return true;
     }
 
     bool GetOverlayPanelRect(RECT* outRect)
@@ -179,41 +209,38 @@ namespace
         pieces.push_back(panelRect);
 
         std::vector<RECT> occluders;
-        if (!SafeIsBadReadPtr((void*)ADDR_CWndMan, 4))
+        uintptr_t topVec = 0;
+        int topCount = 0;
+        if (GetCWndManTopLevelVector(&topVec, &topCount, 512))
         {
-                const uintptr_t wndMan = *(uintptr_t*)ADDR_CWndMan;
-            if (wndMan)
+            for (int i = 0; i < topCount; ++i)
             {
-                const uintptr_t topBase = wndMan + CWNDMAN_TOPLEVEL_OFF;
-                for (int i = 0; i < 256; ++i)
+                const uintptr_t slotAddr = topVec + i * 4;
+                if (SafeIsBadReadPtr((void*)slotAddr, 4))
+                    break;
+
+                const uintptr_t wndObj = *(DWORD*)slotAddr;
+                if (IsIgnoredPanelOccluder(wndObj, skillWndObj))
+                    continue;
+
+                RECT wndRect = {};
+                RECT inter = {};
+                if (!GetCWndRectForOverlayClip(wndObj, &wndRect))
+                    continue;
+                if (!IntersectRect(&inter, &panelRect, &wndRect))
+                    continue;
+
+                bool duplicate = false;
+                for (size_t k = 0; k < occluders.size(); ++k)
                 {
-                    const uintptr_t slotAddr = topBase + i * 4;
-                    if (SafeIsBadReadPtr((void*)slotAddr, 4))
-                        break;
-
-                    const uintptr_t wndObj = *(DWORD*)slotAddr;
-                    if (IsIgnoredPanelOccluder(wndObj, skillWndObj))
-                        continue;
-
-                    RECT wndRect = {};
-                    RECT inter = {};
-                    if (!GetCWndRectForOverlayClip(wndObj, &wndRect))
-                        continue;
-                    if (!IntersectRect(&inter, &panelRect, &wndRect))
-                        continue;
-
-                    bool duplicate = false;
-                    for (size_t k = 0; k < occluders.size(); ++k)
+                    if (EqualRect(&occluders[k], &wndRect))
                     {
-                        if (EqualRect(&occluders[k], &wndRect))
-                        {
-                            duplicate = true;
-                            break;
-                        }
+                        duplicate = true;
+                        break;
                     }
-                    if (!duplicate)
-                        occluders.push_back(wndRect);
                 }
+                if (!duplicate)
+                    occluders.push_back(wndRect);
             }
         }
 
@@ -611,16 +638,12 @@ namespace
 
     bool ProbeQuickSlotTopLevelWindow(int expectedOriginX, int expectedOriginY, bool wantCollapsedCandidate, QuickSlotWindowProbe* outProbe)
     {
-        if (!outProbe || SafeIsBadReadPtr((void*)ADDR_CWndMan, 4))
+        if (!outProbe)
             return false;
 
-        uintptr_t wndMan = *(uintptr_t*)ADDR_CWndMan;
-        if (!wndMan)
-            return false;
-
-        const uintptr_t topLevelArray = wndMan + CWNDMAN_TOPLEVEL_OFF;
-        const int kScanCount = 512;
-        if (SafeIsBadReadPtr((void*)topLevelArray, kScanCount * sizeof(uintptr_t)))
+        uintptr_t topVec = 0;
+        int topCount = 0;
+        if (!GetCWndManTopLevelVector(&topVec, &topCount, 512))
             return false;
 
         const int expectedCenterX = expectedOriginX + (SKILL_BAR_COLS * SKILL_BAR_SLOT_SIZE) / 2;
@@ -628,9 +651,12 @@ namespace
         int bestScore = 0x7fffffff;
         QuickSlotWindowProbe bestProbe = {};
 
-        for (int i = 0; i < kScanCount; ++i)
+        for (int i = 0; i < topCount; ++i)
         {
-            uintptr_t wnd = *(uintptr_t*)(topLevelArray + i * sizeof(uintptr_t));
+            const uintptr_t slotAddr = topVec + i * sizeof(uintptr_t);
+            if (SafeIsBadReadPtr((void*)slotAddr, sizeof(uintptr_t)))
+                break;
+            uintptr_t wnd = *(uintptr_t*)slotAddr;
             if (!wnd || SafeIsBadReadPtr((void*)wnd, 0x30))
                 continue;
 
@@ -890,6 +916,18 @@ namespace
 
         if (!g_overlay.mainFont)
             g_overlay.mainFont = io.Fonts->AddFontDefault();
+
+        std::string consolasPath = std::string(winDir) + "\\Fonts\\times.ttf";
+        ImFontConfig consolasCfg = {};
+        consolasCfg.OversampleH = 1;
+        consolasCfg.OversampleV = 1;
+        consolasCfg.PixelSnapH = true;
+        static const ImWchar digitRanges[] = { 0x20, 0x7E, 0 };
+        g_overlay.consolasFont = io.Fonts->AddFontFromFileTTF(
+            consolasPath.c_str(),
+            14.0f * mainScale,
+            &consolasCfg,
+            digitRanges);
     }
 
     bool Reinitialize(HWND hwnd, IDirect3DDevice9* device, float mainScale, const char* assetPath)
@@ -923,10 +961,11 @@ namespace
             return false;
 
         ResetRetroSkillData(g_overlay.state);
-        InitializeRetroSkillApp(g_overlay.state, g_overlay.assets, device, g_overlay.assetPath.c_str());
+        const RetroDeviceRef deviceRef = { device, RetroRenderBackend_D3D9 };
+        InitializeRetroSkillApp(g_overlay.state, g_overlay.assets, deviceRef, g_overlay.assetPath.c_str());
         ConfigureRetroSkillDefaultBehaviorHooks(g_overlay.hooks, g_overlay.state);
         SkillOverlayBridgeConfigureHooks(g_overlay.hooks);
-        RetroSkillDWriteInitialize(device);
+        RetroSkillDWriteInitialize(deviceRef);
 
         g_overlay.initialized = true;
         WriteLogFmt("[ImGuiOverlay] initialized hwnd=0x%08X device=0x%08X scale=%.2f assetPath=%s",
@@ -1010,7 +1049,10 @@ void SuperImGuiOverlayOnDeviceReset(IDirect3DDevice9* device)
 
     ImGui::SetCurrentContext(g_overlay.context);
     if (ImGui_ImplDX9_CreateDeviceObjects())
-        RetroSkillDWriteOnDeviceReset(g_overlay.device);
+    {
+        const RetroDeviceRef deviceRef = { g_overlay.device, RetroRenderBackend_D3D9 };
+        RetroSkillDWriteOnDeviceReset(deviceRef);
+    }
 }
 
 bool SuperImGuiOverlayHandleWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -1172,4 +1214,9 @@ void SuperImGuiOverlayCancelMouseCapture()
 HWND SuperImGuiOverlayGetGameHwnd()
 {
     return g_overlay.hwnd;
+}
+
+ImFont* SuperImGuiOverlayGetConsolasFont()
+{
+    return g_overlay.consolasFont;
 }

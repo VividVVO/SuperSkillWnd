@@ -1,14 +1,15 @@
 #pragma once
 
+#include "ui/retro_render_backend.h"
 #include "imgui.h"
 
-#include <d3d9.h>
-
-bool RetroSkillDWriteInitialize(LPDIRECT3DDEVICE9 device);
+bool RetroSkillDWriteInitialize(const RetroDeviceRef& deviceRef);
 void RetroSkillDWriteShutdown();
 void RetroSkillDWriteOnDeviceLost();
-void RetroSkillDWriteOnDeviceReset(LPDIRECT3DDEVICE9 device);
+void RetroSkillDWriteOnDeviceReset(const RetroDeviceRef& deviceRef);
 bool RetroSkillDWriteDrawText(ImDrawList* drawList, const ImVec2& pos, ImU32 color, const char* text, float fontSize);
 bool RetroSkillDWriteDrawTextEx(ImDrawList* drawList, const ImVec2& pos, ImU32 color, const char* text, float fontSize, float glyphSpacing);
+ImVec2 RetroSkillDWriteMeasureText(const char* text, float fontSize);
+ImVec2 RetroSkillDWriteMeasureTextEx(const char* text, float fontSize, float glyphSpacing);
 void RetroSkillDWriteRegisterNativeGlyphLookup(void* trampoline);
 void RetroSkillDWriteObserveGlyphLookup(void* fontCache, unsigned int codepoint);

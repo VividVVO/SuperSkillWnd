@@ -1,12 +1,14 @@
 #pragma once
 
-#include <d3d9.h>
+#include "ui/retro_render_backend.h"
+
 #include <map>
 #include <string>
 #include <vector>
 
 struct UITexture {
-    LPDIRECT3DTEXTURE9 texture = nullptr;
+    void* texture = nullptr;
+    RetroRenderBackend backend = RetroRenderBackend_D3D9;
     int width = 0;
     int height = 0;
 };
@@ -18,9 +20,9 @@ struct RetroSkillAssets {
     std::map<int, UITexture> skillIconsDisabled;
 };
 
-bool LoadRetroSkillTexture(LPDIRECT3DDEVICE9 device, const char* filename, UITexture& outTexture);
-bool LoadRetroSkillTextureFromMemory(LPDIRECT3DDEVICE9 device, const unsigned char* data, size_t size, UITexture& outTexture);
-bool LoadAllRetroSkillAssets(RetroSkillAssets& assets, LPDIRECT3DDEVICE9 device, const char* assetPath);
+bool LoadRetroSkillTexture(const RetroDeviceRef& deviceRef, const char* filename, UITexture& outTexture);
+bool LoadRetroSkillTextureFromMemory(const RetroDeviceRef& deviceRef, const unsigned char* data, size_t size, UITexture& outTexture);
+bool LoadAllRetroSkillAssets(RetroSkillAssets& assets, const RetroDeviceRef& deviceRef, const char* assetPath);
 void CleanupRetroSkillAssets(RetroSkillAssets& assets);
 UITexture* GetRetroSkillTexture(RetroSkillAssets& assets, const char* name);
 UITexture* GetRetroSkillSkillIconTexture(RetroSkillAssets& assets, int skillId);
