@@ -9,9 +9,16 @@
 // 全局变量地址
 // ============================================================================
 const DWORD ADDR_CWndMan         = 0x00F59D40;  // CWnd管理器单例
-const DWORD ADDR_DirtyListHead   = 0x00F57444;  // 脏窗口链表头
-const DWORD ADDR_ZOrderListHead  = 0x00F5741C;  // z-order链表头
-const DWORD ADDR_InteractList    = 0x00F57420;  // 可交互窗口链表
+const DWORD ADDR_ZOrderList      = 0x00F57410;  // off_F57410 全局 z/order list header
+const DWORD ADDR_ZOrderListHead  = 0x00F5741C;  // off_F57410 head cursor
+const DWORD ADDR_ZOrderListTail  = 0x00F57420;  // off_F57410 tail cursor / 鼠标命中全局扫描起点
+const DWORD ADDR_PendingList     = 0x00F57424;  // off_F57424 全局 list header（语义待运行期闭环）
+const DWORD ADDR_PendingListHead = 0x00F57430;  // off_F57424 head cursor
+const DWORD ADDR_PendingListTail = 0x00F57434;  // off_F57424 tail cursor
+const DWORD ADDR_DirtyList       = 0x00F57438;  // off_F57438 dirty list header
+const DWORD ADDR_DirtyListHead   = 0x00F57444;  // off_F57438 head cursor
+const DWORD ADDR_DirtyListTail   = 0x00F57448;  // off_F57438 tail cursor
+const DWORD ADDR_InteractList    = ADDR_ZOrderListTail;  // 兼容旧名：不是独立 interact list
 const DWORD ADDR_CanvasFactory   = 0x00F6A848;  // Canvas/图形工厂(COM)
 const DWORD ADDR_SkillWndEx      = 0x00F6A0C0;  // SkillWndEx全局单例指针
 const DWORD ADDR_GameHeap        = 0x00F68F50;  // gameMalloc 堆句柄
@@ -48,7 +55,10 @@ const DWORD ADDR_A99330 = 0x00A99330;  // 坐标初始化+创建COM surface
 const DWORD ADDR_B9A660 = 0x00B9A660;  // 核心初始化(10参数)
 const DWORD ADDR_B9AB50 = 0x00B9AB50;  // 重建/重设surface尺寸(__thiscall, 8参数)
 const DWORD ADDR_B9A5D0 = 0x00B9A5D0;  // 标记脏/注册渲染链表
-const DWORD ADDR_B9EEA0 = 0x00B9EEA0;  // CWndMan active/focus 同步(__thiscall ecx=CWndMan, push wnd+4)
+const DWORD ADDR_B9EEA0 = 0x00B9EEA0;  // 输入/layer manager active/focus 同步(__thiscall ecx=dword_F5E8D4, push wnd+4)
+const DWORD ADDR_B9F570 = 0x00B9F570;  // 鼠标命中总入口(__userpurge ecx=dword_F5E8D4, ...)
+const DWORD ADDR_BA0680 = 0x00BA0680;  // 输入/layer manager remove/recalc(__thiscall ecx=dword_F5E8D4, push wnd+4)
+const DWORD ADDR_BA1E80 = 0x00BA1E80;  // 插入全局 z/order 链
 const DWORD ADDR_BA20E0 = 0x00BA20E0;  // 加入dirty链表
 const DWORD ADDR_8A25A0 = 0x008A25A0;  // vector push_back
 const DWORD ADDR_B9E880 = 0x00B9E880;  // CWnd关闭
@@ -126,6 +136,10 @@ const DWORD ADDR_9ECFD0 = 0x009ECFD0;  // 消息处理(__thiscall ecx=this, push
 const DWORD ADDR_A99550 = 0x00A99550;  // 消息消费确认(push ctrlID)
 const DWORD ADDR_9DDB30 = 0x009DDB30;  // SkillWndEx真实控件消息分发(__thiscall ecx=this, push ctrlID, retn 4)
 const DWORD ADDR_9D95A0 = 0x009D95A0;  // SkillWndEx父窗移动时同步 Macro child (__thiscall, retn 8)
+const DWORD ADDR_9D97E0 = 0x009D97E0;  // SkillWndEx 主动关闭 official second-child
+const DWORD ADDR_9D98F0 = 0x009D98F0;  // SkillWnd official second-child 鼠标消息处理
+const DWORD ADDR_9D9970 = 0x009D9970;  // SkillWndEx close：关闭 MacroWnd/second-child 并从 top-level vector 移除
+const DWORD ADDR_9DA4E0 = 0x009DA4E0;  // SkillWndEx second-child wrapper assign helper
 const DWORD ADDR_9E1770 = 0x009E1770;  // SkillWndEx刷新 helper (__thiscall, retn)
 const DWORD ADDR_56D630 = 0x0056D630;  // 原生 child move API (__thiscall ecx=child, push x, y)
 const DWORD ADDR_9DC220 = 0x009DC220;  // SkillWndEx 官方 second-child create/replace 包装链 (__thiscall, push mode)

@@ -9,6 +9,10 @@
 - `.claude/rules/CLAUDE.md`
 - `.claude/rules/d3d8_compat_knowledge.md`
 - `.claude/rules/native_window_layering_knowledge.md`
+- `.claude/rules/native_window_sampler_knowledge.md`
+- `.claude/rules/skillwnd_second_child_lifecycle_knowledge.md`
+- `.claude/rules/skillwnd_second_child_primary_carrier_knowledge.md`
+- `.claude/rules/skillwnd_second_child_tasks_4_5_6_knowledge.md`
 
 ## 1. 置信度标准
 

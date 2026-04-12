@@ -57,12 +57,31 @@ static IDirect3DTexture9* g_texCursorNormal = nullptr;
 static IDirect3DTexture9* g_texCursorHoverA = nullptr;
 static IDirect3DTexture9* g_texCursorHoverB = nullptr;
 static IDirect3DTexture9* g_texCursorPressed = nullptr;
+static bool g_D3D8TexturesLoaded = false;
+static void* g_D3D8TextureDevice = nullptr;
+static D3D8Texture g_d3d8TexBtnNormal = {};
+static D3D8Texture g_d3d8TexBtnHover = {};
+static D3D8Texture g_d3d8TexBtnPressed = {};
+static D3D8Texture g_d3d8TexBtnDisabled = {};
+static D3D8Texture g_d3d8TexCursorNormal = {};
+static D3D8Texture g_d3d8TexCursorHoverA = {};
+static D3D8Texture g_d3d8TexCursorHoverB = {};
+static D3D8Texture g_d3d8TexCursorPressed = {};
+static HWND g_D3D8GameHwnd = nullptr;
 static volatile LONG g_PresentBtnDrawLogBudget = 32;
 static volatile LONG g_BtnD3DDrawLogBudget = 40;
 static volatile LONG g_SkillBtnD3DDrawLogBudget = 40;
 static volatile LONG g_SuperBtnClipLogBudget = 40;
 static volatile LONG g_PostUiTimingTestLogBudget = 48;
 static volatile LONG g_PresentCursorDrawLogBudget = 24;
+
+enum SuperCursorFrameKind
+{
+    SUPER_CURSOR_FRAME_NORMAL = 0,
+    SUPER_CURSOR_FRAME_HOVER_A,
+    SUPER_CURSOR_FRAME_HOVER_B,
+    SUPER_CURSOR_FRAME_PRESSED,
+};
 
 // 技能管理器
 static SkillManager g_SkillMgr;
@@ -95,9 +114,16 @@ static const DWORD ADDR_52974F = 0x0052974F; // 跳过写入点（函数尾部�
 static uintptr_t g_SuperCWnd      = 0;   // 子窗口对象指针
 static bool g_NativeWndCreated    = false;
 static DWORD* g_CustomVTable1     = nullptr;
+static DWORD* g_CustomVTable2     = nullptr;
+static DWORD g_OriginalSecondChildMsgFn = ADDR_9D98F0;
+static uintptr_t g_CustomVTable2OwnerChild = 0;
 static bool g_SuperChildHooksReady = false;
 static bool g_SuperUsesSkillWndSecondSlot = false;
+#if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
+static const bool ENABLE_IMGUI_OVERLAY_PANEL = false;
+#else
 static const bool ENABLE_IMGUI_OVERLAY_PANEL = true;
+#endif
 static const char* IMGUI_PANEL_ASSET_PATH = "";
 
 // ============================================================================
@@ -137,11 +163,18 @@ static const bool ENABLE_MOVE_FOCUS_SYNC = false;   // v10.3: MoveFocusSync 会�
 static const bool ENABLE_PRESENT_NATIVE_CHILD_UPDATE = false; // v10.4+: native child 不再每帧在 Present 中搬运，先消除抽搐/视口漂移
 static const bool ENABLE_REFRESH_NATIVE_CHILD_UPDATE = false; // v10.6: native child 不再在 refresh hook 中高频搬运，优先消除拖动抽搐
 static const char* SAVE_STATE_PATH = "G:\\code\\c++\\SuperSkillWnd\\skill\\save_state.json";
-static const char* BUILD_MARKER = "v20.3-2026-04-11-second-child-safety";
+#if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
+static const char* BUILD_MARKER = "v20.4-2026-04-11-second-child-vt2-log";
+#else
+static const char* BUILD_MARKER = "v20.4-2026-04-11-second-child-safety";
+#endif
 static const wchar_t* SUPER_BTN_RES_PATH = L"UI/UIWindow2.img/Skill/main/BtMacro";
 static const wchar_t* SUPER_BTN_RES_PATH_ALT = L"/UIWindow2.img/Skill/main/BtMacro";
 static int g_PanelDrawX = -9999;
 static int g_PanelDrawY = -9999;
+static LONG g_SecondChildStateLogBudget = 160;
+static LONG g_SecondChildMouseSwallowBudget = 32;
+static LONG g_SecondChildMousePassBudget = 48;
 static DWORD g_LastToggleTick = 0;
 static DWORD g_LastNativeMsgToggleTick = 0;
 static DWORD g_LastFallbackHitLogTick = 0;
@@ -183,10 +216,16 @@ static void SetSuperWndVisible(uintptr_t wndObj, int showVal);
 static void __fastcall SuperCWndDraw(uintptr_t thisPtr, void* edxUnused, int* clipRegion);
 static bool GetSkillWndAnchorPos(uintptr_t skillWndThis, int* outX, int* outY);
 static bool GetSkillWndComPos(uintptr_t skillWndThis, int* outX, int* outY);
+static uintptr_t GetSkillWndSecondChildPtr(uintptr_t skillWndThis);
+static bool IsOfficialSecondChildObject(uintptr_t wndObj, bool allowCustomVT1, bool allowCustomVT2 = false);
+static void LogOfficialSecondChildState(uintptr_t wndObj, const char* tag);
+static bool ApplySuperChildCustomMouseGuardVTable(uintptr_t wndObj);
+static void RestoreSuperChildCustomMouseGuardVTable(uintptr_t wndObj, const char* reason);
 static void MarkSuperWndDirty(uintptr_t wndObj, const char* logTag);
 static void ForwardGameMouseOffscreenNow();
 static void UpdateGameMouseSuppressionFallback(bool suppressMouse);
 static void RefreshGameCursorImmediately();
+static void EnsureDeferredInteractionHooks(const char* reason);
 static void ClearGameVariant(VARIANTARG* pv);
 static void ReleaseUiObj(void* obj);
 static bool ResolveNativeImage(const unsigned short* pathWide, void** outImage, const char* logTag);
@@ -196,6 +235,24 @@ static bool GetExpectedButtonRectVt(int* outX, int* outY, int* outW, int* outH);
 static void LogSuperButtonGeometry(const char* tag);
 static void DrawPostB9F6E0NativeTimingTest();
 static void DrawSuperButtonCursorInPresent(IDirect3DDevice9* pDevice);
+#if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
+extern "C" void __stdcall SSW_SecondChildCarrierProbe_RunOnce(DWORD skillWndThis32, DWORD flags, int explicitPanelX, int explicitPanelY);
+extern "C" void __stdcall SSW_SecondChildCarrierProbe_ObserveWndProc(UINT msg, WPARAM wParam, LPARAM lParam);
+extern "C" void __stdcall SSW_SecondChildCarrierProbe_Poll(DWORD skillWndThis32, DWORD reasonCode);
+extern "C" void __stdcall SSW_SecondChildCarrierProbe_Release(DWORD skillWndThis32);
+static const DWORD SECOND_CHILD_CARRIER_PROBE_FLAGS =
+    0x00000001 |
+    0x00000002 |
+    0x00000004 |
+    0x00000008 |
+    0x00000010 |
+    0x00000020 |
+    0x00000040;
+static DWORD g_LastCarrierProbePollTick = 0;
+static void RunSecondChildCarrierProbeHotkey();
+static void PollSecondChildCarrierProbeTick(DWORD reasonCode, bool force);
+static void ReleaseSecondChildCarrierProbeHotkey();
+#endif
 static bool RectHasArea(const RECT& rc)
 {
     return rc.right > rc.left && rc.bottom > rc.top;
@@ -1814,34 +1871,96 @@ static IDirect3DTexture9* GetSuperBtnTextureForState(DWORD state)
     }
 }
 
-static IDirect3DTexture9* GetSuperCursorTextureForCurrentState()
+static D3D8Texture* GetSuperBtnTextureForStateD3D8(DWORD state)
+{
+    switch (state) {
+    case 0: return g_d3d8TexBtnNormal.pTexture8 ? &g_d3d8TexBtnNormal : nullptr;
+    case 1: return g_d3d8TexBtnPressed.pTexture8 ? &g_d3d8TexBtnPressed : nullptr;
+    case 2: return g_d3d8TexBtnDisabled.pTexture8 ? &g_d3d8TexBtnDisabled :
+                    (g_d3d8TexBtnPressed.pTexture8 ? &g_d3d8TexBtnPressed : nullptr);
+    case 3: return g_d3d8TexBtnHover.pTexture8 ? &g_d3d8TexBtnHover :
+                    (g_d3d8TexBtnNormal.pTexture8 ? &g_d3d8TexBtnNormal : nullptr);
+    case 4: return g_d3d8TexBtnPressed.pTexture8 ? &g_d3d8TexBtnPressed :
+                    (g_d3d8TexBtnNormal.pTexture8 ? &g_d3d8TexBtnNormal : nullptr);
+    default: return g_d3d8TexBtnNormal.pTexture8 ? &g_d3d8TexBtnNormal : nullptr;
+    }
+}
+
+static SuperCursorFrameKind GetSuperCursorFrameKindForCurrentState()
 {
     if (g_SuperBtnD3DPressed)
-        return g_texCursorPressed ? g_texCursorPressed : g_texCursorNormal;
+        return SUPER_CURSOR_FRAME_PRESSED;
 
     if (g_SuperBtnD3DHover) {
         const DWORD nowTick = GetTickCount();
         const DWORD hoverStartTick = g_SuperBtnD3DHoverStartTick ? g_SuperBtnD3DHoverStartTick : nowTick;
         const DWORD hoverElapsed = nowTick - hoverStartTick;
         if (hoverElapsed < 500)
-            return g_texCursorHoverA ? g_texCursorHoverA : g_texCursorNormal;
+            return SUPER_CURSOR_FRAME_HOVER_A;
 
         const DWORD loopFrame = ((hoverElapsed - 500) / 500) & 1;
-        return loopFrame ? (g_texCursorHoverA ? g_texCursorHoverA : g_texCursorNormal)
-                         : (g_texCursorHoverB ? g_texCursorHoverB : g_texCursorNormal);
+        return loopFrame ? SUPER_CURSOR_FRAME_HOVER_A : SUPER_CURSOR_FRAME_HOVER_B;
     }
 
-    return g_texCursorNormal;
+    return SUPER_CURSOR_FRAME_NORMAL;
 }
 
-static float GetSuperCursorFixedYOffset(IDirect3DTexture9* currentTex)
+static IDirect3DTexture9* GetSuperCursorTextureForFrameKind(SuperCursorFrameKind kind)
 {
-    // User-confirmed baseline:
-    // 1. whole custom cursor should sit 4px higher than the raw mouse point
-    // 2. only the second/taller frame (mouse.normal.1) should move 2px downward
-    float y = -4.0f;
-    if (currentTex && currentTex == g_texCursorHoverA)
+    switch (kind) {
+    case SUPER_CURSOR_FRAME_PRESSED:
+        return g_texCursorPressed ? g_texCursorPressed : g_texCursorNormal;
+    case SUPER_CURSOR_FRAME_HOVER_A:
+        return g_texCursorHoverA ? g_texCursorHoverA : g_texCursorNormal;
+    case SUPER_CURSOR_FRAME_HOVER_B:
+        return g_texCursorHoverB ? g_texCursorHoverB :
+               (g_texCursorHoverA ? g_texCursorHoverA : g_texCursorNormal);
+    case SUPER_CURSOR_FRAME_NORMAL:
+    default:
+        return g_texCursorNormal;
+    }
+}
+
+static D3D8Texture* GetSuperCursorTextureForFrameKindD3D8(SuperCursorFrameKind kind)
+{
+    switch (kind) {
+    case SUPER_CURSOR_FRAME_PRESSED:
+        return g_d3d8TexCursorPressed.pTexture8 ? &g_d3d8TexCursorPressed :
+               (g_d3d8TexCursorNormal.pTexture8 ? &g_d3d8TexCursorNormal : nullptr);
+    case SUPER_CURSOR_FRAME_HOVER_A:
+        return g_d3d8TexCursorHoverA.pTexture8 ? &g_d3d8TexCursorHoverA :
+               (g_d3d8TexCursorNormal.pTexture8 ? &g_d3d8TexCursorNormal : nullptr);
+    case SUPER_CURSOR_FRAME_HOVER_B:
+        return g_d3d8TexCursorHoverB.pTexture8 ? &g_d3d8TexCursorHoverB :
+               (g_d3d8TexCursorHoverA.pTexture8 ? &g_d3d8TexCursorHoverA :
+                (g_d3d8TexCursorNormal.pTexture8 ? &g_d3d8TexCursorNormal : nullptr));
+    case SUPER_CURSOR_FRAME_NORMAL:
+    default:
+        return g_d3d8TexCursorNormal.pTexture8 ? &g_d3d8TexCursorNormal : nullptr;
+    }
+}
+
+static IDirect3DTexture9* GetSuperCursorTextureForCurrentState()
+{
+    return GetSuperCursorTextureForFrameKind(GetSuperCursorFrameKindForCurrentState());
+}
+
+static float GetBottomAlignedCursorYOffset(float baselineYOffset, float normalHeight, float currentHeight)
+{
+    if (normalHeight <= 0.0f || currentHeight <= 0.0f)
+        return baselineYOffset;
+
+    return baselineYOffset + (normalHeight - currentHeight);
+}
+
+static float GetSuperCursorFixedYOffset(SuperCursorFrameKind kind, float currentHeight, float normalHeight)
+{
+    const float normalBaselineYOffset = -4.0f;
+    float y = normalBaselineYOffset;
+    if (kind == SUPER_CURSOR_FRAME_HOVER_A)
         y += 2.0f;
+    else if (kind == SUPER_CURSOR_FRAME_HOVER_B || kind == SUPER_CURSOR_FRAME_PRESSED)
+        y = GetBottomAlignedCursorYOffset(normalBaselineYOffset, normalHeight, currentHeight);
     return y;
 }
 
@@ -1854,7 +1973,8 @@ static void DrawSuperButtonCursorInPresent(IDirect3DDevice9* pDevice)
     if (SuperImGuiOverlayShouldSuppressGameMouse())
         return;
 
-    IDirect3DTexture9* tex = GetSuperCursorTextureForCurrentState();
+    const SuperCursorFrameKind frameKind = GetSuperCursorFrameKindForCurrentState();
+    IDirect3DTexture9* tex = GetSuperCursorTextureForFrameKind(frameKind);
     if (!tex)
         return;
 
@@ -1866,8 +1986,16 @@ static void DrawSuperButtonCursorInPresent(IDirect3DDevice9* pDevice)
     if (FAILED(tex->GetLevelDesc(0, &desc)))
         return;
 
+    float normalHeight = (float)desc.Height;
+    if (g_texCursorNormal)
+    {
+        D3DSURFACE_DESC normalDesc = {};
+        if (SUCCEEDED(g_texCursorNormal->GetLevelDesc(0, &normalDesc)) && normalDesc.Height > 0)
+            normalHeight = (float)normalDesc.Height;
+    }
+
     const float drawX = floorf((float)pt.x);
-    const float extraYOffset = GetSuperCursorFixedYOffset(tex);
+    const float extraYOffset = GetSuperCursorFixedYOffset(frameKind, (float)desc.Height, normalHeight);
     const float drawY = floorf((float)pt.y + extraYOffset);
     DrawTexturedQuad(pDevice, tex, drawX, drawY, (float)desc.Width, (float)desc.Height);
 
@@ -1881,6 +2009,144 @@ static void DrawSuperButtonCursorInPresent(IDirect3DDevice9* pDevice)
             (DWORD)(uintptr_t)tex,
             (unsigned)desc.Width,
             (unsigned)desc.Height,
+            extraYOffset);
+    }
+}
+
+static void DrawSuperButtonTextureInPresentD3D8(void* pDevice8)
+{
+    if (ENABLE_POST_B9F6E0_NATIVE_TIMING_TEST)
+        return;
+    if (!pDevice8 || !g_NativeBtnCreated || !g_SuperBtnObj)
+        return;
+
+    if (ENABLE_SUPERBTN_D3D_BUTTON_MODE) {
+        if (!g_D3D8TexturesLoaded)
+            return;
+        if (!UpdateSuperBtnVisiblePieces("d3d8_present_draw"))
+            return;
+
+        D3D8Texture* tex = GetSuperBtnTextureForStateD3D8(g_SuperBtnD3DVisualState);
+        if (!tex || !tex->pTexture8)
+            return;
+
+        D3D8SavedState saved = {};
+        D3D8_SaveRenderState(pDevice8, saved);
+        D3D8_SetOverlayRenderState(pDevice8);
+
+        bool ok = false;
+        for (size_t i = 0; i < g_SuperBtnVisiblePieces.size(); ++i) {
+            const SuperBtnVisiblePiece& piece = g_SuperBtnVisiblePieces[i];
+            const RECT& rc = piece.screen;
+            const int w = rc.right - rc.left;
+            const int h = rc.bottom - rc.top;
+            if (w <= 0 || h <= 0)
+                continue;
+
+            D3D8_DrawTexturedQuadUV(
+                pDevice8,
+                tex,
+                (float)rc.left,
+                (float)rc.top,
+                (float)w,
+                (float)h,
+                piece.u0,
+                piece.v0,
+                piece.u1,
+                piece.v1,
+                0xFFFFFFFF);
+            ok = true;
+        }
+
+        D3D8_RestoreRenderState(pDevice8, saved);
+
+        if (ok)
+            g_SuperBtnLastDrawTick = GetTickCount();
+
+        LONG after = InterlockedDecrement(&g_PresentBtnDrawLogBudget);
+        if (after >= 0) {
+            WriteLogFmt("[D3D8PresentBtnDraw] ok=%d state=%u pieces=%d tex=0x%08X btn=0x%08X",
+                ok ? 1 : 0,
+                (unsigned)g_SuperBtnD3DVisualState,
+                (int)g_SuperBtnVisiblePieces.size(),
+                (DWORD)(uintptr_t)tex->pTexture8,
+                (DWORD)g_SuperBtnObj);
+        }
+        return;
+    }
+
+    if (!ENABLE_PRESENT_SUPERBTN_DRAW || !g_D3D8TexturesLoaded)
+        return;
+
+    DWORD state = NormalizeSuperBtnVisualState(GetCurrentSuperBtnState());
+    D3D8Texture* tex = GetSuperBtnTextureForStateD3D8(state);
+    int screenX = 0;
+    int screenY = 0;
+    int screenW = 0;
+    int screenH = 0;
+    if (!tex || !tex->pTexture8 || !GetButtonScreenRectByObj(g_SuperBtnObj, &screenX, &screenY, &screenW, &screenH))
+        return;
+
+    D3D8SavedState saved = {};
+    D3D8_SaveRenderState(pDevice8, saved);
+    D3D8_SetOverlayRenderState(pDevice8);
+    D3D8_DrawTexturedQuad(pDevice8, tex, (float)screenX, (float)screenY, (float)screenW, (float)screenH, 0xFFFFFFFF);
+    D3D8_RestoreRenderState(pDevice8, saved);
+
+    LONG after = InterlockedDecrement(&g_PresentBtnDrawLogBudget);
+    if (after >= 0) {
+        WriteLogFmt("[D3D8PresentBtnDraw] state=%u rect=(%d,%d,%d,%d) tex=0x%08X btn=0x%08X",
+            state,
+            screenX, screenY, screenW, screenH,
+            (DWORD)(uintptr_t)tex->pTexture8,
+            (DWORD)g_SuperBtnObj);
+    }
+}
+
+static void DrawSuperButtonCursorInPresentD3D8(void* pDevice8)
+{
+    HWND hwnd = g_D3D8GameHwnd ? g_D3D8GameHwnd : g_GameHwnd;
+    if (!pDevice8 || !hwnd)
+        return;
+    if (!ShouldSuppressGameMouseForSuperBtnD3D())
+        return;
+    if (SuperD3D8OverlayShouldSuppressGameMouse())
+        return;
+    if (!g_D3D8TexturesLoaded)
+        return;
+
+    const SuperCursorFrameKind frameKind = GetSuperCursorFrameKindForCurrentState();
+    D3D8Texture* tex = GetSuperCursorTextureForFrameKindD3D8(frameKind);
+    if (!tex || !tex->pTexture8)
+        return;
+
+    POINT pt = {};
+    if (!GetCursorPos(&pt) || !ScreenToClient(hwnd, &pt))
+        return;
+
+    const float drawX = floorf((float)pt.x);
+    float normalHeight = (tex->height > 0) ? (float)tex->height : 0.0f;
+    if (g_d3d8TexCursorNormal.height > 0)
+        normalHeight = (float)g_d3d8TexCursorNormal.height;
+    const float extraYOffset = GetSuperCursorFixedYOffset(frameKind, (float)tex->height, normalHeight);
+    const float drawY = floorf((float)pt.y + extraYOffset);
+
+    D3D8SavedState saved = {};
+    D3D8_SaveRenderState(pDevice8, saved);
+    D3D8_SetOverlayRenderState(pDevice8);
+    D3D8_DrawTexturedQuad(pDevice8, tex, drawX, drawY, (float)tex->width, (float)tex->height, 0xFFFFFFFF);
+    D3D8_RestoreRenderState(pDevice8, saved);
+
+    LONG after = InterlockedDecrement(&g_PresentCursorDrawLogBudget);
+    if (after >= 0) {
+        WriteLogFmt("[D3D8PresentCursorDraw] hover=%d pressed=%d pos=(%d,%d) draw=(%.1f,%.1f) tex=0x%08X size=%dx%d extraY=%.1f",
+            g_SuperBtnD3DHover ? 1 : 0,
+            g_SuperBtnD3DPressed ? 1 : 0,
+            pt.x, pt.y,
+            drawX, drawY,
+            (DWORD)(uintptr_t)tex->pTexture8,
+            tex->width,
+            tex->height,
             extraYOffset);
     }
 }
@@ -3173,6 +3439,13 @@ static bool MoveNativeChildWnd(uintptr_t wndObj, int x, int y, const char* logTa
         }
         return false;
     }
+
+    if (IsOfficialSecondChildObject(wndObj, true, true)) {
+        // official second-child 的 COM/render 偶尔会被旧路径留下脏值；move 成功后强行对齐一次，避免拖动期位置漂移
+        CWnd_SetRenderPos(wndObj, x, y);
+        CWnd_SetComPos(wndObj, x, y);
+        LogOfficialSecondChildState(wndObj, logTag ? logTag : "MoveChild");
+    }
     return true;
 }
 
@@ -3312,7 +3585,61 @@ static void LogNativeChildSurfaceShape(uintptr_t wndObj, const char* logTag)
         wndW, wndH, (DWORD)surfaceObj, canvasW, canvasH, logicalW2, logicalH2);
 }
 
-static bool IsOfficialSecondChildObject(uintptr_t wndObj, bool allowCustomVT1)
+typedef int (__stdcall *tSecondChildMsgFn)(DWORD msg, DWORD a2, DWORD a3, DWORD a4);
+
+static void LogOfficialSecondChildState(uintptr_t wndObj, const char* tag)
+{
+    if (InterlockedDecrement(&g_SecondChildStateLogBudget) < 0)
+        return;
+
+    uintptr_t slot = g_SkillWndThis ? GetSkillWndSecondChildPtr(g_SkillWndThis) : 0;
+    if (!wndObj) {
+        WriteLogFmt("[%s] child=null slot=0x%08X panel=(%d,%d)",
+            tag ? tag : "SecondChildState",
+            (DWORD)slot,
+            g_PanelDrawX,
+            g_PanelDrawY);
+        return;
+    }
+
+    if (SafeIsBadReadPtr((void*)wndObj, 0x84)) {
+        WriteLogFmt("[%s] child=0x%08X unreadable slot=0x%08X panel=(%d,%d)",
+            tag ? tag : "SecondChildState",
+            (DWORD)wndObj,
+            (DWORD)slot,
+            g_PanelDrawX,
+            g_PanelDrawY);
+        return;
+    }
+
+    DWORD vt1 = *(DWORD*)(wndObj + 0x00);
+    DWORD vt2 = *(DWORD*)(wndObj + 0x04);
+    DWORD vt3 = *(DWORD*)(wndObj + 0x08);
+    int refCount = *(int*)(wndObj + CWND_OFF_REFCNT * 4);
+    int width = *(int*)(wndObj + CWND_OFF_W * 4);
+    int height = *(int*)(wndObj + CWND_OFF_H * 4);
+    int z = *(int*)(wndObj + CWND_OFF_ZORDER * 4);
+    int renderX = CWnd_GetRenderX(wndObj);
+    int renderY = CWnd_GetRenderY(wndObj);
+    int comX = CWnd_GetX(wndObj);
+    int comY = CWnd_GetY(wndObj);
+    uintptr_t surface = *(uintptr_t*)(wndObj + CWND_OFF_COM * 4);
+
+    WriteLogFmt("[%s] child=0x%08X slot=0x%08X vt=[%08X,%08X,%08X] ref=%d wh=(%d,%d) z=%d render=(%d,%d) com=(%d,%d) panel=(%d,%d) surface=0x%08X",
+        tag ? tag : "SecondChildState",
+        (DWORD)wndObj,
+        (DWORD)slot,
+        vt1, vt2, vt3,
+        refCount,
+        width, height,
+        z,
+        renderX, renderY,
+        comX, comY,
+        g_PanelDrawX, g_PanelDrawY,
+        (DWORD)surface);
+}
+
+static bool IsOfficialSecondChildObject(uintptr_t wndObj, bool allowCustomVT1, bool allowCustomVT2)
 {
     if (!wndObj || SafeIsBadReadPtr((void*)wndObj, 0x84)) {
         return false;
@@ -3325,8 +3652,12 @@ static bool IsOfficialSecondChildObject(uintptr_t wndObj, bool allowCustomVT1)
     if (!vt1Ok && allowCustomVT1 && g_CustomVTable1) {
         vt1Ok = (vt1 == (DWORD)g_CustomVTable1);
     }
+    bool vt2Ok = (vt2 == ADDR_VT_SkillWndSecondChild2);
+    if (!vt2Ok && allowCustomVT2 && g_CustomVTable2) {
+        vt2Ok = (vt2 == (DWORD)g_CustomVTable2);
+    }
 
-    if (!vt1Ok || vt2 != ADDR_VT_SkillWndSecondChild2 || vt3 != ADDR_VT_SkillWndSecondChild3) {
+    if (!vt1Ok || !vt2Ok || vt3 != ADDR_VT_SkillWndSecondChild3) {
         return false;
     }
 
@@ -3343,7 +3674,7 @@ static bool ApplySuperChildCustomDrawVTable(uintptr_t wndObj)
         return false;
     }
 
-    if (!IsOfficialSecondChildObject(wndObj, false)) {
+    if (!IsOfficialSecondChildObject(wndObj, false, false)) {
         DWORD vt1 = SafeIsBadReadPtr((void*)wndObj, 12) ? 0 : *(DWORD*)(wndObj + 0x00);
         DWORD vt2 = SafeIsBadReadPtr((void*)wndObj, 12) ? 0 : *(DWORD*)(wndObj + 0x04);
         DWORD vt3 = SafeIsBadReadPtr((void*)wndObj, 12) ? 0 : *(DWORD*)(wndObj + 0x08);
@@ -3373,6 +3704,97 @@ static bool ApplySuperChildCustomDrawVTable(uintptr_t wndObj)
     WriteLogFmt("[NativeWnd] Custom VT1 installed: orig=0x%08X new=0x%08X draw=0x%08X",
         origVT1, (DWORD)g_CustomVTable1, (DWORD)&SuperCWndDraw);
     return true;
+}
+
+static int __stdcall SuperSecondChildMsgHook(DWORD msg, DWORD a2, DWORD a3, DWORD a4)
+{
+    uintptr_t slot = g_SkillWndThis ? GetSkillWndSecondChildPtr(g_SkillWndThis) : 0;
+    bool ours =
+        g_SuperExpanded &&
+        g_SuperUsesSkillWndSecondSlot &&
+        g_SuperCWnd &&
+        slot == g_SuperCWnd &&
+        slot == g_CustomVTable2OwnerChild;
+    bool mouseUpCloseMsg = (msg == WM_LBUTTONUP || msg == WM_RBUTTONUP);
+
+    if (mouseUpCloseMsg && ours) {
+        if (InterlockedDecrement(&g_SecondChildMouseSwallowBudget) >= 0) {
+            WriteLogFmt("[NativeWnd:VT2] swallow msg=0x%04X child=0x%08X slot=0x%08X a=[%08X,%08X,%08X]",
+                msg, (DWORD)g_SuperCWnd, (DWORD)slot, a2, a3, a4);
+            LogOfficialSecondChildState(slot, "NativeWnd:VT2:SwallowState");
+        }
+        return 0;
+    }
+
+    if ((msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP || msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP) &&
+        InterlockedDecrement(&g_SecondChildMousePassBudget) >= 0) {
+        WriteLogFmt("[NativeWnd:VT2] pass msg=0x%04X child=0x%08X slot=0x%08X ours=%d a=[%08X,%08X,%08X]",
+            msg, (DWORD)g_SuperCWnd, (DWORD)slot, ours ? 1 : 0, a2, a3, a4);
+    }
+
+    tSecondChildMsgFn orig = (tSecondChildMsgFn)g_OriginalSecondChildMsgFn;
+    return orig ? orig(msg, a2, a3, a4) : 0;
+}
+
+static bool ApplySuperChildCustomMouseGuardVTable(uintptr_t wndObj)
+{
+    if (!IsOfficialSecondChildObject(wndObj, true, false)) {
+        WriteLogFmt("[NativeWnd] FAIL: custom VT2 target is not official second-child child=0x%08X", (DWORD)wndObj);
+        return false;
+    }
+
+    DWORD origVT2 = *(DWORD*)(wndObj + 0x04);
+    if (origVT2 == (DWORD)g_CustomVTable2 && g_CustomVTable2OwnerChild == wndObj) {
+        WriteLogFmt("[NativeWnd] Custom VT2 already installed: child=0x%08X vt2=0x%08X", (DWORD)wndObj, origVT2);
+        return true;
+    }
+    if (origVT2 != ADDR_VT_SkillWndSecondChild2) {
+        WriteLogFmt("[NativeWnd] FAIL: unexpected VT2 target child=0x%08X vt2=0x%08X", (DWORD)wndObj, origVT2);
+        return false;
+    }
+
+    const int kVT2Entries = 64;
+    if (SafeIsBadReadPtr((void*)origVT2, kVT2Entries * sizeof(DWORD))) {
+        WriteLogFmt("[NativeWnd] FAIL: original VT2 invalid 0x%08X", origVT2);
+        return false;
+    }
+
+    if (!g_CustomVTable2) {
+        g_CustomVTable2 = (DWORD*)VirtualAlloc(nullptr, kVT2Entries * sizeof(DWORD),
+            MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        if (!g_CustomVTable2) {
+            WriteLog("[NativeWnd] FAIL: VirtualAlloc custom VT2");
+            return false;
+        }
+        memcpy(g_CustomVTable2, (void*)origVT2, kVT2Entries * sizeof(DWORD));
+    }
+
+    DWORD origMsg = g_CustomVTable2[2];
+    if (origMsg && origMsg != (DWORD)&SuperSecondChildMsgHook)
+        g_OriginalSecondChildMsgFn = origMsg;
+    g_CustomVTable2[2] = (DWORD)&SuperSecondChildMsgHook;
+    *(DWORD*)(wndObj + 0x04) = (DWORD)g_CustomVTable2;
+    g_CustomVTable2OwnerChild = wndObj;
+
+    WriteLogFmt("[NativeWnd] Custom VT2 installed: child=0x%08X orig=0x%08X new=0x%08X msgOrig=0x%08X hook=0x%08X",
+        (DWORD)wndObj, origVT2, (DWORD)g_CustomVTable2, g_OriginalSecondChildMsgFn, (DWORD)&SuperSecondChildMsgHook);
+    return true;
+}
+
+static void RestoreSuperChildCustomMouseGuardVTable(uintptr_t wndObj, const char* reason)
+{
+    if (!wndObj || SafeIsBadReadPtr((void*)(wndObj + 0x04), sizeof(DWORD)))
+        return;
+
+    DWORD vt2 = *(DWORD*)(wndObj + 0x04);
+    if (g_CustomVTable2 && vt2 == (DWORD)g_CustomVTable2) {
+        *(DWORD*)(wndObj + 0x04) = ADDR_VT_SkillWndSecondChild2;
+        WriteLogFmt("[NativeWnd] Custom VT2 restored: child=0x%08X reason=%s",
+            (DWORD)wndObj, reason ? reason : "unknown");
+    }
+
+    if (g_CustomVTable2OwnerChild == wndObj)
+        g_CustomVTable2OwnerChild = 0;
 }
 
 static void MarkSuperWndDirty(uintptr_t wndObj, const char* logTag)
@@ -3827,6 +4249,38 @@ static IDirect3DTexture9* LoadTextureFromFilePath(IDirect3DDevice9* dev, const c
     return tex;
 }
 
+static D3D8Texture LoadTextureFromResourceD3D8(void* pDevice8, int resID)
+{
+    D3D8Texture tex = {};
+    if (!pDevice8)
+        return tex;
+
+    HRSRC hRes = FindResourceA(g_hModule, MAKEINTRESOURCEA(resID), RT_RCDATA);
+    if (!hRes) {
+        WriteLogFmt("[D3D8Tex] FindResource(%d) failed", resID);
+        return tex;
+    }
+
+    HGLOBAL hMem = LoadResource(g_hModule, hRes);
+    DWORD sz = SizeofResource(g_hModule, hRes);
+    if (!hMem || !sz) {
+        WriteLogFmt("[D3D8Tex] LoadResource(%d) failed", resID);
+        return tex;
+    }
+
+    void* pData = LockResource(hMem);
+    if (!pData) {
+        WriteLogFmt("[D3D8Tex] LockResource(%d) failed", resID);
+        return tex;
+    }
+
+    tex = D3D8_CreateTextureFromPngMemory(pDevice8, static_cast<const unsigned char*>(pData), sz);
+    if (tex.pTexture8) {
+        WriteLogFmt("[D3D8Tex] Loaded #%d: %dx%d", resID, tex.width, tex.height);
+    }
+    return tex;
+}
+
 static void LoadAllTextures(IDirect3DDevice9* dev)
 {
     if (g_TexturesLoaded || !dev) return;
@@ -3845,6 +4299,23 @@ static void LoadAllTextures(IDirect3DDevice9* dev)
         g_texCursorNormal, g_texCursorHoverA, g_texCursorHoverB, g_texCursorPressed);
 }
 
+static void ReleaseAllD3D8Textures(const char* reason)
+{
+    if (g_D3D8TexturesLoaded) {
+        WriteLogFmt("[D3D8Tex] release reason=%s", reason ? reason : "unknown");
+    }
+    D3D8_ReleaseTexture(g_d3d8TexBtnNormal);
+    D3D8_ReleaseTexture(g_d3d8TexBtnHover);
+    D3D8_ReleaseTexture(g_d3d8TexBtnPressed);
+    D3D8_ReleaseTexture(g_d3d8TexBtnDisabled);
+    D3D8_ReleaseTexture(g_d3d8TexCursorNormal);
+    D3D8_ReleaseTexture(g_d3d8TexCursorHoverA);
+    D3D8_ReleaseTexture(g_d3d8TexCursorHoverB);
+    D3D8_ReleaseTexture(g_d3d8TexCursorPressed);
+    g_D3D8TextureDevice = nullptr;
+    g_D3D8TexturesLoaded = false;
+}
+
 static void ReleaseAllD3D9Textures(const char* reason)
 {
     if (g_texPanelBg) {
@@ -3861,6 +4332,44 @@ static void ReleaseAllD3D9Textures(const char* reason)
     if (g_texCursorHoverB) { g_texCursorHoverB->Release(); g_texCursorHoverB = nullptr; }
     if (g_texCursorPressed) { g_texCursorPressed->Release(); g_texCursorPressed = nullptr; }
     g_TexturesLoaded = false;
+}
+
+static void EnsureD3D8SuperTexturesLoaded(void* pDevice8)
+{
+    if (!pDevice8)
+        return;
+
+    if (g_D3D8TexturesLoaded && g_D3D8TextureDevice == pDevice8)
+        return;
+
+    if (g_D3D8TexturesLoaded && g_D3D8TextureDevice != pDevice8)
+        ReleaseAllD3D8Textures("device_changed");
+
+    g_d3d8TexBtnNormal = LoadTextureFromResourceD3D8(pDevice8, IDR_BTN_NORMAL);
+    g_d3d8TexBtnHover = LoadTextureFromResourceD3D8(pDevice8, IDR_BTN_HOVER);
+    g_d3d8TexBtnPressed = LoadTextureFromResourceD3D8(pDevice8, IDR_BTN_PRESSED);
+    g_d3d8TexBtnDisabled = LoadTextureFromResourceD3D8(pDevice8, IDR_BTN_DISABLED);
+    g_d3d8TexCursorNormal = LoadTextureFromResourceD3D8(pDevice8, IDR_CURSOR_NORMAL);
+    g_d3d8TexCursorHoverA = LoadTextureFromResourceD3D8(pDevice8, IDR_CURSOR_HOVER_A);
+    g_d3d8TexCursorHoverB = LoadTextureFromResourceD3D8(pDevice8, IDR_CURSOR_HOVER_B);
+    g_d3d8TexCursorPressed = LoadTextureFromResourceD3D8(pDevice8, IDR_CURSOR_PRESSED);
+    g_D3D8TextureDevice = pDevice8;
+    g_D3D8TexturesLoaded =
+        g_d3d8TexBtnNormal.pTexture8 &&
+        g_d3d8TexBtnHover.pTexture8 &&
+        g_d3d8TexBtnPressed.pTexture8 &&
+        g_d3d8TexCursorNormal.pTexture8;
+
+    WriteLogFmt("[D3D8Tex] loaded=%d btn=[0x%08X,0x%08X,0x%08X,0x%08X] cursor=[0x%08X,0x%08X,0x%08X,0x%08X]",
+        g_D3D8TexturesLoaded ? 1 : 0,
+        (DWORD)(uintptr_t)g_d3d8TexBtnNormal.pTexture8,
+        (DWORD)(uintptr_t)g_d3d8TexBtnHover.pTexture8,
+        (DWORD)(uintptr_t)g_d3d8TexBtnPressed.pTexture8,
+        (DWORD)(uintptr_t)g_d3d8TexBtnDisabled.pTexture8,
+        (DWORD)(uintptr_t)g_d3d8TexCursorNormal.pTexture8,
+        (DWORD)(uintptr_t)g_d3d8TexCursorHoverA.pTexture8,
+        (DWORD)(uintptr_t)g_d3d8TexCursorHoverB.pTexture8,
+        (DWORD)(uintptr_t)g_d3d8TexCursorPressed.pTexture8);
 }
 
 static void PrepareForD3DDeviceReset(const char* reason)
@@ -3911,7 +4420,7 @@ static void __fastcall SuperCWndDraw(uintptr_t thisPtr, void* /*edx_unused*/, in
         int ry = CWnd_GetRenderY(thisPtr);
         int w = *(int*)(thisPtr + 10*4);
         int h = *(int*)(thisPtr + 11*4);
-        if (IsOfficialSecondChildObject(thisPtr, true)) {
+        if (IsOfficialSecondChildObject(thisPtr, true, true)) {
             int refCount = *(int*)(thisPtr + CWND_OFF_REFCNT * 4);
             WriteLogFmt("[Draw] #%d officialSecond=1 ref=%d com=(%d,%d) render=(%d,%d) size=%dx%d",
                 g_DrawCallCount, refCount, cx, cy, rx, ry, w, h);
@@ -4215,6 +4724,9 @@ static bool ReleaseSkillWndSecondChild(uintptr_t skillWndThis, const char* reaso
     uintptr_t child = GetSkillWndSecondChildPtr(skillWndThis);
     if (!child) return false;
 
+    RestoreSuperChildCustomMouseGuardVTable(child, reason ? reason : "release");
+    LogOfficialSecondChildState(child, "Lifecycle:BeforeSecondChildRelease");
+
     WriteLogFmt("[Lifecycle] releasing second child (reason=%s) ptr=0x%08X",
         reason ? reason : "unknown", (DWORD)child);
 
@@ -4315,6 +4827,7 @@ static bool CreateSuperWnd(uintptr_t skillWndThis)
 
     WriteLogFmt("[NativeWnd] official second-child OK: slot=0x%08X mode=%d", (DWORD)wndObj, mode);
     LogNativeChildSurfaceShape(wndObj, "NativeWndCtor");
+    LogOfficialSecondChildState(wndObj, "NativeWndCtorState");
 
     // Step 2: 算初始锚点，并尝试把官方 second-child 的壳收缩到我们的目标尺寸。
     int swX = 0, swY = 0;
@@ -4342,12 +4855,16 @@ static bool CreateSuperWnd(uintptr_t skillWndThis)
         ReleaseSkillWndSecondChild(skillWndThis, "custom_vt_fail");
         return false;
     }
+    if (!ApplySuperChildCustomMouseGuardVTable(wndObj)) {
+        WriteLog("[NativeWnd] WARN: custom VT2 mouse guard install failed");
+    }
 
     // Step 5: 再补一次 move，确保初始化后逻辑位置与我们的锚点一致
     MoveNativeChildWnd(wndObj, xPos, yPos, "NativeWndInitMove");
 
     // Step 6: official second-child 没有可靠 show/hide 槽位；收起时走 close+release。
     MarkSuperWndDirty(wndObj, "NativeWndInit");
+    LogOfficialSecondChildState(wndObj, "NativeWndAfterInit");
 
     g_SuperCWnd = wndObj;
     g_NativeWndCreated = true;
@@ -4365,7 +4882,7 @@ static void SetSuperWndVisible(uintptr_t wndObj, int showVal)
 
     if (!wndObj) return;
 
-    if (IsOfficialSecondChildObject(wndObj, true)) {
+    if (IsOfficialSecondChildObject(wndObj, true, true)) {
         static int s_officialSecondVisibleNoopLogCount = 0;
         if (s_officialSecondVisibleNoopLogCount < 8) {
             WriteLogFmt("[Visible] official second-child has no reliable show/hide slot; no-op show=%d wnd=0x%08X",
@@ -4538,6 +5055,9 @@ static void OnSkillWndPointerObserved(uintptr_t observed, const char* srcTag)
     SkillOverlayBridgeSetSkillWnd(g_SkillWndThis);
     g_Ready = true;
     g_LastSkillWndSeenTick = now;
+
+    if (g_IsD3D8Mode && ENABLE_IMGUI_OVERLAY_PANEL)
+        EnsureDeferredInteractionHooks("skillwnd_ready");
 }
 
 // ============================================================================
@@ -4559,7 +5079,7 @@ static void ToggleSuperWnd(const char* srcTag)
 
     // D3D8 mode owns the shared ImGui panel from hkD3D8Present.
     // It does not need the D3D9 CreateSuperWnd route or a native child window.
-    if (g_IsD3D8Mode) {
+    if (g_IsD3D8Mode && ENABLE_IMGUI_OVERLAY_PANEL) {
         WriteLogFmt("[Toggle] D3D8 mode: panel %s", g_SuperExpanded ? "ON" : "OFF");
         return;
     }
@@ -4590,6 +5110,45 @@ static void ToggleSuperWnd(const char* srcTag)
         DestroySuperWndOnly("toggle_hide");
     }
 }
+
+#if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
+static void RunSecondChildCarrierProbeHotkey()
+{
+    if (!g_SkillWndThis) {
+        WriteLog("[CarrierProbe] F10 ignored: SkillWnd not ready");
+        return;
+    }
+
+    WriteLogFmt("[CarrierProbe] F10 run-once skillWnd=0x%08X flags=0x%08X",
+        (DWORD)g_SkillWndThis,
+        SECOND_CHILD_CARRIER_PROBE_FLAGS);
+    SSW_SecondChildCarrierProbe_RunOnce((DWORD)g_SkillWndThis, SECOND_CHILD_CARRIER_PROBE_FLAGS, -9999, -9999);
+}
+
+static void PollSecondChildCarrierProbeTick(DWORD reasonCode, bool force)
+{
+    if (!g_SkillWndThis)
+        return;
+
+    DWORD now = GetTickCount();
+    if (!force && (now - g_LastCarrierProbePollTick) < 250)
+        return;
+
+    g_LastCarrierProbePollTick = now;
+    SSW_SecondChildCarrierProbe_Poll((DWORD)g_SkillWndThis, reasonCode);
+}
+
+static void ReleaseSecondChildCarrierProbeHotkey()
+{
+    if (!g_SkillWndThis) {
+        WriteLog("[CarrierProbe] F12 ignored: SkillWnd not ready");
+        return;
+    }
+
+    WriteLogFmt("[CarrierProbe] F12 release skillWnd=0x%08X", (DWORD)g_SkillWndThis);
+    SSW_SecondChildCarrierProbe_Release((DWORD)g_SkillWndThis);
+}
+#endif
 
 static bool IsPointInRectPad(int mx, int my, int x, int y, int w, int h, int pad)
 {
@@ -4788,9 +5347,19 @@ static tSkillWndMove oSkillWndMove = nullptr;
 
 static LONG __cdecl hkSkillWndMoveHandler(uintptr_t thisPtr, int a2, int a3)
 {
+    if (thisPtr == g_SkillWndThis && g_SuperExpanded && g_SuperCWnd && g_SuperUsesSkillWndSecondSlot) {
+        LogOfficialSecondChildState(g_SuperCWnd, "MoveHook:BeforeOrig");
+    }
+
     LONG ret = oSkillWndMove ? oSkillWndMove(thisPtr, a2, a3) : 0;
     if (thisPtr == g_SkillWndThis && g_SuperExpanded && g_SuperCWnd) {
+        if (g_SuperUsesSkillWndSecondSlot) {
+            LogOfficialSecondChildState(g_SuperCWnd, "MoveHook:AfterOrig");
+        }
         MoveSuperChildBySkillAnchor("MoveHookDirect", false);
+        if (g_SuperUsesSkillWndSecondSlot) {
+            LogOfficialSecondChildState(g_SuperCWnd, "MoveHook:AfterRetarget");
+        }
         if (ENABLE_MOVE_FOCUS_SYNC) {
             SyncSkillWndActiveFocus("MoveFocusSync");
         }
@@ -4823,8 +5392,15 @@ static tSkillWndRefresh oSkillWndRefresh = nullptr;
 
 static int __cdecl hkSkillWndRefreshHandler(uintptr_t thisPtr)
 {
+    if (thisPtr == g_SkillWndThis && g_SuperExpanded && g_SuperCWnd && g_SuperUsesSkillWndSecondSlot) {
+        LogOfficialSecondChildState(g_SuperCWnd, "RefreshHook:BeforeOrig");
+    }
+
     int ret = oSkillWndRefresh ? oSkillWndRefresh(thisPtr) : 0;
     if (thisPtr == g_SkillWndThis && g_SuperExpanded && g_SuperCWnd) {
+        if (g_SuperUsesSkillWndSecondSlot) {
+            LogOfficialSecondChildState(g_SuperCWnd, "RefreshHook:AfterOrig");
+        }
         if (ENABLE_REFRESH_NATIVE_CHILD_UPDATE) {
             UpdateSuperCWnd();
         }
@@ -5478,6 +6054,9 @@ static void UpdateSuperCWnd()
     if (!g_SkillWndThis || !g_SuperExpanded) {
         g_PanelDrawX = -9999;
         g_PanelDrawY = -9999;
+#if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
+        PollSecondChildCarrierProbeTick(0x0000E001, false);
+#endif
         return;
     }
 
@@ -5532,9 +6111,15 @@ static void UpdateSuperCWnd()
     }
 
     if (g_SuperCWnd && !SafeIsBadReadPtr((void*)g_SuperCWnd, 0x30)) {
+        if (g_SuperUsesSkillWndSecondSlot) {
+            LogOfficialSecondChildState(g_SuperCWnd, "UpdatePos:BeforeMove");
+        }
         SetSuperWndVisible(g_SuperCWnd, 1);
         MoveNativeChildWnd(g_SuperCWnd, g_PanelDrawX, g_PanelDrawY, "UpdatePosMove");
         MarkSuperWndDirty(g_SuperCWnd, "UpdatePosDirty");
+        if (g_SuperUsesSkillWndSecondSlot) {
+            LogOfficialSecondChildState(g_SuperCWnd, "UpdatePos:AfterMove");
+        }
     }
 
     if ((g_PanelDrawX != s_lastPanelX || g_PanelDrawY != s_lastPanelY) && g_UpdatePosLogCount < 200) {
@@ -5551,6 +6136,10 @@ static void UpdateSuperCWnd()
 
     s_lastPanelX = g_PanelDrawX;
     s_lastPanelY = g_PanelDrawY;
+
+#if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
+    PollSecondChildCarrierProbeTick(0x0000E002, false);
+#endif
 }
 
 // ============================================================================
@@ -5558,6 +6147,10 @@ static void UpdateSuperCWnd()
 // ============================================================================
 static LRESULT CALLBACK GameWndProc(HWND h, UINT m, WPARAM w, LPARAM l)
 {
+#if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
+    SSW_SecondChildCarrierProbe_ObserveWndProc(m, w, l);
+#endif
+
     if (ENABLE_IMGUI_OVERLAY_PANEL) {
         switch (m) {
         case WM_CAPTURECHANGED:
@@ -5587,6 +6180,23 @@ static LRESULT CALLBACK GameWndProc(HWND h, UINT m, WPARAM w, LPARAM l)
         }
         return 0;
     }
+
+#if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
+    if (m == WM_KEYDOWN && w == VK_F10) {
+        RunSecondChildCarrierProbeHotkey();
+        return 0;
+    }
+
+    if (m == WM_KEYDOWN && w == VK_F11) {
+        PollSecondChildCarrierProbeTick(0x0000F011, true);
+        return 0;
+    }
+
+    if (m == WM_KEYDOWN && w == VK_F12) {
+        ReleaseSecondChildCarrierProbeHotkey();
+        return 0;
+    }
+#endif
 
     if (m == WM_SETCURSOR && g_MouseSuppressFallbackActive) {
         SetCursor(nullptr);
@@ -6320,7 +6930,6 @@ typedef HRESULT (__stdcall *tD3D8Present)(void* pDevice8, const RECT*, const REC
 typedef HRESULT (__stdcall *tD3D8Reset)(void* pDevice8, void* pPresentationParameters);
 static tD3D8Present oD3D8Present = nullptr;
 static tD3D8Reset   oD3D8Reset  = nullptr;
-static HWND g_D3D8GameHwnd = nullptr;
 
 // D3D8 Present hook — 直接在游戏 D3D8 设备上渲染 overlay
 static HRESULT __stdcall hkD3D8Present(void* pDevice8,
@@ -6379,7 +6988,12 @@ static HRESULT __stdcall hkD3D8Present(void* pDevice8,
     }
 
     if (ENABLE_IMGUI_OVERLAY_PANEL) {
-        if (!SuperD3D8OverlayIsInitialized() && g_D3D8GameHwnd && pDevice8) {
+        const bool overlayActivationReady = g_Ready && g_SkillWndThis && g_SuperExpanded;
+
+        if (g_Ready && g_NativeBtnCreated)
+            EnsureD3D8SuperTexturesLoaded(pDevice8);
+
+        if (overlayActivationReady && !SuperD3D8OverlayIsInitialized() && g_D3D8GameHwnd && pDevice8) {
             if (!SuperD3D8OverlayEnsureInitialized(g_D3D8GameHwnd, pDevice8, 1.0f, IMGUI_PANEL_ASSET_PATH)) {
                 static DWORD s_lastD3D8OverlayInitFailLogTick = 0;
                 DWORD now = GetTickCount();
@@ -6391,13 +7005,17 @@ static HRESULT __stdcall hkD3D8Present(void* pDevice8,
             }
         }
 
-        if (g_SkillWndThis && g_SuperExpanded) {
+        DrawSuperButtonTextureInPresentD3D8(pDevice8);
+
+        if (overlayActivationReady && SuperD3D8OverlayIsInitialized()) {
             UpdateSuperCWnd();
             SuperD3D8OverlaySetVisible(true);
             SuperD3D8OverlayRender(pDevice8);
         } else if (SuperD3D8OverlayIsInitialized()) {
             SuperD3D8OverlaySetVisible(false);
         }
+
+        DrawSuperButtonCursorInPresentD3D8(pDevice8);
 
         const bool suppressMouse = SuperD3D8OverlayShouldSuppressGameMouse() || ShouldSuppressGameMouseForSuperBtnD3D();
         if (Win32InputSpoofIsInstalled()) {
@@ -7069,6 +7687,9 @@ static bool SetupSkillWndDtorHook()
 // ============================================================================
 static bool SetupWndProcHook()
 {
+    if (g_OriginalWndProc && g_GameHwnd)
+        return true;
+
     g_GameHwnd = GetRealGameWindow();
     if (!g_GameHwnd) {
         WriteLog("[WndProc] Game window not found");
@@ -7077,6 +7698,36 @@ static bool SetupWndProcHook()
     g_OriginalWndProc = (WNDPROC)SetWindowLongPtrA(g_GameHwnd, GWLP_WNDPROC, (LONG_PTR)GameWndProc);
     WriteLogFmt("[WndProc] Hooked: 0x%08X", (DWORD)g_OriginalWndProc);
     return g_OriginalWndProc != nullptr;
+}
+
+static void EnsureDeferredInteractionHooks(const char* reason)
+{
+    static DWORD s_lastWndProcRetryTick = 0;
+    static bool s_inputSpoofAttempted = false;
+
+    const DWORD now = GetTickCount();
+
+    if (!g_OriginalWndProc && (now - s_lastWndProcRetryTick >= 1000))
+    {
+        s_lastWndProcRetryTick = now;
+        if (SetupWndProcHook())
+        {
+            WriteLogFmt("[WndProc] deferred install OK reason=%s", reason ? reason : "unknown");
+        }
+        else
+        {
+            WriteLogFmt("[WndProc] deferred install pending reason=%s", reason ? reason : "unknown");
+        }
+    }
+
+    if (!s_inputSpoofAttempted)
+    {
+        s_inputSpoofAttempted = true;
+        if (!Win32InputSpoofInstall())
+            WriteLogFmt("[InputSpoof] deferred install failed reason=%s", reason ? reason : "unknown");
+        else
+            WriteLogFmt("[InputSpoof] deferred install OK reason=%s", reason ? reason : "unknown");
+    }
 }
 
 // ============================================================================
@@ -7092,6 +7743,9 @@ static DWORD WINAPI InitThread(LPVOID)
         ENABLE_TOGGLE_FOCUS_SYNC ? 1 : 0, ENABLE_MOVE_FOCUS_SYNC ? 1 : 0,
         ENABLE_PRESENT_NATIVE_CHILD_UPDATE ? 1 : 0, ENABLE_REFRESH_NATIVE_CHILD_UPDATE ? 1 : 0);
     WriteLogFmt("[Build] native_button_skin_remap=%d", ENABLE_NATIVE_BUTTON_SKIN_REMAP ? 1 : 0);
+#if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
+    WriteLog("[CarrierProbe] runtime enabled hotkeys: F10=run once, F11=poll, F12=release");
+#endif
     Sleep(2000);
 
     g_SkillMgr.Initialize();
@@ -7134,8 +7788,13 @@ static DWORD WINAPI InitThread(LPVOID)
     if (!SetupSkillListBuildFilterHook()) { WriteLog("SkillListFilter hook failed (non-fatal)"); }
     if (!SetupSkillWndDtorHook()) { WriteLog("SkillWnd dtor hook failed (non-fatal)"); }
     if (!SetupMsgHook())       { WriteLog("MsgHook failed (non-fatal)"); }
-    if (!SetupWndProcHook())   { WriteLog("WndProc hook FAILED"); return 1; }
-    if (!Win32InputSpoofInstall()) { WriteLog("[InputSpoof] install failed (non-fatal)"); }
+    if (g_IsD3D8Mode && ENABLE_IMGUI_OVERLAY_PANEL) {
+        WriteLog("[WndProc] deferred install until SkillWnd becomes active in D3D8 mode");
+        WriteLog("[InputSpoof] deferred install until SkillWnd becomes active in D3D8 mode");
+    } else {
+        if (!SetupWndProcHook())   { WriteLog("WndProc hook FAILED"); return 1; }
+        if (!Win32InputSpoofInstall()) { WriteLog("[InputSpoof] install failed (non-fatal)"); }
+    }
 
     WriteLogFmt("[Build] routeB_hooks_ready=%d imgui_overlay=%d", g_SuperChildHooksReady ? 1 : 0, ENABLE_IMGUI_OVERLAY_PANEL ? 1 : 0);
     WriteLog("=== SuperSkillWnd Ready v15.0 ===");
@@ -7154,6 +7813,7 @@ static void CleanupSuperCWnd()
         else
             SuperImGuiOverlayShutdown();
     }
+    ReleaseAllD3D8Textures("dll_detach");
     ReleaseAllD3D9Textures("dll_detach");
     SkillOverlayBridgeShutdown();
     if (Win32InputSpoofIsInstalled()) {

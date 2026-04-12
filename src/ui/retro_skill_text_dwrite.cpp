@@ -31,6 +31,7 @@ namespace
     struct TextStyleKey
     {
         bool numeric = false;
+        bool largeText = false;
         int pixelHeight = 0;
         int numericCellWidth = 0;
         int numericCellHeight = 0;
@@ -40,6 +41,8 @@ namespace
         {
             if (numeric != other.numeric)
                 return numeric < other.numeric;
+            if (largeText != other.largeText)
+                return largeText < other.largeText;
             if (pixelHeight != other.pixelHeight)
                 return pixelHeight < other.pixelHeight;
             if (numericCellWidth != other.numericCellWidth)
@@ -151,20 +154,102 @@ namespace
         return GlyphShape_Punctuation;
     }
 
+    bool ResolveBodyGlyphSizeOverride(const TextStyleKey& style, wchar_t ch, int sourceWidth, int sourceHeight, int* outWidth, int* outHeight)
+    {
+        if (!outWidth || !outHeight)
+            return false;
+        if (style.largeText || style.numeric)
+            return false;
+
+        switch (ch)
+        {
+        case L'1':
+            *outWidth = 3;
+            *outHeight = ClampInt(sourceHeight, 1, 12);
+            return true;
+        case L'0':
+        case L'2':
+        case L'3':
+        case L'4':
+        case L'5':
+        case L'6':
+        case L'7':
+        case L'8':
+        case L'9':
+            *outWidth = ClampInt(sourceWidth, 1, 4);
+            *outHeight = ClampInt(sourceHeight, 1, 12);
+            return true;
+        case 0x3002:
+        case 0xFF0E:
+            *outWidth = 4;
+            *outHeight = ClampInt(sourceHeight, 1, 12);
+            return true;
+        case 0xFF0C:
+        case 0x3001:
+            *outWidth = 2;
+            *outHeight = ClampInt(sourceHeight, 1, 12);
+            return true;
+        case 0xFF1A:
+            *outWidth = 2;
+            *outHeight = ClampInt(sourceHeight, 1, 12);
+            return true;
+        case L'P':
+            *outWidth = ClampInt(sourceWidth, 1, 5);
+            *outHeight = ClampInt(sourceHeight, 1, 12);
+            return true;
+        case L']':
+            *outWidth = 3;
+            *outHeight = ClampInt(sourceHeight, 1, 12);
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    int ResolveDigitDisplayWidth(wchar_t ch, int sourceWidth)
+    {
+        if (ch == L'1')
+            return 3;
+
+        return ClampInt(sourceWidth, 1, 4);
+    }
+
+    int ResolveBodyGlyphCellWidth(const TextStyleKey& style, wchar_t ch)
+    {
+        if (style.largeText || style.numeric)
+            return 0;
+
+        if (ch == 0xFF1A)
+            return 11;
+
+        return 0;
+    }
+
+    int ResolveBodyGlyphExtraLeftTrim(const TextStyleKey& style, wchar_t ch, int cropWidth)
+    {
+        if (style.largeText || style.numeric)
+            return 0;
+
+        if ((ch == L'M' || ch == L']') && cropWidth > 1)
+            return 1;
+
+        return 0;
+    }
+
     void ResolveTargetGlyphSize(const TextStyleKey& style, wchar_t ch, int sourceWidth, int sourceHeight, int* outWidth, int* outHeight)
     {
         if (!outWidth || !outHeight)
             return;
 
         const GlyphShapeClass shape = ClassifyGlyphShape(ch);
+        if (ResolveBodyGlyphSizeOverride(style, ch, sourceWidth, sourceHeight, outWidth, outHeight))
+            return;
+
         if (style.numeric)
         {
             if (shape == GlyphShape_Digit)
             {
-                if (style.numericCellWidth >= 6)
-                    *outWidth = (ch == L'1') ? 5 : style.numericCellWidth;
-                else
-                    *outWidth = (ch == L'1') ? 3 : style.numericCellWidth;
+                *outWidth = ResolveDigitDisplayWidth(ch, sourceWidth);
                 *outHeight = style.numericCellHeight > 0 ? style.numericCellHeight : 8;
                 return;
             }
@@ -176,6 +261,13 @@ namespace
 
         if (shape == GlyphShape_Cjk)
         {
+            if (style.largeText)
+            {
+                *outWidth = ClampInt(sourceWidth, 1, 14);
+                *outHeight = ClampInt(sourceHeight, 1, 14);
+                return;
+            }
+
             *outWidth = ClampInt(sourceWidth, 1, 11);
             *outHeight = ClampInt(sourceHeight, 1, 12);
             return;
@@ -183,13 +275,20 @@ namespace
 
         if (shape == GlyphShape_Latin)
         {
+            if (style.largeText)
+            {
+                *outWidth = ClampInt(sourceWidth, 1, 7);
+                *outHeight = ClampInt(sourceHeight, 1, 14);
+                return;
+            }
+
             *outWidth = ClampInt(sourceWidth, 1, 6);
             *outHeight = ClampInt(sourceHeight, 1, 12);
             return;
         }
 
         *outWidth = MaxInt(1, sourceWidth);
-        *outHeight = ClampInt(sourceHeight, 1, 12);
+        *outHeight = ClampInt(sourceHeight, 1, style.largeText ? 14 : 12);
     }
 
     std::vector<unsigned int> ResampleNearest(const std::vector<unsigned int>& sourcePixels, int sourceWidth, int sourceHeight, int targetWidth, int targetHeight)
@@ -442,24 +541,17 @@ namespace
         return (fontSize > 0.0f && fontSize <= 9.5f) ? 12 : 11;
     }
 
-    TextStyleKey ResolveStyle(const std::wstring& text, float fontSize, float glyphSpacing)
+    TextStyleKey ResolveStyle(const std::wstring& text, float fontSize, float glyphSpacing, bool largeText)
     {
         TextStyleKey style = {};
         style.numeric = IsNumericLikeText(text);
+        style.largeText = largeText && !style.numeric;
         style.pixelHeight = ResolvePixelHeight(style.numeric, fontSize);
         style.glyphSpacing = (int)floorf(glyphSpacing + 0.5f);
         if (style.numeric)
         {
-            if (fontSize > 0.0f && fontSize <= 9.5f)
-            {
-                style.numericCellWidth = 6;
-                style.numericCellHeight = 9;
-            }
-            else
-            {
-                style.numericCellWidth = 5;
-                style.numericCellHeight = 8;
-            }
+            style.numericCellWidth = 5;
+            style.numericCellHeight = (fontSize > 0.0f && fontSize <= 9.5f) ? 9 : 8;
         }
         return style;
     }
@@ -646,6 +738,10 @@ namespace
             return true;
         }
 
+        const int extraLeftTrim = ResolveBodyGlyphExtraLeftTrim(style, ch, maxX - minX + 1);
+        if (extraLeftTrim > 0 && minX + extraLeftTrim <= maxX)
+            minX += extraLeftTrim;
+
         const int cropWidth = maxX - minX + 1;
         const int cropHeight = maxY - minY + 1;
         std::vector<unsigned int> pixels;
@@ -682,10 +778,12 @@ namespace
 
         int finalTextureWidth = targetWidth;
         int finalTextureHeight = targetHeight;
-        if (style.numeric && ClassifyGlyphShape(ch) == GlyphShape_Digit)
+        if (!style.largeText && ClassifyGlyphShape(ch) == GlyphShape_Digit)
         {
             const int numericCellWidth = style.numericCellWidth > 0 ? style.numericCellWidth : 5;
-            const int numericCellHeight = style.numericCellHeight > 0 ? style.numericCellHeight : 8;
+            const int numericCellHeight = (style.numeric && style.numericCellHeight > 0)
+                ? style.numericCellHeight
+                : targetHeight;
             const int centeredOffsetX = (numericCellWidth - targetWidth) / 2;
             const int bottomOffsetY = numericCellHeight - targetHeight;
             pixels = PlacePixelsIntoCanvas(
@@ -700,6 +798,21 @@ namespace
             finalTextureHeight = numericCellHeight;
         }
 
+        const int bodyCellWidth = ResolveBodyGlyphCellWidth(style, ch);
+        if (bodyCellWidth > finalTextureWidth)
+        {
+            const int centeredOffsetX = (bodyCellWidth - finalTextureWidth) / 2;
+            pixels = PlacePixelsIntoCanvas(
+                pixels,
+                finalTextureWidth,
+                finalTextureHeight,
+                bodyCellWidth,
+                finalTextureHeight,
+                centeredOffsetX,
+                0);
+            finalTextureWidth = bodyCellWidth;
+        }
+
         if (!CreateTextureFromArgbPixels(pixels, finalTextureWidth, finalTextureHeight, outGlyph))
             return false;
 
@@ -709,7 +822,10 @@ namespace
         if (outGlyph->advance <= 0)
             outGlyph->advance = finalTextureWidth;
         outGlyph->offsetX = 0;
-        outGlyph->offsetY = MaxInt(0, font->metrics.tmAscent - finalTextureHeight);
+        const GlyphShapeClass finalShape = ClassifyGlyphShape(ch);
+        outGlyph->offsetY = (style.largeText && finalShape != GlyphShape_Digit)
+            ? (font->metrics.tmAscent - finalTextureHeight)
+            : MaxInt(0, font->metrics.tmAscent - finalTextureHeight);
         outGlyph->whitespace = false;
         return true;
     }
@@ -853,6 +969,11 @@ void RetroSkillDWriteOnDeviceReset(const RetroDeviceRef& deviceRef)
 
 bool RetroSkillDWriteDrawTextEx(ImDrawList* drawList, const ImVec2& pos, ImU32 color, const char* text, float fontSize, float glyphSpacing)
 {
+    return RetroSkillDWriteDrawTextWithStyleHintEx(drawList, pos, color, text, text, fontSize, glyphSpacing, false);
+}
+
+bool RetroSkillDWriteDrawTextWithStyleHintEx(ImDrawList* drawList, const ImVec2& pos, ImU32 color, const char* styleHintText, const char* text, float fontSize, float glyphSpacing, bool largeText)
+{
     if (!drawList || !text || !text[0] || !g_renderer.initialized || !EnsureDeviceAndDc(nullptr))
         return false;
 
@@ -860,7 +981,11 @@ bool RetroSkillDWriteDrawTextEx(ImDrawList* drawList, const ImVec2& pos, ImU32 c
     if (wideText.empty())
         return false;
 
-    const TextStyleKey style = ResolveStyle(wideText, fontSize, glyphSpacing);
+    std::wstring styleText = (styleHintText && styleHintText[0]) ? Utf8ToWide(styleHintText) : wideText;
+    if (styleText.empty())
+        styleText = wideText;
+
+    const TextStyleKey style = ResolveStyle(styleText, fontSize, glyphSpacing, largeText);
     float cursorX = floorf(pos.x);
     float cursorY = floorf(pos.y);
     const float startX = cursorX;
@@ -913,6 +1038,11 @@ bool RetroSkillDWriteDrawText(ImDrawList* drawList, const ImVec2& pos, ImU32 col
 
 ImVec2 RetroSkillDWriteMeasureTextEx(const char* text, float fontSize, float glyphSpacing)
 {
+    return RetroSkillDWriteMeasureTextWithStyleHintEx(text, text, fontSize, glyphSpacing, false);
+}
+
+ImVec2 RetroSkillDWriteMeasureTextWithStyleHintEx(const char* styleHintText, const char* text, float fontSize, float glyphSpacing, bool largeText)
+{
     if (!text || !text[0] || !g_renderer.initialized || !EnsureDeviceAndDc(nullptr))
         return ImVec2(0.0f, 0.0f);
 
@@ -920,7 +1050,11 @@ ImVec2 RetroSkillDWriteMeasureTextEx(const char* text, float fontSize, float gly
     if (wideText.empty())
         return ImVec2(0.0f, 0.0f);
 
-    const TextStyleKey style = ResolveStyle(wideText, fontSize, glyphSpacing);
+    std::wstring styleText = (styleHintText && styleHintText[0]) ? Utf8ToWide(styleHintText) : wideText;
+    if (styleText.empty())
+        styleText = wideText;
+
+    const TextStyleKey style = ResolveStyle(styleText, fontSize, glyphSpacing, largeText);
     return MeasureWideTextInternal(wideText, style);
 }
 

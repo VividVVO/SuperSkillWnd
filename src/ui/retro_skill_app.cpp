@@ -80,17 +80,25 @@ namespace
 
     float GetRetroCursorFixedYOffset(RetroSkillAssets& assets, UITexture* currentTex)
     {
-        (void)assets;
-        float y = -4.0f;
+        // Keep the cursor hotspot stable while honoring the user's requested
+        // bottom alignment against System.mouse.normal.
+        const float normalBaselineYOffset = -4.0f;
+        float y = normalBaselineYOffset;
+        UITexture* normal = GetRetroSkillTexture(assets, "mouse.normal");
         UITexture* hoverA = GetRetroSkillTexture(assets, "mouse.normal.1");
+        UITexture* hoverB = GetRetroSkillTexture(assets, "mouse.normal.2");
+        UITexture* pressed = GetRetroSkillTexture(assets, "mouse.pressed");
         if (currentTex && hoverA && currentTex == hoverA)
             y += 2.0f;
-        UITexture* hoverB = GetRetroSkillTexture(assets, "mouse.normal.2");
-        if (currentTex && hoverB && currentTex == hoverB)
-            y += 5.0f;
-        UITexture* pressed = GetRetroSkillTexture(assets, "mouse.pressed");
-        if (currentTex && pressed && currentTex == pressed)
-            y += 2.0f;
+        else if (currentTex &&
+                 normal &&
+                 normal->height > 0 &&
+                 currentTex->height > 0 &&
+                 ((hoverB && currentTex == hoverB) ||
+                  (pressed && currentTex == pressed)))
+        {
+            y += (float)normal->height - (float)currentTex->height;
+        }
         return y;
     }
 

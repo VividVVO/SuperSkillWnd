@@ -28,7 +28,11 @@ inline bool SafeIsBadReadPtr(const void* ptr, size_t size)
 // ============================================================================
 // 日志
 // ============================================================================
+#if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
+#define LOG_FILE "C:\\SuperSkillWnd_probe.log"
+#else
 #define LOG_FILE "C:\\SuperSkillWnd.log"
+#endif
 
 inline void WriteLog(const char* msg)
 {

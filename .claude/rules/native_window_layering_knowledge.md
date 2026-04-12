@@ -251,8 +251,8 @@ F5741C 链表按 COM depth 非递减排序。
 
 模型：
 
-1. 先检查 CWndMan 内部 active/modal 状态，伪代码字段为 `a1+140` 和 `a1+148`，汇编是 `ecx+0x8C` 和 `ecx+0x94`。
-2. 如果存在 modal/active candidate，先对它做 hit-test。
+1. 先检查 `dword_F5E8D4` 输入/layer manager 内部优先 list，header 起点在 `+0x84`，其中 `+0x8C` 是 count，`+0x94` 是 tail cursor。
+2. 如果 manager 内部优先 list 非空，则先对它的 tail 候选做 hit-test。
 3. 若没有 modal/active candidate，则从 `off_F57410` 的 tail，即 `dword_F57420`，向前遍历同一条 z/order list。
 4. 对每个窗口，调用 interface vtable `+52` 和 `+48` 做坐标转换。
 5. 调窗口 vtable `+36` 做命中测试。
@@ -296,7 +296,7 @@ F5741C 链表按 COM depth 非递减排序。
 5. 调 `sub_BA01D0(this)` 从 z/order list 移除。
 6. 调 `sub_BA0210(this)` 从 pending/action list 移除。
 7. 调 `sub_BA0240(this)` 从 dirty list 移除。
-8. 调 `sub_BA0680(this+1)` 从 active/focus/interact 相关状态移除。
+8. 调 `sub_BA0680(this+1)` 从 `dword_F5E8D4` manager 相关状态移除，并可能触发从 `dword_F57420` tail 回退重选。
 9. 重新根据鼠标位置 `sub_B9EA60 + sub_B9F570` 更新 hover/focus。
 
 置信度：A

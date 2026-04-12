@@ -19,10 +19,14 @@ static const ImU32 kRetroPureWhiteTextColor = IM_COL32(255, 255, 255, 255);
 static const ImU32 kRetroDisabledTextColor = IM_COL32(173, 173, 173, 255);
 static const ImU32 kTooltipFillColor = IM_COL32(0x0E, 0x39, 0x5A, 0xCC);
 static const ImU32 kTooltipFrameColor = IM_COL32(255, 255, 255, 255);
+static const ImU32 kTooltipIconBackplateColor = IM_COL32(0xBD, 0xCD, 0xDD, 255);
 
 struct WrappedTooltipLine
 {
     std::string text;
+    std::string plainText;
+    std::vector<std::string> codepoints;
+    std::vector<ImU32> codepointColors;
     bool justify = false;
 };
 
@@ -45,6 +49,27 @@ static void DrawOutlinedText(ImDrawList* dl, const ImVec2& pos, ImU32 color, con
     }
 
     dl->AddText(alignedPos, color, text);
+}
+
+static void DrawOutlinedTextWithStyleHint(
+    ImDrawList* dl,
+    const ImVec2& pos,
+    ImU32 color,
+    const char* styleHintText,
+    const char* text,
+    float mainScale,
+    float fontSize = 0.0f,
+    float glyphSpacing = 0.0f,
+    bool largeText = false)
+{
+    const ImVec2 alignedPos(floorf(pos.x), floorf(pos.y));
+    (void)mainScale;
+
+    const float dwriteFontSize = (fontSize > 0.0f) ? fontSize : 0.0f;
+    if (RetroSkillDWriteDrawTextWithStyleHintEx(dl, alignedPos, color, styleHintText, text, dwriteFontSize, glyphSpacing, largeText))
+        return;
+
+    DrawOutlinedText(dl, alignedPos, color, text, mainScale, fontSize, glyphSpacing);
 }
 
 static void DrawPlainImGuiText(ImDrawList* dl, const ImVec2& pos, ImU32 color, const char* text, float fontSize = 0.0f)
@@ -82,6 +107,23 @@ static ImVec2 MeasureRetroText(const std::string& text, float fontSize, float gl
     return ImGui::CalcTextSize(text.c_str());
 }
 
+static ImVec2 MeasureRetroTextWithStyleHint(const std::string& styleHintText, const std::string& text, float fontSize, float glyphSpacing, bool largeText = false)
+{
+    if (text.empty())
+        return ImVec2(0.0f, 0.0f);
+
+    ImVec2 measured = RetroSkillDWriteMeasureTextWithStyleHintEx(
+        styleHintText.empty() ? nullptr : styleHintText.c_str(),
+        text.c_str(),
+        fontSize,
+        glyphSpacing,
+        largeText);
+    if (measured.x > 0.0f || measured.y > 0.0f)
+        return measured;
+
+    return MeasureRetroText(text, fontSize, glyphSpacing);
+}
+
 static float ResolveRetroLineHeight(float fontSize, float glyphSpacing)
 {
     ImVec2 measured = RetroSkillDWriteMeasureTextEx(u8"技", fontSize, glyphSpacing);
@@ -115,6 +157,187 @@ static void SplitUtf8Codepoints(const std::string& text, std::vector<std::string
         outCodepoints.push_back(text.substr(i, safeLength));
         i += safeLength;
     }
+}
+
+enum TooltipSpacingClass
+{
+    TooltipSpacing_Unknown = 0,
+    TooltipSpacing_Whitespace,
+    TooltipSpacing_Latin,
+    TooltipSpacing_Digit,
+    TooltipSpacing_Cjk,
+    TooltipSpacing_FullWidthComma,
+    TooltipSpacing_FullWidthPeriod,
+    TooltipSpacing_Bracket,
+    TooltipSpacing_OtherPunctuation,
+};
+
+static unsigned int DecodeUtf8CodepointValue(const std::string& text)
+{
+    if (text.empty())
+        return 0u;
+
+    const unsigned char lead = static_cast<unsigned char>(text[0]);
+    if ((lead & 0x80u) == 0u)
+        return static_cast<unsigned int>(lead);
+
+    if ((lead & 0xE0u) == 0xC0u && text.size() >= 2)
+    {
+        return ((unsigned int)(lead & 0x1Fu) << 6) |
+            (unsigned int)(static_cast<unsigned char>(text[1]) & 0x3Fu);
+    }
+
+    if ((lead & 0xF0u) == 0xE0u && text.size() >= 3)
+    {
+        return ((unsigned int)(lead & 0x0Fu) << 12) |
+            ((unsigned int)(static_cast<unsigned char>(text[1]) & 0x3Fu) << 6) |
+            (unsigned int)(static_cast<unsigned char>(text[2]) & 0x3Fu);
+    }
+
+    if ((lead & 0xF8u) == 0xF0u && text.size() >= 4)
+    {
+        return ((unsigned int)(lead & 0x07u) << 18) |
+            ((unsigned int)(static_cast<unsigned char>(text[1]) & 0x3Fu) << 12) |
+            ((unsigned int)(static_cast<unsigned char>(text[2]) & 0x3Fu) << 6) |
+            (unsigned int)(static_cast<unsigned char>(text[3]) & 0x3Fu);
+    }
+
+    return static_cast<unsigned int>(lead);
+}
+
+static bool IsTooltipCjkCodepoint(unsigned int codepoint)
+{
+    return (codepoint >= 0x3400u && codepoint <= 0x4DBFu) ||
+        (codepoint >= 0x4E00u && codepoint <= 0x9FFFu) ||
+        (codepoint >= 0xF900u && codepoint <= 0xFAFFu);
+}
+
+static bool IsTooltipAsciiPunctuation(unsigned int codepoint)
+{
+    return (codepoint >= 0x21u && codepoint <= 0x2Fu) ||
+        (codepoint >= 0x3Au && codepoint <= 0x40u) ||
+        (codepoint >= 0x5Bu && codepoint <= 0x60u) ||
+        (codepoint >= 0x7Bu && codepoint <= 0x7Eu);
+}
+
+static TooltipSpacingClass ClassifyTooltipCodepoint(unsigned int codepoint)
+{
+    if (codepoint == 0u)
+        return TooltipSpacing_Unknown;
+
+    if (codepoint == 0x20u || codepoint == 0x09u)
+        return TooltipSpacing_Whitespace;
+
+    if ((codepoint >= (unsigned int)'a' && codepoint <= (unsigned int)'z') ||
+        (codepoint >= (unsigned int)'A' && codepoint <= (unsigned int)'Z'))
+    {
+        return TooltipSpacing_Latin;
+    }
+
+    if (codepoint >= (unsigned int)'0' && codepoint <= (unsigned int)'9')
+        return TooltipSpacing_Digit;
+
+    if (codepoint == (unsigned int)'[' || codepoint == (unsigned int)']')
+        return TooltipSpacing_Bracket;
+
+    if (codepoint == 0xFF0Cu || codepoint == 0x3001u)
+        return TooltipSpacing_FullWidthComma;
+
+    if (codepoint == 0xFF1Au)
+        return TooltipSpacing_FullWidthComma;
+
+    if (codepoint == 0x3002u || codepoint == 0xFF0Eu)
+        return TooltipSpacing_FullWidthPeriod;
+
+    if (IsTooltipCjkCodepoint(codepoint))
+        return TooltipSpacing_Cjk;
+
+    if ((codepoint >= 0x3000u && codepoint <= 0x303Fu) ||
+        (codepoint >= 0xFF01u && codepoint <= 0xFF65u) ||
+        IsTooltipAsciiPunctuation(codepoint))
+    {
+        return TooltipSpacing_OtherPunctuation;
+    }
+
+    return TooltipSpacing_Unknown;
+}
+
+static float ResolveTooltipPairSpacing(const std::string& leftCodepoint, const std::string& rightCodepoint, float spacingUnit)
+{
+    if (leftCodepoint.empty() || rightCodepoint.empty() || spacingUnit <= 0.0f)
+        return 0.0f;
+
+    const TooltipSpacingClass leftClass = ClassifyTooltipCodepoint(DecodeUtf8CodepointValue(leftCodepoint));
+    const TooltipSpacingClass rightClass = ClassifyTooltipCodepoint(DecodeUtf8CodepointValue(rightCodepoint));
+
+    if (leftClass == TooltipSpacing_Whitespace || rightClass == TooltipSpacing_Whitespace)
+        return 0.0f;
+
+    if (rightClass == TooltipSpacing_FullWidthComma || rightClass == TooltipSpacing_FullWidthPeriod)
+        return 3.0f * spacingUnit;
+
+    if (leftClass == TooltipSpacing_FullWidthPeriod)
+    {
+        if (rightClass == TooltipSpacing_Digit)
+            return 8.0f * spacingUnit;
+        return 7.0f * spacingUnit;
+    }
+
+    if (leftClass == TooltipSpacing_FullWidthComma)
+    {
+        if (rightClass == TooltipSpacing_Digit)
+            return 9.0f * spacingUnit;
+        return 8.0f * spacingUnit;
+    }
+
+    if (leftClass == TooltipSpacing_Latin && rightClass == TooltipSpacing_Latin)
+        return 0.0f;
+
+    if ((leftClass == TooltipSpacing_Latin && rightClass == TooltipSpacing_Digit) ||
+        (leftClass == TooltipSpacing_Digit && rightClass == TooltipSpacing_Latin))
+    {
+        return 1.0f * spacingUnit;
+    }
+
+    if ((leftClass == TooltipSpacing_Latin && rightClass == TooltipSpacing_Cjk) ||
+        (rightClass == TooltipSpacing_Latin && leftClass == TooltipSpacing_Cjk))
+    {
+        return 1.0f * spacingUnit;
+    }
+
+    return 1.0f * spacingUnit;
+}
+
+static float MeasureTooltipCodepointSequenceWidth(const std::vector<std::string>& codepoints, const std::string& styleHintText, float fontSize, float spacingUnit)
+{
+    if (codepoints.empty())
+        return 0.0f;
+
+    float width = 0.0f;
+    for (size_t i = 0; i < codepoints.size(); ++i)
+    {
+        width += MeasureRetroTextWithStyleHint(styleHintText, codepoints[i], fontSize, 0.0f).x;
+        if (i + 1 < codepoints.size())
+            width += ResolveTooltipPairSpacing(codepoints[i], codepoints[i + 1], spacingUnit);
+    }
+    return width;
+}
+
+static float MeasureTooltipTextWidth(const std::string& text, float fontSize, float spacingUnit)
+{
+    if (text.empty())
+        return 0.0f;
+
+    std::vector<std::string> codepoints;
+    SplitUtf8Codepoints(text, codepoints);
+    return MeasureTooltipCodepointSequenceWidth(codepoints, text, fontSize, spacingUnit);
+}
+
+static ImVec2 MeasureTooltipText(const std::string& text, float fontSize, float spacingUnit)
+{
+    return ImVec2(
+        MeasureTooltipTextWidth(text, fontSize, spacingUnit),
+        ResolveRetroLineHeight(fontSize, spacingUnit));
 }
 
 static std::string ConvertLiteralNewlines(const std::string& text)
@@ -196,6 +419,32 @@ static void ParseColorSegments(const std::string& text, ImU32 defaultColor, std:
     }
 }
 
+static void BuildTooltipColorizedCodepoints(
+    const std::string& text,
+    ImU32 defaultColor,
+    std::vector<std::string>& outCodepoints,
+    std::vector<ImU32>& outCodepointColors)
+{
+    outCodepoints.clear();
+    outCodepointColors.clear();
+
+    if (text.empty())
+        return;
+
+    std::vector<ColorTextSegment> segments;
+    ParseColorSegments(text, defaultColor, segments);
+    for (size_t i = 0; i < segments.size(); ++i)
+    {
+        std::vector<std::string> segmentCodepoints;
+        SplitUtf8Codepoints(segments[i].text, segmentCodepoints);
+        for (size_t j = 0; j < segmentCodepoints.size(); ++j)
+        {
+            outCodepoints.push_back(segmentCodepoints[j]);
+            outCodepointColors.push_back(segments[i].color);
+        }
+    }
+}
+
 static std::string StripColorMarkers(const std::string& text)
 {
     std::string result;
@@ -266,9 +515,15 @@ static std::string ResolveTooltipInfoText(const SkillEntry& skill)
 {
     if (!skill.tooltipDetail.empty())
         return ConvertLiteralNewlines(skill.tooltipDetail);
+
+    std::string description = StripMaxLevelPrefix(ConvertLiteralNewlines(skill.tooltipDescription));
+    if (!description.empty())
+        return description;
+
     if (!skill.tooltipPreview.empty())
         return ConvertLiteralNewlines(skill.tooltipPreview);
-    return StripMaxLevelPrefix(ConvertLiteralNewlines(skill.tooltipDescription));
+
+    return std::string();
 }
 
 static bool ContainsUnresolvedTooltipToken(const std::string& text)
@@ -339,8 +594,10 @@ static void AppendWrappedParagraph(const std::string& paragraph, float maxWidth,
         return;
     }
 
+    const std::string plainParagraph = StripColorMarkers(paragraph);
     std::vector<std::string> codepoints;
-    SplitUtf8Codepoints(paragraph, codepoints);
+    std::vector<ImU32> codepointColors;
+    BuildTooltipColorizedCodepoints(paragraph, kRetroPureWhiteTextColor, codepoints, codepointColors);
     if (codepoints.empty())
     {
         outLines.push_back(WrappedTooltipLine());
@@ -348,28 +605,42 @@ static void AppendWrappedParagraph(const std::string& paragraph, float maxWidth,
     }
 
     const size_t lineStartIndex = outLines.size();
-    std::string currentLine;
+    std::vector<std::string> currentCodepoints;
+    std::vector<ImU32> currentColors;
+    std::string currentPlainText;
     for (size_t i = 0; i < codepoints.size(); ++i)
     {
-        const std::string candidate = currentLine + codepoints[i];
-        const ImVec2 candidateSize = MeasureRetroText(candidate, fontSize, glyphSpacing);
-        if (currentLine.empty() || candidateSize.x <= maxWidth + 0.5f)
+        std::vector<std::string> candidateCodepoints = currentCodepoints;
+        candidateCodepoints.push_back(codepoints[i]);
+        const std::string candidatePlainText = currentPlainText + codepoints[i];
+        const float candidateWidth = MeasureTooltipCodepointSequenceWidth(candidateCodepoints, candidatePlainText, fontSize, glyphSpacing);
+        if (currentCodepoints.empty() || candidateWidth <= maxWidth + 0.5f)
         {
-            currentLine = candidate;
+            currentCodepoints.swap(candidateCodepoints);
+            currentPlainText = candidatePlainText;
+            currentColors.push_back(codepointColors[i]);
             continue;
         }
 
         WrappedTooltipLine line;
-        line.text = currentLine;
-        line.justify = true;
+        line.text = currentPlainText;
+        line.plainText = currentPlainText;
+        line.codepoints.swap(currentCodepoints);
+        line.codepointColors.swap(currentColors);
+        line.justify = false;
         outLines.push_back(line);
-        currentLine = codepoints[i];
+        currentCodepoints.push_back(codepoints[i]);
+        currentColors.push_back(codepointColors[i]);
+        currentPlainText = codepoints[i];
     }
 
-    if (!currentLine.empty())
+    if (!currentCodepoints.empty())
     {
         WrappedTooltipLine line;
-        line.text = currentLine;
+        line.text = currentPlainText;
+        line.plainText = currentPlainText;
+        line.codepoints.swap(currentCodepoints);
+        line.codepointColors.swap(currentColors);
         line.justify = false;
         outLines.push_back(line);
     }
@@ -382,14 +653,13 @@ static void BuildWrappedTooltipLines(const std::string& text, float maxWidth, fl
 {
     outLines.clear();
 
-    std::string cleanText = StripColorMarkers(text);
     size_t start = 0;
-    while (start <= cleanText.size())
+    while (start <= text.size())
     {
-        size_t newlinePos = cleanText.find('\n', start);
+        size_t newlinePos = text.find('\n', start);
         const std::string rawLine = (newlinePos == std::string::npos)
-            ? cleanText.substr(start)
-            : cleanText.substr(start, newlinePos - start);
+            ? text.substr(start)
+            : text.substr(start, newlinePos - start);
         const std::string paragraph = (!rawLine.empty() && rawLine[rawLine.size() - 1] == '\r')
             ? rawLine.substr(0, rawLine.size() - 1)
             : rawLine;
@@ -475,40 +745,12 @@ static void DrawJustifiedTooltipLine(
     if (text.empty())
         return;
 
-    std::string plainText = StripColorMarkers(text);
+    const std::string plainText = StripColorMarkers(text);
     std::vector<std::string> codepoints;
-    SplitUtf8Codepoints(plainText, codepoints);
-
-    if (!justify || codepoints.size() < 2)
-    {
-        std::vector<ColorTextSegment> segments;
-        ParseColorSegments(text, color, segments);
-        float cursorX = pos.x;
-        for (size_t i = 0; i < segments.size(); ++i)
-        {
-            DrawOutlinedText(drawList, ImVec2(cursorX, pos.y), segments[i].color, segments[i].text.c_str(), mainScale, fontSize, glyphSpacing);
-            cursorX += MeasureRetroText(segments[i].text, fontSize, glyphSpacing).x;
-        }
-        return;
-    }
-
-    std::vector<ColorTextSegment> segments;
-    ParseColorSegments(text, color, segments);
-
     std::vector<ImU32> codepointColors;
-    codepointColors.reserve(codepoints.size());
-    {
-        size_t cpIndex = 0;
-        for (size_t s = 0; s < segments.size() && cpIndex < codepoints.size(); ++s)
-        {
-            std::vector<std::string> segCodepoints;
-            SplitUtf8Codepoints(segments[s].text, segCodepoints);
-            for (size_t j = 0; j < segCodepoints.size() && cpIndex < codepoints.size(); ++j, ++cpIndex)
-                codepointColors.push_back(segments[s].color);
-        }
-        while (codepointColors.size() < codepoints.size())
-            codepointColors.push_back(color);
-    }
+    BuildTooltipColorizedCodepoints(text, color, codepoints, codepointColors);
+    if (codepoints.empty())
+        return;
 
     std::vector<float> codepointWidths;
     codepointWidths.reserve(codepoints.size());
@@ -516,22 +758,171 @@ static void DrawJustifiedTooltipLine(
     float lineWidth = 0.0f;
     for (size_t i = 0; i < codepoints.size(); ++i)
     {
-        const ImVec2 measured = MeasureRetroText(codepoints[i], fontSize, 0.0f);
+        const ImVec2 measured = MeasureRetroTextWithStyleHint(plainText, codepoints[i], fontSize, 0.0f);
         codepointWidths.push_back(measured.x);
         lineWidth += measured.x;
+        if (i + 1 < codepoints.size())
+            lineWidth += ResolveTooltipPairSpacing(codepoints[i], codepoints[i + 1], glyphSpacing);
     }
 
-    lineWidth += (float)(codepoints.size() - 1) * glyphSpacing;
-    const float extraWidth = (maxWidth > lineWidth) ? (maxWidth - lineWidth) : 0.0f;
-    const float extraGap = extraWidth / (float)(codepoints.size() - 1);
+    float extraGap = 0.0f;
+    if (justify && codepoints.size() >= 2 && maxWidth > lineWidth)
+        extraGap = (maxWidth - lineWidth) / (float)(codepoints.size() - 1);
 
     float cursorX = pos.x;
     for (size_t i = 0; i < codepoints.size(); ++i)
     {
-        DrawOutlinedText(drawList, ImVec2(cursorX, pos.y), codepointColors[i], codepoints[i].c_str(), mainScale, fontSize, 0.0f);
+        DrawOutlinedTextWithStyleHint(
+            drawList,
+            ImVec2(cursorX, pos.y),
+            codepointColors[i],
+            plainText.c_str(),
+            codepoints[i].c_str(),
+            mainScale,
+            fontSize,
+            0.0f);
         cursorX += codepointWidths[i];
         if (i + 1 < codepoints.size())
-            cursorX += glyphSpacing + extraGap;
+            cursorX += ResolveTooltipPairSpacing(codepoints[i], codepoints[i + 1], glyphSpacing) + extraGap;
+    }
+}
+
+static void DrawWrappedTooltipStyledLine(
+    ImDrawList* drawList,
+    const ImVec2& pos,
+    const WrappedTooltipLine& line,
+    float maxWidth,
+    float mainScale,
+    float fontSize,
+    float glyphSpacing)
+{
+    if (line.codepoints.empty())
+        return;
+
+    float lineWidth = 0.0f;
+    std::vector<float> codepointWidths;
+    codepointWidths.reserve(line.codepoints.size());
+    for (size_t i = 0; i < line.codepoints.size(); ++i)
+    {
+        const ImVec2 measured = MeasureRetroTextWithStyleHint(line.plainText, line.codepoints[i], fontSize, 0.0f).x > 0.0f
+            ? MeasureRetroTextWithStyleHint(line.plainText, line.codepoints[i], fontSize, 0.0f)
+            : ImVec2(0.0f, 0.0f);
+        codepointWidths.push_back(measured.x);
+        lineWidth += measured.x;
+        if (i + 1 < line.codepoints.size())
+            lineWidth += ResolveTooltipPairSpacing(line.codepoints[i], line.codepoints[i + 1], glyphSpacing);
+    }
+
+    float extraGap = 0.0f;
+    if (line.justify && line.codepoints.size() >= 2 && maxWidth > lineWidth)
+        extraGap = (maxWidth - lineWidth) / (float)(line.codepoints.size() - 1);
+
+    float cursorX = pos.x;
+    for (size_t i = 0; i < line.codepoints.size(); ++i)
+    {
+        const ImU32 color = (i < line.codepointColors.size()) ? line.codepointColors[i] : kRetroPureWhiteTextColor;
+        DrawOutlinedTextWithStyleHint(
+            drawList,
+            ImVec2(cursorX, pos.y),
+            color,
+            line.plainText.c_str(),
+            line.codepoints[i].c_str(),
+            mainScale,
+            fontSize,
+            0.0f);
+        cursorX += codepointWidths[i];
+        if (i + 1 < line.codepoints.size())
+            cursorX += ResolveTooltipPairSpacing(line.codepoints[i], line.codepoints[i + 1], glyphSpacing) + extraGap;
+    }
+}
+
+static float ResolveTooltipPairAdvance(const std::string& leftCodepoint, const std::string& rightCodepoint, float spacingUnit, float rightInkExpansion)
+{
+    const float spacing = ResolveTooltipPairSpacing(leftCodepoint, rightCodepoint, spacingUnit);
+    if (spacing <= 0.0f || rightInkExpansion <= 0.0f)
+        return spacing;
+
+    return spacing + rightInkExpansion;
+}
+
+static float MeasureTooltipSpacedLineWidth(const std::string& text, float fontSize, float glyphSpacing, float rightInkExpansion, bool largeText = false)
+{
+    if (text.empty())
+        return 0.0f;
+
+    const std::string plainText = StripColorMarkers(text);
+    std::vector<std::string> codepoints;
+    SplitUtf8Codepoints(plainText, codepoints);
+    if (codepoints.empty())
+        return 0.0f;
+
+    float width = 0.0f;
+    for (size_t i = 0; i < codepoints.size(); ++i)
+    {
+        width += MeasureRetroTextWithStyleHint(plainText, codepoints[i], fontSize, 0.0f, largeText).x;
+        if (i + 1 < codepoints.size())
+            width += ResolveTooltipPairAdvance(codepoints[i], codepoints[i + 1], glyphSpacing, rightInkExpansion);
+    }
+
+    if (rightInkExpansion > 0.0f)
+        width += rightInkExpansion;
+
+    return width;
+}
+
+static void DrawTooltipSpacedLine(
+    ImDrawList* drawList,
+    const ImVec2& pos,
+    const std::string& text,
+    ImU32 color,
+    float mainScale,
+    float fontSize,
+    float glyphSpacing,
+    float rightInkExpansion,
+    bool largeText = false)
+{
+    if (text.empty())
+        return;
+
+    const std::string plainText = StripColorMarkers(text);
+    std::vector<std::string> codepoints;
+    std::vector<ImU32> codepointColors;
+    BuildTooltipColorizedCodepoints(text, color, codepoints, codepointColors);
+    if (codepoints.empty())
+        return;
+
+    float cursorX = pos.x;
+    for (size_t i = 0; i < codepoints.size(); ++i)
+    {
+        const float codepointWidth = MeasureRetroTextWithStyleHint(plainText, codepoints[i], fontSize, 0.0f, largeText).x;
+        DrawOutlinedTextWithStyleHint(
+            drawList,
+            ImVec2(cursorX, pos.y),
+            codepointColors[i],
+            plainText.c_str(),
+            codepoints[i].c_str(),
+            mainScale,
+            fontSize,
+            0.0f,
+            largeText);
+
+        if (rightInkExpansion > 0.0f)
+        {
+            DrawOutlinedTextWithStyleHint(
+                drawList,
+                ImVec2(cursorX + rightInkExpansion, pos.y),
+                codepointColors[i],
+                plainText.c_str(),
+                codepoints[i].c_str(),
+                mainScale,
+                fontSize,
+                0.0f,
+                largeText);
+        }
+
+        cursorX += codepointWidth;
+        if (i + 1 < codepoints.size())
+            cursorX += ResolveTooltipPairAdvance(codepoints[i], codepoints[i + 1], glyphSpacing, rightInkExpansion);
     }
 }
 
@@ -553,27 +944,50 @@ static float DrawWrappedTooltipBlock(
     float cursorY = pos.y;
     for (size_t i = 0; i < lines.size(); ++i)
     {
-        if (!lines[i].text.empty())
-            DrawJustifiedTooltipLine(drawList, ImVec2(pos.x, cursorY), lines[i].text, maxWidth, color, mainScale, fontSize, glyphSpacing, lines[i].justify);
+        if (!lines[i].codepoints.empty())
+            DrawWrappedTooltipStyledLine(drawList, ImVec2(pos.x, cursorY), lines[i], maxWidth, mainScale, fontSize, glyphSpacing);
         cursorY += lineAdvance;
     }
 
     return lines.empty() ? 0.0f : (cursorY - pos.y);
 }
 
-static void DrawBoldTooltipTitle(ImDrawList* drawList, const ImVec2& pos, const char* text, float mainScale, float fontSize)
+static void DrawBoldTooltipTitle(ImDrawList* drawList, const ImVec2& pos, const char* text, float mainScale, float fontSize, float glyphSpacing)
 {
     if (!text || !text[0])
         return;
 
-    DrawOutlinedText(drawList, pos, kRetroPureWhiteTextColor, text, mainScale, fontSize, 1.0f * mainScale);
-    DrawOutlinedText(drawList, ImVec2(pos.x + 1.0f * mainScale, pos.y), kRetroPureWhiteTextColor, text, mainScale, fontSize, 1.0f * mainScale);
+    DrawTooltipSpacedLine(drawList, pos, text, kRetroPureWhiteTextColor, mainScale, fontSize, glyphSpacing, 1.0f * mainScale, true);
+}
+
+static std::string BuildTooltipMaxLevelLabel(int maxLevel)
+{
+    char numberText[16] = {};
+    sprintf_s(numberText, "%d", maxLevel);
+
+    std::string label = u8"[最高等级：";
+    label += numberText;
+    label += "]";
+    return label;
 }
 
 static void DrawTooltipMaxLevelLabel(ImDrawList* drawList, const ImVec2& pos, int maxLevel, float mainScale, float fontSize)
 {
     if (!drawList)
         return;
+
+    const std::string label = BuildTooltipMaxLevelLabel(maxLevel);
+    DrawJustifiedTooltipLine(
+        drawList,
+        pos,
+        label,
+        0.0f,
+        kRetroPureWhiteTextColor,
+        mainScale,
+        fontSize,
+        1.0f * mainScale,
+        false);
+    return;
 
     const float prefixSpacing = 1.0f * mainScale;
     const std::string prefix = u8"[最高等级：";
@@ -612,10 +1026,21 @@ static void RenderSkillTooltipCard(const SkillEntry& skill, RetroSkillAssets& as
     const float titleFontSize = floorf(14.0f * mainScale);
     const float bodyFontSize = floorf(12.0f * mainScale);
     const float glyphSpacing = 1.0f * mainScale;
-    const float smallGap = 2.0f * mainScale;
+    const float lineGap = 4.0f * mainScale;
+    const float smallGap = lineGap;
     const float sectionGap = 4.0f * mainScale;
+    const float tooltipBodyRightPadding = floorf(11.0f * mainScale);
+    const float titleOffsetY = floorf(10.0f * mainScale);
+    const float iconTopOffsetY = floorf(34.0f * mainScale);
+    const float descriptionTopOffsetY = floorf(37.0f * mainScale);
 
-    const std::string descriptionText = ResolveTooltipDescriptionText(skill);
+    std::string descriptionText = BuildTooltipMaxLevelLabel(skill.maxLevel);
+    const std::string descriptionBodyText = ResolveTooltipDescriptionText(skill);
+    if (!descriptionBodyText.empty())
+    {
+        descriptionText += "\n";
+        descriptionText += descriptionBodyText;
+    }
     const std::string fallbackInfoText = ResolveTooltipInfoText(skill);
     const std::string currentInfoText = !skill.tooltipCurrentDetail.empty() ? ConvertLiteralNewlines(skill.tooltipCurrentDetail) : fallbackInfoText;
     const std::string nextInfoText = !skill.tooltipNextDetail.empty() ? ConvertLiteralNewlines(skill.tooltipNextDetail) : fallbackInfoText;
@@ -623,15 +1048,21 @@ static void RenderSkillTooltipCard(const SkillEntry& skill, RetroSkillAssets& as
     float info2Height = 0.0f;
     const float descriptionWidth = floorf((271.0f - 95.0f) * mainScale);
     const float info2Width = floorf((278.0f - 10.0f) * mainScale);
+    const float descriptionWrapWidth = (descriptionWidth > tooltipBodyRightPadding)
+        ? (descriptionWidth - tooltipBodyRightPadding)
+        : descriptionWidth;
+    const float info2WrapWidth = (info2Width > tooltipBodyRightPadding)
+        ? (info2Width - tooltipBodyRightPadding)
+        : info2Width;
     const float labelLineHeight = ResolveRetroLineHeight(bodyFontSize, glyphSpacing);
     const float descriptionHeight = MeasureWrappedTooltipBlockHeight(
         descriptionText,
-        descriptionWidth,
+        descriptionWrapWidth,
         bodyFontSize,
         glyphSpacing,
-        1.0f * mainScale);
-    const float iconBottomOffsetY = floorf((34.0f + 68.0f) * mainScale);
-    const float descriptionBottomOffsetY = floorf((37.0f * mainScale) + descriptionHeight);
+        lineGap);
+    const float iconBottomOffsetY = floorf(iconTopOffsetY + 68.0f * mainScale);
+    const float descriptionBottomOffsetY = floorf(descriptionTopOffsetY + descriptionHeight);
     const float topSectionBottomOffsetY = (iconBottomOffsetY > descriptionBottomOffsetY)
         ? iconBottomOffsetY
         : descriptionBottomOffsetY;
@@ -641,7 +1072,7 @@ static void RenderSkillTooltipCard(const SkillEntry& skill, RetroSkillAssets& as
     auto measureInfoSection = [&](const std::string& sectionText) {
         float height = labelLineHeight;
         if (!sectionText.empty())
-            height += smallGap + MeasureWrappedTooltipBlockHeight(sectionText, info2Width, bodyFontSize, glyphSpacing, 1.0f * mainScale);
+            height += smallGap + MeasureWrappedTooltipBlockHeight(sectionText, info2WrapWidth, bodyFontSize, glyphSpacing, lineGap);
         return height;
     };
 
@@ -686,11 +1117,11 @@ static void RenderSkillTooltipCard(const SkillEntry& skill, RetroSkillAssets& as
     LogTooltipDrawState(skill, io.MousePos, tooltipMin, tooltipSize, currentInfoText, nextInfoText);
     DrawTooltipBorder(drawList, tooltipMin, tooltipMax);
 
-    const ImVec2 titleSize = MeasureRetroText(skill.name, titleFontSize, glyphSpacing);
+    const ImVec2 titleSize(MeasureTooltipSpacedLineWidth(skill.name, titleFontSize, glyphSpacing, 1.0f * mainScale, true), ResolveRetroLineHeight(titleFontSize, glyphSpacing));
     const ImVec2 titlePos(
         floorf(tooltipMin.x + (tooltipWidth - titleSize.x) * 0.5f),
-        floorf(tooltipMin.y + 10.0f * mainScale));
-    DrawBoldTooltipTitle(drawList, titlePos, skill.name.c_str(), mainScale, titleFontSize);
+        floorf(tooltipMin.y + titleOffsetY));
+    DrawBoldTooltipTitle(drawList, titlePos, skill.name.c_str(), mainScale, titleFontSize, glyphSpacing);
 
     UITexture* iconTex = nullptr;
     if (skill.showDisabledIcon)
@@ -698,8 +1129,16 @@ static void RenderSkillTooltipCard(const SkillEntry& skill, RetroSkillAssets& as
     if ((!iconTex || !iconTex->texture) && skill.iconId > 0)
         iconTex = GetRetroSkillSkillIconTexture(assets, skill.iconId);
 
-    const ImVec2 iconMin(floorf(tooltipMin.x + 15.0f * mainScale), floorf(tooltipMin.y + 34.0f * mainScale));
-    const ImVec2 iconMax(iconMin.x + 68.0f * mainScale, iconMin.y + 68.0f * mainScale);
+    const ImVec2 iconMin(
+        floorf(tooltipMin.x + 16.0f * mainScale),
+        floorf(tooltipMin.y + iconTopOffsetY - 1.0f * mainScale));
+    const ImVec2 iconMax(iconMin.x + 64.0f * mainScale, iconMin.y + 64.0f * mainScale);
+    const ImVec2 iconBackplateMin(
+        floorf(tooltipMin.x + 14.0f * mainScale),
+        floorf(tooltipMin.y + iconTopOffsetY - 3.0f * mainScale));
+    const ImVec2 iconBackplateMax(iconBackplateMin.x + 68.0f * mainScale, iconBackplateMin.y + 68.0f * mainScale);
+    drawList->AddRectFilled(iconBackplateMin, iconBackplateMax, kTooltipIconBackplateColor);
+
     if (iconTex && iconTex->texture)
     {
         drawList->AddImage((ImTextureID)iconTex->texture, iconMin, iconMax);
@@ -711,14 +1150,14 @@ static void RenderSkillTooltipCard(const SkillEntry& skill, RetroSkillAssets& as
 
     DrawWrappedTooltipBlock(
         drawList,
-        ImVec2(floorf(tooltipMin.x + 95.0f * mainScale), floorf(tooltipMin.y + 37.0f * mainScale)),
-        descriptionWidth,
+        ImVec2(floorf(tooltipMin.x + 95.0f * mainScale), floorf(tooltipMin.y + descriptionTopOffsetY)),
+        descriptionWrapWidth,
         descriptionText,
         kRetroPureWhiteTextColor,
         mainScale,
         bodyFontSize,
         glyphSpacing,
-        1.0f * mainScale);
+        lineGap);
 
     const float dividerY = floorf(tooltipMin.y + dividerOffsetY);
     drawList->AddLine(
@@ -729,14 +1168,16 @@ static void RenderSkillTooltipCard(const SkillEntry& skill, RetroSkillAssets& as
 
     float infoCursorY = floorf(tooltipMin.y + infoStartOffsetY);
     auto drawInfoSection = [&](const char* label, const std::string& sectionText) {
-        DrawOutlinedText(
+        DrawJustifiedTooltipLine(
             drawList,
             ImVec2(floorf(tooltipMin.x + 13.0f * mainScale), floorf(infoCursorY)),
-            kRetroPureWhiteTextColor,
             label,
+            0.0f,
+            kRetroPureWhiteTextColor,
             mainScale,
             bodyFontSize,
-            glyphSpacing);
+            glyphSpacing,
+            false);
 
         infoCursorY += labelLineHeight;
         if (!sectionText.empty())
@@ -745,13 +1186,13 @@ static void RenderSkillTooltipCard(const SkillEntry& skill, RetroSkillAssets& as
             infoCursorY += DrawWrappedTooltipBlock(
                 drawList,
                 ImVec2(floorf(tooltipMin.x + 10.0f * mainScale), floorf(infoCursorY)),
-                info2Width,
+                info2WrapWidth,
                 sectionText,
                 kRetroPureWhiteTextColor,
                 mainScale,
                 bodyFontSize,
                 glyphSpacing,
-                1.0f * mainScale);
+                lineGap);
         }
     };
 
@@ -1243,6 +1684,10 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
                 ImGui::SetCursorScreenPos(iconPos);
                 ImGui::PushID(("skill_drag_" + std::to_string(i)).c_str());
                 ImGui::InvisibleButton("skill_drag", iconSize);
+                const bool skillIconHeld = ImGui::IsItemActive() && io.MouseDown[0];
+
+                if (skillIconHeld && !state.isDraggingSkill)
+                    state.isPressingUiButton = true;
 
                 // 点击 icon 立即开始拖拽，再次按下鼠标结束
                 if (ImGui::IsItemClicked(0) && !state.isDraggingSkill && canStartSkillDrag(skill))

@@ -7,24 +7,28 @@ if errorlevel 1 (
 echo === vcvars32 OK ===
 cd /d G:\code\c++\SuperSkillWnd
 
+set "PROBE_OUTPUT=build\Debug\hook.dll"
+set "PROBE_DEPLOY_DIR=G:\code\mxd\Data\Plugins\HookTest"
+set "PROBE_DEPLOY_TARGET=%PROBE_DEPLOY_DIR%\hook.dll"
+
 if not exist "build\Debug" mkdir "build\Debug"
-echo [0/4] Skipping Reader runtime publish (json/local package mode) ...
+echo [0/4] Probe build: official second-child primary + runtime probe hotkeys
 
 echo [1/4] Compiling resources ...
 rc /nologo /fo"build\Debug\resource.res" src\resource.rc
 if errorlevel 1 (
     echo ERROR: Resource compilation failed!
-    pause
     exit /b 1
 )
 
-echo [2/4] Compiling sources ...
-cl /nologo /Zi /MD /utf-8 /EHsc ^
+echo [2/4] Compiling probe sources ...
+cl /nologo /Zi /MD /utf-8 /EHsc /DSSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME=1 ^
  /I"src" ^
- /I"src\\third_party\\imgui" ^
- /I"src\\third_party\\imgui\\backends" ^
+ /I"src\third_party\imgui" ^
+ /I"src\third_party\imgui\backends" ^
  /c ^
  src\dllmain.cpp ^
+ src\experimental\skillwnd_second_child_carrier_probe.cpp ^
  src\hook\win32_input_spoof.cpp ^
  src\skill\skill_local_data.cpp ^
  src\skill\skill_overlay_source.cpp ^
@@ -50,13 +54,13 @@ cl /nologo /Zi /MD /utf-8 /EHsc ^
  /Fo"build\Debug\\"
 if errorlevel 1 (
     echo ERROR: Compilation failed!
-    pause
     exit /b 1
 )
 
-echo [3/4] Linking SuperSkillWnd.dll ...
-link /nologo /DLL /DEBUG /OUT:"build\Debug\SS.dll" ^
+echo [3/4] Linking hook.dll ...
+link /nologo /DLL /DEBUG /OUT:"%PROBE_OUTPUT%" ^
  build\Debug\dllmain.obj ^
+ build\Debug\skillwnd_second_child_carrier_probe.obj ^
  build\Debug\win32_input_spoof.obj ^
  build\Debug\skill_local_data.obj ^
  build\Debug\skill_overlay_source.obj ^
@@ -83,13 +87,17 @@ link /nologo /DLL /DEBUG /OUT:"build\Debug\SS.dll" ^
  d3d9.lib user32.lib gdi32.lib shell32.lib ole32.lib oleaut32.lib crypt32.lib
 if errorlevel 1 (
     echo ERROR: Link failed!
-    pause
     exit /b 1
 )
 
-copy /Y "build\Debug\SS.dll" "build\Debug\hook.dll" >nul
-copy /Y "build\Debug\SS.pdb" "build\Debug\hook.pdb" >nul
+echo [4/4] Deploying probe DLL ...
+if not exist "%PROBE_DEPLOY_DIR%" mkdir "%PROBE_DEPLOY_DIR%"
+copy /Y "%PROBE_OUTPUT%" "%PROBE_DEPLOY_TARGET%" >nul
+if errorlevel 1 (
+    echo ERROR: Deploy failed!
+    exit /b 1
+)
 
-echo.
-echo [4/4] Build complete.
-echo === BUILD OK: build\Debug\SuperSkillWnd.dll ===
+echo Probe build complete.
+echo BUILD OK: %PROBE_OUTPUT%
+echo DEPLOY OK: %PROBE_DEPLOY_TARGET%
