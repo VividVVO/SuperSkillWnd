@@ -1,0 +1,22 @@
+{
+  "defaultSuperSpCarrierSkillId": 80001999,
+  "skills": [
+    {
+      "skillId": 1121101,
+      "tab": "active",
+      "superSpCost": 1,
+      "superSpCarrierSkillId": 80001999,
+      "hideFromNativeSkillWnd": true,
+      "showInNativeWhenLearned": false,
+      "showInSuperWhenLearned": false,
+      "allowNativeUpgradeFallback": true
+    }
+  ],
+  "hiddenSkills": [
+    {
+      "skillId": 80001999,
+      "hideFromNativeSkillWnd": true,
+      "hideFromSuperSkillWnd": true
+    }
+  ]
+}

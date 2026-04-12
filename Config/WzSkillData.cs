@@ -43,9 +43,17 @@ namespace SuperSkillTool
 
         // Effect animation frames
         public List<WzEffectFrame> EffectFrames = new List<WzEffectFrame>();
-        // Effect animation frames grouped by node name (effect/effect0/effect1...)
+        // Effect animation frames grouped by node name (effect/effect0/effect1/ball/hit\0/prepare/keydown...)
         public Dictionary<string, List<WzEffectFrame>> EffectFramesByNode
             = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
+
+        // Per-level animation frames: level# → nodeName → frames
+        // For skills that store ball/hit/effect/prepare/keydown under each level/ node
+        public Dictionary<int, Dictionary<string, List<WzEffectFrame>>> LevelAnimFramesByNode
+            = new Dictionary<int, Dictionary<string, List<WzEffectFrame>>>();
+
+        // h template text (contains placeholders like #mpCon, #damage, #dot etc.)
+        public string H = "";
 
         // Lightweight node tree for TreeView display
         public WzNodeInfo RootNode;
@@ -69,6 +77,25 @@ namespace SuperSkillTool
                     kv.Value.Clear();
                 }
                 EffectFramesByNode.Clear();
+            }
+            if (LevelAnimFramesByNode != null)
+            {
+                foreach (var levelKv in LevelAnimFramesByNode)
+                {
+                    if (levelKv.Value == null) continue;
+                    foreach (var nodeKv in levelKv.Value)
+                    {
+                        if (nodeKv.Value == null) continue;
+                        foreach (var f in nodeKv.Value)
+                        {
+                            if (f == null || !disposedFrames.Add(f)) continue;
+                            f.Bitmap?.Dispose();
+                        }
+                        nodeKv.Value.Clear();
+                    }
+                    levelKv.Value.Clear();
+                }
+                LevelAnimFramesByNode.Clear();
             }
             if (EffectFrames != null)
             {

@@ -140,13 +140,7 @@ namespace SuperSkillTool
                         else
                         {
                             XmlElement carrierDir = CreateImgDir(doc, FormatSkillKey(carrierId));
-                            XmlElement commonDir = CreateImgDir(doc, "common");
-                            AppendIntNode(doc, commonDir, "maxLevel", Math.Max(1, PathConfig.DefaultSuperSpCarrierMaxLevel));
-                            carrierDir.AppendChild(commonDir);
-
-                            XmlElement infoDir = CreateImgDir(doc, "info");
-                            AppendIntNode(doc, infoDir, "type", 50);
-                            carrierDir.AppendChild(infoDir);
+                            EnsureCarrierSkillNode(doc, carrierDir);
 
                             skillNode.AppendChild(carrierDir);
                             modified = true;
@@ -254,16 +248,85 @@ namespace SuperSkillTool
                 return false;
 
             bool changed = false;
+            changed |= PruneCarrierTopLevelNodes(carrierDir);
+            changed |= EnsureValueNode(doc, carrierDir, "int", "_superSkill", "1");
+            changed |= EnsureValueNode(doc, carrierDir, "int", "invisible", "1");
+            changed |= EnsureCarrierCommonTemplate(doc, carrierDir);
 
-            XmlElement infoDir = FindImgDir(carrierDir, "info") as XmlElement;
-            if (infoDir == null)
+            changed |= RemoveImgDirIfExists(carrierDir, "info");
+            changed |= RemoveImgDirIfExists(carrierDir, "level");
+            RemoveImgDir(carrierDir, "action");
+
+            return changed;
+        }
+
+        private static bool PruneCarrierTopLevelNodes(XmlElement carrierDir)
+        {
+            if (carrierDir == null)
+                return false;
+
+            bool changed = false;
+            var keepImgDirNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "common" };
+            var removeDirs = new List<XmlNode>();
+            var removeScalars = new List<XmlNode>();
+
+            foreach (XmlNode child in carrierDir.ChildNodes)
             {
-                infoDir = CreateImgDir(doc, "info");
-                carrierDir.AppendChild(infoDir);
+                if (child.NodeType != XmlNodeType.Element)
+                    continue;
+
+                if (string.Equals(child.Name, "imgdir", StringComparison.OrdinalIgnoreCase))
+                {
+                    string name = child.Attributes?["name"]?.Value ?? "";
+                    if (!keepImgDirNames.Contains(name))
+                        removeDirs.Add(child);
+                    continue;
+                }
+
+                if (IsScalarValueTag(child.Name))
+                {
+                    string name = child.Attributes?["name"]?.Value ?? "";
+                    if (!string.Equals(name, "_superSkill", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(name, "invisible", StringComparison.OrdinalIgnoreCase))
+                    {
+                        removeScalars.Add(child);
+                    }
+                }
+            }
+
+            foreach (XmlNode node in removeDirs)
+            {
+                carrierDir.RemoveChild(node);
                 changed = true;
             }
-            changed |= EnsureValueNode(doc, infoDir, "int", "type", "50");
+            foreach (XmlNode node in removeScalars)
+            {
+                carrierDir.RemoveChild(node);
+                changed = true;
+            }
 
+            return changed;
+        }
+
+        private static bool IsScalarValueTag(string tagName)
+        {
+            if (string.IsNullOrEmpty(tagName))
+                return false;
+            return tagName == "int"
+                || tagName == "string"
+                || tagName == "short"
+                || tagName == "long"
+                || tagName == "float"
+                || tagName == "double"
+                || tagName == "uol";
+        }
+
+        private static bool EnsureCarrierCommonTemplate(XmlDocument doc, XmlElement carrierDir)
+        {
+            if (doc == null || carrierDir == null)
+                return false;
+
+            bool changed = false;
             XmlElement commonDir = FindImgDir(carrierDir, "common") as XmlElement;
             if (commonDir == null)
             {
@@ -271,15 +334,27 @@ namespace SuperSkillTool
                 carrierDir.AppendChild(commonDir);
                 changed = true;
             }
-            changed |= EnsureValueNode(
-                doc,
-                commonDir,
-                "int",
-                "maxLevel",
-                Math.Max(1, PathConfig.DefaultSuperSpCarrierMaxLevel).ToString(CultureInfo.InvariantCulture));
 
-            RemoveImgDir(carrierDir, "action");
+            int carrierMaxLevel = Math.Max(1, PathConfig.DefaultSuperSpCarrierMaxLevel);
+            changed |= EnsureValueNode(doc, commonDir, "int", "maxLevel", carrierMaxLevel.ToString());
 
+            List<XmlNode> remove = new List<XmlNode>();
+            foreach (XmlNode child in commonDir.ChildNodes)
+            {
+                if (child.NodeType != XmlNodeType.Element)
+                    continue;
+
+                string name = child.Attributes?["name"]?.Value ?? "";
+                bool isTarget = string.Equals(name, "maxLevel", StringComparison.OrdinalIgnoreCase)
+                    && IsScalarValueTag(child.Name);
+                if (!isTarget)
+                    remove.Add(child);
+            }
+            foreach (XmlNode child in remove)
+            {
+                commonDir.RemoveChild(child);
+                changed = true;
+            }
             return changed;
         }
 
@@ -421,7 +496,7 @@ namespace SuperSkillTool
             WzImage img = null;
             try
             {
-                fs = new FileStream(sourceImgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                fs = new FileStream(sourceImgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 img = new WzImage(sourceJobId + ".img", fs, WzMapleVersion.EMS);
                 if (!img.ParseImage(true))
                     return null;
@@ -654,6 +729,17 @@ namespace SuperSkillTool
                 parent.RemoveChild(n);
         }
 
+        private static bool RemoveImgDirIfExists(XmlElement parent, string dirName)
+        {
+            if (parent == null || string.IsNullOrEmpty(dirName))
+                return false;
+            var before = FindImgDir(parent, dirName);
+            if (before == null)
+                return false;
+            RemoveImgDir(parent, dirName);
+            return true;
+        }
+
         private static string FormatSkillKey(int skillId)
         {
             return skillId <= 9999999
@@ -858,7 +944,7 @@ namespace SuperSkillTool
                 EnsureDirectoryForFile(xmlPath);
                 BackupHelper.Backup(xmlPath);
 
-                fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 wzImg = new WzImage(jobId + ".img", fs, WzMapleVersion.EMS);
                 if (!wzImg.ParseImage(true))
                 {

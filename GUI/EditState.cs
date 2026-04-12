@@ -29,6 +29,17 @@ namespace SuperSkillTool
         public WzNodeInfo EditedTree;
         public Dictionary<int, Dictionary<string, string>> EditedLevelParams;
 
+        // Per-level animation frames editing
+        public Dictionary<int, Dictionary<string, List<WzEffectFrame>>> EditedLevelAnimFramesByNode;
+
+        // Current animation editing context: null = top-level (shared), int = specific level
+        public int? SelectedAnimLevel;
+
+        // Text fields
+        public string EditedH = "";
+        public string EditedPDesc = "";
+        public string EditedPh = "";
+
         // List editing state
         /// <summary>
         /// If non-null, we are editing an existing item in the pending list
@@ -54,6 +65,11 @@ namespace SuperSkillTool
             SelectedEffectNodeName = "effect";
             EditedTree = null;
             EditedLevelParams = null;
+            EditedLevelAnimFramesByNode = null;
+            SelectedAnimLevel = null;
+            EditedH = "";
+            EditedPDesc = "";
+            EditedPh = "";
             EditingListIndex = null;
         }
 
@@ -78,7 +94,7 @@ namespace SuperSkillTool
                 }
             }
 
-            // Copy effect frames by node (bitmap is cloned to avoid dangling/disposed references)
+            // Copy top-level effect/animation frames by node (bitmap is cloned)
             EditedEffectsByNode = CloneEffectsByNode(data.EffectFramesByNode);
             if ((EditedEffectsByNode == null || EditedEffectsByNode.Count == 0) && data.EffectFrames != null)
             {
@@ -90,9 +106,21 @@ namespace SuperSkillTool
             if (EditedEffectsByNode == null)
                 EditedEffectsByNode = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
 
+            // Copy per-level animation frames
+            if (data.LevelAnimFramesByNode != null && data.LevelAnimFramesByNode.Count > 0)
+            {
+                EditedLevelAnimFramesByNode = CloneLevelAnimFramesByNode(data.LevelAnimFramesByNode);
+            }
+
+            // Text fields
+            EditedH = data.H ?? "";
+            EditedPDesc = data.PDesc ?? "";
+            EditedPh = data.Ph ?? "";
+
             string preferredNode = EditedEffectsByNode.ContainsKey("effect")
                 ? "effect"
                 : GetFirstEffectNodeName(EditedEffectsByNode);
+            SelectedAnimLevel = null;
             SetSelectedEffectNode(preferredNode, createIfMissing: true);
 
             // Copy node tree reference (editing modifies in-place)
@@ -134,6 +162,7 @@ namespace SuperSkillTool
                 Desc = sd.Desc ?? "",
                 PDesc = sd.PDesc ?? "",
                 Ph = sd.Ph ?? "",
+                H = sd.H ?? "",
                 Action = sd.Action ?? "",
                 InfoType = sd.InfoType,
                 CommonParams = sd.Common != null ? new Dictionary<string, string>(sd.Common) : null
@@ -149,6 +178,11 @@ namespace SuperSkillTool
                     LoadedData.HLevels[kv.Key] = kv.Value;
             }
 
+            // Restore text editing fields
+            EditedH = sd.H ?? "";
+            EditedPDesc = sd.PDesc ?? "";
+            EditedPh = sd.Ph ?? "";
+
             // Restore cached effects and tree from SkillDefinition (session-only data)
             EditedEffectsByNode = CloneEffectsByNode(sd.CachedEffectsByNode);
             if ((EditedEffectsByNode == null || EditedEffectsByNode.Count == 0)
@@ -162,9 +196,14 @@ namespace SuperSkillTool
             if (EditedEffectsByNode == null)
                 EditedEffectsByNode = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
 
+            // Restore per-level animation frames
+            if (sd.LevelAnimFramesByNode != null && sd.LevelAnimFramesByNode.Count > 0)
+                EditedLevelAnimFramesByNode = CloneLevelAnimFramesByNode(sd.LevelAnimFramesByNode);
+
             string preferredNode = EditedEffectsByNode.ContainsKey("effect")
                 ? "effect"
                 : GetFirstEffectNodeName(EditedEffectsByNode);
+            SelectedAnimLevel = null;
             SetSelectedEffectNode(preferredNode, createIfMissing: true);
 
             if (sd.CachedTree != null)
@@ -200,14 +239,37 @@ namespace SuperSkillTool
 
         public List<WzEffectFrame> GetEffectFrames(string nodeName, bool createIfMissing)
         {
-            if (EditedEffectsByNode == null)
-                EditedEffectsByNode = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
+            var activeDict = GetActiveAnimDict();
+            if (activeDict == null)
+            {
+                if (createIfMissing)
+                {
+                    // Ensure the dict exists for the current level
+                    if (SelectedAnimLevel != null)
+                    {
+                        if (EditedLevelAnimFramesByNode == null)
+                            EditedLevelAnimFramesByNode = new Dictionary<int, Dictionary<string, List<WzEffectFrame>>>();
+                        activeDict = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
+                        EditedLevelAnimFramesByNode[SelectedAnimLevel.Value] = activeDict;
+                    }
+                    else
+                    {
+                        if (EditedEffectsByNode == null)
+                            EditedEffectsByNode = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
+                        activeDict = EditedEffectsByNode;
+                    }
+                }
+                else
+                {
+                    return null;
+                }
+            }
 
             string normalized = NormalizeEffectNodeName(nodeName);
-            if (!EditedEffectsByNode.TryGetValue(normalized, out var list) && createIfMissing)
+            if (!activeDict.TryGetValue(normalized, out var list) && createIfMissing)
             {
                 list = new List<WzEffectFrame>();
-                EditedEffectsByNode[normalized] = list;
+                activeDict[normalized] = list;
             }
 
             if (string.Equals(SelectedEffectNodeName, normalized, StringComparison.OrdinalIgnoreCase))
@@ -223,11 +285,12 @@ namespace SuperSkillTool
 
         public List<string> GetEffectNodeNames()
         {
+            var activeDict = GetActiveAnimDict();
             var result = new List<string>();
-            if (EditedEffectsByNode == null || EditedEffectsByNode.Count == 0)
+            if (activeDict == null || activeDict.Count == 0)
                 return result;
 
-            foreach (var kv in EditedEffectsByNode)
+            foreach (var kv in activeDict)
             {
                 if (string.IsNullOrWhiteSpace(kv.Key))
                     continue;
@@ -278,6 +341,196 @@ namespace SuperSkillTool
                 result[NormalizeEffectNodeName(kv.Key)] = list;
             }
             return result.Count > 0 ? result : null;
+        }
+
+        public static Dictionary<int, Dictionary<string, List<WzEffectFrame>>> CloneLevelAnimFramesByNode(
+            Dictionary<int, Dictionary<string, List<WzEffectFrame>>> source)
+        {
+            if (source == null || source.Count == 0)
+                return null;
+
+            var result = new Dictionary<int, Dictionary<string, List<WzEffectFrame>>>();
+            foreach (var levelKv in source)
+            {
+                if (levelKv.Value == null || levelKv.Value.Count == 0) continue;
+                var clonedNodes = CloneEffectsByNode(levelKv.Value);
+                if (clonedNodes != null && clonedNodes.Count > 0)
+                    result[levelKv.Key] = clonedNodes;
+            }
+            return result.Count > 0 ? result : null;
+        }
+
+        /// <summary>
+        /// Switch the animation editing context to a specific level (or top-level if null).
+        /// Updates EditedEffectsByNode to point at the correct dict, then refreshes the selected node.
+        /// </summary>
+        public void SetSelectedAnimLevel(int? level, string preferredNodeName = null)
+        {
+            SelectedAnimLevel = level;
+
+            if (level == null)
+            {
+                // Top-level mode: EditedEffectsByNode is the top-level dict (already set)
+                // No action needed - EditedEffectsByNode stays as-is
+            }
+            else
+            {
+                // Per-level mode: use EditedLevelAnimFramesByNode[level]
+                if (EditedLevelAnimFramesByNode == null)
+                    EditedLevelAnimFramesByNode = new Dictionary<int, Dictionary<string, List<WzEffectFrame>>>();
+
+                if (!EditedLevelAnimFramesByNode.TryGetValue(level.Value, out var levelNodes) || levelNodes == null)
+                {
+                    levelNodes = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
+                    EditedLevelAnimFramesByNode[level.Value] = levelNodes;
+                }
+            }
+
+            string nodeName = preferredNodeName ?? SelectedEffectNodeName;
+            var activeDict = GetActiveAnimDict();
+            if (activeDict != null && activeDict.Count > 0 && !activeDict.ContainsKey(nodeName))
+                nodeName = GetFirstEffectNodeName(activeDict) ?? "effect";
+
+            SetSelectedEffectNodeForActiveLevel(nodeName, createIfMissing: false);
+        }
+
+        /// <summary>
+        /// Get the animation frame dict for the current level context.
+        /// Returns top-level EditedEffectsByNode or per-level dict.
+        /// </summary>
+        public Dictionary<string, List<WzEffectFrame>> GetActiveAnimDict()
+        {
+            if (SelectedAnimLevel == null)
+                return EditedEffectsByNode;
+
+            if (EditedLevelAnimFramesByNode != null
+                && EditedLevelAnimFramesByNode.TryGetValue(SelectedAnimLevel.Value, out var levelNodes))
+                return levelNodes;
+
+            return null;
+        }
+
+        /// <summary>
+        /// Set the selected effect/anim node within the current level context.
+        /// </summary>
+        public void SetSelectedEffectNodeForActiveLevel(string nodeName, bool createIfMissing)
+        {
+            var activeDict = GetActiveAnimDict();
+            if (activeDict == null)
+            {
+                if (SelectedAnimLevel != null && createIfMissing)
+                {
+                    if (EditedLevelAnimFramesByNode == null)
+                        EditedLevelAnimFramesByNode = new Dictionary<int, Dictionary<string, List<WzEffectFrame>>>();
+                    activeDict = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
+                    EditedLevelAnimFramesByNode[SelectedAnimLevel.Value] = activeDict;
+                }
+                else
+                {
+                    EditedEffects = null;
+                    SelectedEffectNodeName = NormalizeEffectNodeName(nodeName);
+                    return;
+                }
+            }
+
+            string normalized = NormalizeEffectNodeName(nodeName);
+            if (createIfMissing && !activeDict.ContainsKey(normalized))
+                activeDict[normalized] = new List<WzEffectFrame>();
+
+            if (!activeDict.ContainsKey(normalized))
+            {
+                normalized = GetFirstEffectNodeName(activeDict) ?? "effect";
+                if (createIfMissing && !activeDict.ContainsKey(normalized))
+                    activeDict[normalized] = new List<WzEffectFrame>();
+            }
+
+            SelectedEffectNodeName = normalized;
+            EditedEffects = activeDict.TryGetValue(normalized, out var list) ? list : null;
+        }
+
+        /// <summary>
+        /// Get all node names from the current active level context.
+        /// </summary>
+        public List<string> GetActiveAnimNodeNames()
+        {
+            var activeDict = GetActiveAnimDict();
+            var result = new List<string>();
+            if (activeDict == null || activeDict.Count == 0)
+                return result;
+            foreach (var kv in activeDict)
+            {
+                if (!string.IsNullOrWhiteSpace(kv.Key))
+                    result.Add(kv.Key);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Get the available level numbers that have animation frames.
+        /// </summary>
+        public List<int> GetLevelsWithAnimFrames()
+        {
+            var result = new List<int>();
+            if (EditedLevelAnimFramesByNode != null)
+            {
+                foreach (var kv in EditedLevelAnimFramesByNode)
+                {
+                    if (kv.Value != null && kv.Value.Count > 0)
+                        result.Add(kv.Key);
+                }
+            }
+            result.Sort();
+            return result;
+        }
+
+        /// <summary>
+        /// Delete an entire animation node from the current level context.
+        /// </summary>
+        public bool DeleteAnimNode(string nodeName)
+        {
+            var activeDict = GetActiveAnimDict();
+            if (activeDict == null) return false;
+
+            string normalized = NormalizeEffectNodeName(nodeName);
+            if (!activeDict.Remove(normalized)) return false;
+
+            // If we deleted the selected node, switch to another
+            if (string.Equals(SelectedEffectNodeName, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                string fallback = GetFirstEffectNodeName(activeDict) ?? "effect";
+                SetSelectedEffectNodeForActiveLevel(fallback, createIfMissing: false);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Add a new animation node to the current level context.
+        /// </summary>
+        public void AddAnimNode(string nodeName)
+        {
+            var activeDict = GetActiveAnimDict();
+            if (activeDict == null)
+            {
+                if (SelectedAnimLevel != null)
+                {
+                    if (EditedLevelAnimFramesByNode == null)
+                        EditedLevelAnimFramesByNode = new Dictionary<int, Dictionary<string, List<WzEffectFrame>>>();
+                    activeDict = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
+                    EditedLevelAnimFramesByNode[SelectedAnimLevel.Value] = activeDict;
+                }
+                else
+                {
+                    if (EditedEffectsByNode == null)
+                        EditedEffectsByNode = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
+                    activeDict = EditedEffectsByNode;
+                }
+            }
+
+            string normalized = NormalizeEffectNodeName(nodeName);
+            if (!activeDict.ContainsKey(normalized))
+                activeDict[normalized] = new List<WzEffectFrame>();
+
+            SetSelectedEffectNodeForActiveLevel(normalized, createIfMissing: false);
         }
 
         /// <summary>

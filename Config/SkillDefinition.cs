@@ -45,6 +45,7 @@ namespace SuperSkillTool
         public int ProxySkillId = 0;
         public int VisualSkillId = 0;          // 0 = use own visual; >0 = borrow effect from this skillId
         public int CloneFromSkillId = 0;       // when set, create by cloning this source skill node first
+        public bool PreserveClonedNode = true; // clone donor node as-is unless user explicitly edits structural fields
         public string Action = "";             // swingO1 | shoot1 | alert2
 
         // ── Info node ──────────────────────────────────────────
@@ -95,10 +96,21 @@ namespace SuperSkillTool
         // ── hLevel descriptions ────────────────────────────────
         public Dictionary<string, string> HLevels = new Dictionary<string, string>();
 
+        // ── h template text (with #mpCon, #damage placeholders) ──
+        public string H = "";
+
+        // ── Per-level animation frames (ball/hit/effect/prepare/keydown per level) ──
+        public Dictionary<int, Dictionary<string, List<WzEffectFrame>>> LevelAnimFramesByNode;
+
         // ── Cached data (serialized to JSON for persistence) ──────
         /// <summary>Effect frames from .img load.</summary>
         public List<WzEffectFrame> CachedEffects;
         public Dictionary<string, List<WzEffectFrame>> CachedEffectsByNode;
+        /// <summary>
+        /// True only when the queued effect cache should be written back to .img
+        /// (i.e. user manually edited effect/hit/ball/repeat/levelAnim data).
+        /// </summary>
+        public bool HasManualEffectOverride = false;
         /// <summary>Node tree from .img load.</summary>
         public WzNodeInfo CachedTree;
 
@@ -154,6 +166,7 @@ namespace SuperSkillTool
             if (ProxySkillId > 0) d["proxySkillId"] = (long)ProxySkillId;
             if (VisualSkillId > 0) d["visualSkillId"] = (long)VisualSkillId;
             if (CloneFromSkillId > 0) d["cloneFromSkillId"] = (long)CloneFromSkillId;
+            if (CloneFromSkillId > 0) d["preserveClonedNode"] = PreserveClonedNode;
             if (!string.IsNullOrEmpty(Action)) d["action"] = Action;
             if (InfoType > 0) d["infoType"] = (long)InfoType;
             if (!string.IsNullOrEmpty(IconBase64)) d["iconBase64"] = IconBase64;
@@ -195,6 +208,8 @@ namespace SuperSkillTool
                 foreach (var kv in HLevels) h[kv.Key] = kv.Value;
                 d["hLevels"] = h;
             }
+            if (!string.IsNullOrEmpty(H))
+                d["h"] = H;
             if (Levels != null && Levels.Count > 0)
             {
                 var lvDict = new Dictionary<string, object>();
@@ -205,6 +220,20 @@ namespace SuperSkillTool
                     lvDict[lv.Key.ToString()] = paramDict;
                 }
                 d["levels"] = lvDict;
+            }
+            // Per-level animation frames
+            if (LevelAnimFramesByNode != null && LevelAnimFramesByNode.Count > 0)
+            {
+                var levelAnimDict = new Dictionary<string, object>();
+                foreach (var levelKv in LevelAnimFramesByNode)
+                {
+                    if (levelKv.Value == null || levelKv.Value.Count == 0) continue;
+                    var serialized = SerializeEffectFramesByNode(levelKv.Value);
+                    if (serialized != null && serialized.Count > 0)
+                        levelAnimDict[levelKv.Key.ToString()] = serialized;
+                }
+                if (levelAnimDict.Count > 0)
+                    d["levelAnimFramesByNode"] = levelAnimDict;
             }
             Dictionary<string, List<WzEffectFrame>> effectMapForSave = CachedEffectsByNode;
             if ((effectMapForSave == null || effectMapForSave.Count == 0) && CachedEffects != null && CachedEffects.Count > 0)
@@ -218,6 +247,8 @@ namespace SuperSkillTool
             if (serializedByNode != null && serializedByNode.Count > 0)
             {
                 d["cachedEffectsByNode"] = serializedByNode;
+                if (HasManualEffectOverride)
+                    d["hasManualEffectOverride"] = true;
                 if (serializedByNode.TryGetValue("effect", out object effectArrObj) && effectArrObj is List<object>)
                 {
                     d["cachedEffects"] = effectArrObj;
@@ -471,24 +502,53 @@ namespace SuperSkillTool
             int rightRank = GetEffectNodeSortRank(right, out int rightIndex);
             if (leftRank != rightRank)
                 return leftRank.CompareTo(rightRank);
-            if (leftRank == 1 || leftRank == 3)
+            if (leftIndex != int.MaxValue || rightIndex != int.MaxValue)
                 return leftIndex.CompareTo(rightIndex);
 
             return string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
         }
 
+        private static readonly (string baseName, int baseRank, bool canIndex)[] EffectNodeSortTable = new[]
+        {
+            ("effect",     0, true),
+            ("repeat",     2, true),
+            ("ball",       4, true),
+            ("hit",        6, false),
+            ("prepare",    8, false),
+            ("keydown",   10, true),
+            ("keydownend",12, false),
+            ("affected",  14, true),
+            ("mob",       16, true),
+            ("special",   18, true),
+            ("screen",    20, false),
+            ("tile",      22, true),
+            ("finish",    24, true),
+        };
+
         private static int GetEffectNodeSortRank(string name, out int index)
         {
             index = int.MaxValue;
-            if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase))
-                return 0;
-            if (TryParseIndexedEffectName(name, "effect", out index))
-                return 1;
-            if (string.Equals(name, "repeat", StringComparison.OrdinalIgnoreCase))
-                return 2;
-            if (TryParseIndexedEffectName(name, "repeat", out index))
-                return 3;
-            return 4;
+            if (string.IsNullOrWhiteSpace(name))
+                return 99;
+
+            if (name.StartsWith("hit/", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(name.Substring(4), out index))
+                return 6;
+            if (string.Equals(name, "hit", StringComparison.OrdinalIgnoreCase))
+            {
+                index = -1;
+                return 6;
+            }
+
+            foreach (var (baseName, baseRank, canIndex) in EffectNodeSortTable)
+            {
+                if (baseName == "hit") continue;
+                if (string.Equals(name, baseName, StringComparison.OrdinalIgnoreCase))
+                    return baseRank;
+                if (canIndex && TryParseIndexedEffectName(name, baseName, out index))
+                    return baseRank + 1;
+            }
+            return 99;
         }
 
         private static bool TryParseIndexedEffectName(string name, string prefix, out int index)
@@ -540,6 +600,16 @@ namespace SuperSkillTool
             sd.ProxySkillId = SimpleJson.GetInt(obj, "proxySkillId");
             sd.VisualSkillId = SimpleJson.GetInt(obj, "visualSkillId");
             sd.CloneFromSkillId = SimpleJson.GetInt(obj, "cloneFromSkillId");
+            if (obj.ContainsKey("preserveClonedNode"))
+            {
+                sd.PreserveClonedNode = SimpleJson.GetBool(obj, "preserveClonedNode", true);
+            }
+            else
+            {
+                // Backward compatibility: old pending_skills.json may miss this field.
+                // For donor-clone entries, default to raw clone-preserve to avoid effect re-encode.
+                sd.PreserveClonedNode = sd.CloneFromSkillId > 0 && sd.CloneFromSkillId != sd.SkillId;
+            }
             sd.Action = SimpleJson.GetString(obj, "action");
             sd.InfoType = SimpleJson.GetInt(obj, "infoType", 0); // 0 means "use template default"
             sd.HideFromNativeSkillWnd = SimpleJson.GetBool(obj, "hideFromNativeSkillWnd", true);
@@ -615,6 +685,9 @@ namespace SuperSkillTool
                 }
             }
 
+            // h template text
+            sd.H = SimpleJson.GetString(obj, "h");
+
             // levels (per-level data)
             var levelsObj = SimpleJson.GetObject(obj, "levels");
             if (levelsObj != null)
@@ -636,6 +709,23 @@ namespace SuperSkillTool
                 }
             }
 
+            // levelAnimFramesByNode (per-level animation frames)
+            var levelAnimObj = SimpleJson.GetObject(obj, "levelAnimFramesByNode");
+            if (levelAnimObj != null)
+            {
+                sd.LevelAnimFramesByNode = new Dictionary<int, Dictionary<string, List<WzEffectFrame>>>();
+                foreach (var lvKv in levelAnimObj)
+                {
+                    if (!int.TryParse(lvKv.Key, out int lvNum)) continue;
+                    if (!(lvKv.Value is Dictionary<string, object> nodeMapObj)) continue;
+                    var nodeMap = DeserializeEffectFramesByNode(nodeMapObj);
+                    if (nodeMap != null && nodeMap.Count > 0)
+                        sd.LevelAnimFramesByNode[lvNum] = nodeMap;
+                }
+                if (sd.LevelAnimFramesByNode.Count == 0)
+                    sd.LevelAnimFramesByNode = null;
+            }
+
             // cachedEffects (persisted effect frames with bitmap base64)
             var effectsArr = SimpleJson.GetArray(obj, "cachedEffects");
             if (effectsArr != null)
@@ -645,6 +735,7 @@ namespace SuperSkillTool
             var effectsByNodeObj = SimpleJson.GetObject(obj, "cachedEffectsByNode");
             if (effectsByNodeObj != null)
                 sd.CachedEffectsByNode = DeserializeEffectFramesByNode(effectsByNodeObj);
+            sd.HasManualEffectOverride = SimpleJson.GetBool(obj, "hasManualEffectOverride", false);
 
             if ((sd.CachedEffectsByNode == null || sd.CachedEffectsByNode.Count == 0)
                 && sd.CachedEffects != null && sd.CachedEffects.Count > 0)
@@ -689,6 +780,7 @@ namespace SuperSkillTool
             Desc = NormalizeSkillText(Desc, keepSlashN: true);
             PDesc = NormalizeSkillText(PDesc, keepSlashN: true);
             Ph = NormalizeSkillText(Ph, keepSlashN: true);
+            H = NormalizeSkillText(H, keepSlashN: true);
             if (HLevels != null && HLevels.Count > 0)
             {
                 var keys = new List<string>(HLevels.Keys);

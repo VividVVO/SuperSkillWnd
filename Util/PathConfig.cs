@@ -12,7 +12,6 @@ namespace SuperSkillTool
         private static readonly string DefaultToolRoot = ResolveDefaultToolRoot();
         private static readonly string DefaultServerRoot = ResolveDefaultServerRoot();
         private static readonly string DefaultGameDataBase = ResolveDefaultGameDataBase();
-        private static readonly string DefaultDllSkillJsonDir = ResolveDefaultDllSkillJsonDir();
 
         // Root directories
         public static string ServerRootDir = DefaultServerRoot;
@@ -23,7 +22,7 @@ namespace SuperSkillTool
         public static string ServerStringXml;
 
         // DLL local resource JSON
-        public static string DllSkillJsonDir = DefaultDllSkillJsonDir;
+        public static string DllSkillJsonDir;
         public static string DllStringJson;
 
         public static string DllSkillImgJson(int jobId) =>
@@ -104,7 +103,7 @@ namespace SuperSkillTool
         // Constants (configurable)
         public static int DefaultCharacterId = 13745;
         public static int DefaultSuperSpCarrierSkillId = 1001038;
-        public static int DefaultSuperSpCarrierMaxLevel = 32767;
+        public static int DefaultSuperSpCarrierMaxLevel = 999;
         private static readonly HashSet<int> KnownCarrierSkillIds = new HashSet<int>();
 
         // Derived helpers
@@ -175,9 +174,7 @@ namespace SuperSkillTool
             if (string.IsNullOrWhiteSpace(GameDataBaseDir))
                 GameDataBaseDir = DefaultGameDataBase;
 
-            DllSkillJsonDir = NormalizeDirectoryLikePath(DllSkillJsonDir);
-            if (string.IsNullOrWhiteSpace(DllSkillJsonDir))
-                DllSkillJsonDir = DefaultDllSkillJsonDir;
+            DllSkillJsonDir = Path.Combine(GameDataBaseDir, "Plugins", "SS", "Skill");
 
             ServerWzRoot = Path.Combine(ServerRootDir, "wz", "Skill.wz");
             ServerStringXml = Path.Combine(ServerRootDir, "wz", "String.wz", "Skill.img.xml");
@@ -369,18 +366,7 @@ namespace SuperSkillTool
             return Path.Combine(DefaultToolRoot, "Data");
         }
 
-        private static string ResolveDefaultDllSkillJsonDir()
-        {
-            try
-            {
-                string candidate = NormalizeDirectoryLikePath(Path.Combine(DefaultToolRoot, "skill"));
-                if (!string.IsNullOrWhiteSpace(candidate) && Directory.Exists(candidate))
-                    return candidate;
-            }
-            catch
-            {
-            }
-            return Path.Combine(DefaultToolRoot, "skill");
-        }
+        // DllSkillJsonDir is now always derived from GameDataBaseDir:
+        // <GameDataBaseDir>\Plugins\SS\Skill
     }
 }

@@ -104,7 +104,8 @@ namespace SuperSkillTool
                 try
                 {
                     skillVersion = WzImageVersionHelper.DetectVersionForSkillImg(imgPath);
-                    fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    Console.WriteLine($"  [version] {jobId}.img detected as {skillVersion}");
+                    fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                     wzImg = new WzImage(jobId + ".img", fs, skillVersion);
                     if (!wzImg.ParseImage(true))
                     {
@@ -175,12 +176,45 @@ namespace SuperSkillTool
                 foreach (var sd in list)
                 {
                     string idStr = sd.SkillId.ToString();
+                    int cloneSourceId = sd.ResolveCloneSourceSkillId();
 
                     var existing = skillTop[idStr];
+                    if (ShouldProtectNativeSkillWrite(sd, existing))
+                    {
+                        Console.WriteLine($"  [protect] Skip native skill {idStr} ({sd.Name})");
+                        continue;
+                    }
+                    bool markAsSuperSkill = ShouldMarkAsSuperSkill(sd, existing);
+                    bool forceCloneReplace = cloneSourceId > 0 && cloneSourceId != sd.SkillId;
+                    bool applyCloneOverlay = !sd.PreserveClonedNode;
+                    string cloneModeTag = $" [src={cloneSourceId}, mode={(applyCloneOverlay ? "overlay" : "raw")}]";
+
+                    if (forceCloneReplace)
+                    {
+                        bool clonedForced;
+                        var forcedNode = TryCloneSkillNodeFromSource(sd, jobId, skillTop, out clonedForced, markAsSuperSkill, applyCloneOverlay);
+                        if (forcedNode != null)
+                        {
+                            if (existing != null)
+                                RemoveProperty(skillTop, idStr);
+                            skillTop.AddProperty(forcedNode);
+                            count++;
+                            if (existing != null)
+                                Console.WriteLine(clonedForced
+                                    ? $"  [replaced+cloned] Skill {idStr} ({sd.Name}){cloneModeTag}"
+                                    : $"  [replaced] Skill {idStr} ({sd.Name})");
+                            else
+                                Console.WriteLine(clonedForced
+                                    ? $"  [added+cloned] Skill {idStr} ({sd.Name}){cloneModeTag}"
+                                    : $"  [added] Skill {idStr} ({sd.Name})");
+                            continue;
+                        }
+                    }
+
                     if (existing is WzSubProperty existingSub)
                     {
                         // Merge mode: update fields on existing node, preserve everything else
-                        MergeSkillNode(existingSub, sd);
+                        MergeSkillNode(existingSub, sd, markAsSuperSkill);
                         count++;
                         Console.WriteLine($"  [merged] Skill {idStr} ({sd.Name})");
                     }
@@ -189,22 +223,22 @@ namespace SuperSkillTool
                         // Existing but not a SubProperty, replace
                         RemoveProperty(skillTop, idStr);
                         bool cloned;
-                        var skillNode = TryCloneSkillNodeFromSource(sd, jobId, skillTop, out cloned) ?? BuildSkillNode(sd);
+                        var skillNode = TryCloneSkillNodeFromSource(sd, jobId, skillTop, out cloned, markAsSuperSkill, applyCloneOverlay) ?? BuildSkillNode(sd);
                         skillTop.AddProperty(skillNode);
                         count++;
                         Console.WriteLine(cloned
-                            ? $"  [replaced+cloned] Skill {idStr} ({sd.Name})"
+                            ? $"  [replaced+cloned] Skill {idStr} ({sd.Name}){cloneModeTag}"
                             : $"  [replaced] Skill {idStr} ({sd.Name})");
                     }
                     else
                     {
                         // New skill
                         bool cloned;
-                        var skillNode = TryCloneSkillNodeFromSource(sd, jobId, skillTop, out cloned) ?? BuildSkillNode(sd);
+                        var skillNode = TryCloneSkillNodeFromSource(sd, jobId, skillTop, out cloned, markAsSuperSkill, applyCloneOverlay) ?? BuildSkillNode(sd);
                         skillTop.AddProperty(skillNode);
                         count++;
                         Console.WriteLine(cloned
-                            ? $"  [added+cloned] Skill {idStr} ({sd.Name})"
+                            ? $"  [added+cloned] Skill {idStr} ({sd.Name}){cloneModeTag}"
                             : $"  [added] Skill {idStr} ({sd.Name})");
                     }
                 }
@@ -277,7 +311,8 @@ namespace SuperSkillTool
             try
             {
                 stringVersion = WzImageVersionHelper.DetectVersionForStringImg(imgPath);
-                fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                Console.WriteLine($"  [version] Skill.img (String) detected as {stringVersion}");
+                fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 wzImg = new WzImage("Skill.img", fs, stringVersion);
                 if (!wzImg.ParseImage(true))
                 {
@@ -334,10 +369,41 @@ namespace SuperSkillTool
                 string idStr = sd.SkillId.ToString();
 
                 var existing = wzImg[idStr];
+                if (ShouldProtectNativeStringWrite(sd, existing))
+                {
+                    Console.WriteLine($"  [protect] Skip native string entry {idStr} ({sd.Name})");
+                    continue;
+                }
+                bool markAsSuperSkill = ShouldMarkAsSuperSkill(sd, existing);
+                bool forceCloneReplace = sd.ResolveCloneSourceSkillId() > 0
+                    && sd.ResolveCloneSourceSkillId() != sd.SkillId;
+
+                if (forceCloneReplace)
+                {
+                    bool clonedForced;
+                    var forcedNode = TryCloneStringNodeFromSource(sd, wzImg, out clonedForced, markAsSuperSkill);
+                    if (forcedNode != null)
+                    {
+                        if (existing != null)
+                            RemovePropertyFromImage(wzImg, idStr);
+                        wzImg.AddProperty(forcedNode);
+                        count++;
+                        if (existing != null)
+                            Console.WriteLine(clonedForced
+                                ? $"  [replaced+cloned] String entry {idStr} ({sd.Name})"
+                                : $"  [replaced] String entry {idStr} ({sd.Name})");
+                        else
+                            Console.WriteLine(clonedForced
+                                ? $"  [added+cloned] String entry {idStr} ({sd.Name})"
+                                : $"  [added] String entry {idStr} ({sd.Name})");
+                        continue;
+                    }
+                }
+
                 if (existing is WzSubProperty existingSub)
                 {
                     // Merge mode: update string fields, preserve others
-                    MergeStringNode(existingSub, sd);
+                    MergeStringNode(existingSub, sd, markAsSuperSkill);
                     count++;
                     Console.WriteLine($"  [merged] String entry {idStr} ({sd.Name})");
                 }
@@ -345,7 +411,7 @@ namespace SuperSkillTool
                 {
                     RemovePropertyFromImage(wzImg, idStr);
                     bool cloned;
-                    var strNode = TryCloneStringNodeFromSource(sd, wzImg, out cloned) ?? BuildStringNode(sd);
+                    var strNode = TryCloneStringNodeFromSource(sd, wzImg, out cloned, markAsSuperSkill) ?? BuildStringNode(sd);
                     wzImg.AddProperty(strNode);
                     count++;
                     Console.WriteLine(cloned
@@ -355,7 +421,7 @@ namespace SuperSkillTool
                 else
                 {
                     bool cloned;
-                    var strNode = TryCloneStringNodeFromSource(sd, wzImg, out cloned) ?? BuildStringNode(sd);
+                    var strNode = TryCloneStringNodeFromSource(sd, wzImg, out cloned, markAsSuperSkill) ?? BuildStringNode(sd);
                     wzImg.AddProperty(strNode);
                     count++;
                     Console.WriteLine(cloned
@@ -523,12 +589,38 @@ namespace SuperSkillTool
                         else
                             lvSub.AddProperty(new WzStringProperty(p.Key, p.Value));
                     }
+
+                    // Per-level animation frames (ball/hit/effect/prepare/keydown/repeat)
+                    if (sd.LevelAnimFramesByNode != null
+                        && sd.LevelAnimFramesByNode.TryGetValue(lv.Key, out var levelAnimNodes)
+                        && levelAnimNodes != null && levelAnimNodes.Count > 0)
+                    {
+                        foreach (var animKey in GetSortedEffectNodeNames(levelAnimNodes))
+                        {
+                            if (!levelAnimNodes.TryGetValue(animKey, out var animFrames)
+                                || animFrames == null || animFrames.Count == 0)
+                                continue;
+
+                            // slash-based sub-group (hit/N, effect/N, ball/N, tile/N, etc.)
+                            if (animKey.Contains("/"))
+                            {
+                                AddSubGroupToParent(lvSub, animKey, animFrames);
+                            }
+                            else
+                            {
+                                var animNode = BuildEffectNode(animFrames, animKey);
+                                if (animNode != null)
+                                    lvSub.AddProperty(animNode);
+                            }
+                        }
+                    }
+
                     levelNode.AddProperty(lvSub);
                 }
                 node.AddProperty(levelNode);
             }
 
-            // effect frames (effect/effect0... + repeat/repeat0...)
+            // effect/animation frames (effect/effect0/repeat/ball/hit/prepare/keydown...)
             var effectMap = GetEffectFramesByNode(sd);
             if (effectMap != null && effectMap.Count > 0)
             {
@@ -536,9 +628,18 @@ namespace SuperSkillTool
                 {
                     if (!effectMap.TryGetValue(key, out var frames) || frames == null || frames.Count == 0)
                         continue;
-                    var effectNode = BuildEffectNode(frames, key);
-                    if (effectNode != null)
-                        node.AddProperty(effectNode);
+
+                    // slash-based sub-group (hit/N, effect/N, ball/N, tile/N, etc.)
+                    if (key.Contains("/"))
+                    {
+                        AddSubGroupToParent(node, key, frames);
+                    }
+                    else
+                    {
+                        var effectNode = BuildEffectNode(frames, key);
+                        if (effectNode != null)
+                            node.AddProperty(effectNode);
+                    }
                 }
             }
 
@@ -560,7 +661,19 @@ namespace SuperSkillTool
             if (!string.IsNullOrEmpty(sd.Desc))
                 node.AddProperty(new WzStringProperty("desc", sd.Desc));
 
-            // h levels
+            // pdesc
+            if (!string.IsNullOrEmpty(sd.PDesc))
+                node.AddProperty(new WzStringProperty("pdesc", sd.PDesc));
+
+            // ph
+            if (!string.IsNullOrEmpty(sd.Ph))
+                node.AddProperty(new WzStringProperty("ph", sd.Ph));
+
+            // h template text (contains #mpCon, #damage etc. placeholders)
+            if (!string.IsNullOrEmpty(sd.H))
+                node.AddProperty(new WzStringProperty("h", sd.H));
+
+            // h levels (h1, h2, h3...)
             if (sd.HLevels != null)
             {
                 foreach (var kv in sd.HLevels)
@@ -585,7 +698,9 @@ namespace SuperSkillTool
             SkillDefinition sd,
             int targetJobId,
             WzSubProperty targetSkillTop,
-            out bool cloned)
+            out bool cloned,
+            bool markAsSuperSkill,
+            bool applyOverlay)
         {
             cloned = false;
             int sourceId = sd.ResolveCloneSourceSkillId();
@@ -606,7 +721,7 @@ namespace SuperSkillTool
                 {
                     try
                     {
-                        using (var sourceFs = new FileStream(sourceImgPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                        using (var sourceFs = new FileStream(sourceImgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                         {
                             WzMapleVersion sourceVersion = WzImageVersionHelper.DetectVersionForSkillImg(sourceImgPath);
                             var sourceImg = new WzImage(sourceJobId + ".img", sourceFs, sourceVersion);
@@ -633,7 +748,10 @@ namespace SuperSkillTool
                 ? (WzSubProperty)sourceNode.DeepClone()
                 : sourceNode;
             clone.Name = sd.SkillId.ToString();
-            MergeSkillNode(clone, sd);
+            if (applyOverlay)
+                MergeSkillNode(clone, sd, markAsSuperSkill);
+            else
+                ApplySuperSkillMarker(clone, markAsSuperSkill);
             cloned = true;
             return clone;
         }
@@ -644,7 +762,8 @@ namespace SuperSkillTool
         private static WzSubProperty TryCloneStringNodeFromSource(
             SkillDefinition sd,
             WzImage stringImg,
-            out bool cloned)
+            out bool cloned,
+            bool markAsSuperSkill)
         {
             cloned = false;
             int sourceId = sd.ResolveCloneSourceSkillId();
@@ -657,7 +776,7 @@ namespace SuperSkillTool
 
             var clone = (WzSubProperty)sourceNode.DeepClone();
             clone.Name = sd.SkillId.ToString();
-            MergeStringNode(clone, sd);
+            MergeStringNode(clone, sd, markAsSuperSkill);
             cloned = true;
             return clone;
         }
@@ -667,26 +786,25 @@ namespace SuperSkillTool
         /// Only updates: _superSkill, icon, iconMouseOver, iconDisabled, action, level, effect*.
         /// NOTE: To avoid accidental mutation of native skills, merge path no longer writes info/type and common/maxLevel.
         /// </summary>
-        private static void MergeSkillNode(WzSubProperty node, SkillDefinition sd)
+        private static void MergeSkillNode(WzSubProperty node, SkillDefinition sd, bool markAsSuperSkill)
         {
-            // _superSkill marker
-            ReplaceOrAddProperty(node, new WzIntProperty("_superSkill", 1));
+            // _superSkill marker:
+            // - custom/new/super skill: keep marker for safe delete
+            // - native overwrite: do not mark, avoid accidental native deletion later
+            ApplySuperSkillMarker(node, markAsSuperSkill);
 
             // icons (only if we have data)
             if (!string.IsNullOrEmpty(sd.IconBase64))
             {
-                var canvas = BuildCanvasFromBase64(sd.IconBase64, "icon");
-                if (canvas != null) ReplaceOrAddProperty(node, canvas);
+                MergeIconCanvas(node, "icon", sd.IconBase64);
             }
             if (!string.IsNullOrEmpty(sd.IconMouseOverBase64))
             {
-                var canvas = BuildCanvasFromBase64(sd.IconMouseOverBase64, "iconMouseOver");
-                if (canvas != null) ReplaceOrAddProperty(node, canvas);
+                MergeIconCanvas(node, "iconMouseOver", sd.IconMouseOverBase64);
             }
             if (!string.IsNullOrEmpty(sd.IconDisabledBase64))
             {
-                var canvas = BuildCanvasFromBase64(sd.IconDisabledBase64, "iconDisabled");
-                if (canvas != null) ReplaceOrAddProperty(node, canvas);
+                MergeIconCanvas(node, "iconDisabled", sd.IconDisabledBase64);
             }
 
             // action
@@ -745,9 +863,12 @@ namespace SuperSkillTool
         /// Merge string fields into an existing string node.
         /// Only updates: _superSkill, name, desc, h levels.
         /// </summary>
-        private static void MergeStringNode(WzSubProperty node, SkillDefinition sd)
+        private static void MergeStringNode(WzSubProperty node, SkillDefinition sd, bool markAsSuperSkill)
         {
-            ReplaceOrAddProperty(node, new WzIntProperty("_superSkill", 1));
+            if (markAsSuperSkill)
+                ReplaceOrAddProperty(node, new WzIntProperty("_superSkill", 1));
+            else
+                RemoveProperty(node, "_superSkill");
 
             if (!string.IsNullOrEmpty(sd.Name))
                 ReplaceOrAddProperty(node, new WzStringProperty("name", sd.Name));
@@ -775,25 +896,14 @@ namespace SuperSkillTool
             if (node == null)
                 return;
 
+            PruneCarrierSkillTopLevel(node);
             ReplaceOrAddProperty(node, new WzIntProperty("_superSkill", 1));
-            RemoveProperty(node, "action");
+            ReplaceOrAddProperty(node, new WzIntProperty("invisible", 1));
 
-            var info = node["info"] as WzSubProperty;
-            if (info == null)
-            {
-                info = new WzSubProperty("info");
-                node.AddProperty(info);
-            }
-            ReplaceOrAddProperty(info, new WzIntProperty("type", 50));
-
-            var common = node["common"] as WzSubProperty;
-            if (common == null)
-            {
-                common = new WzSubProperty("common");
-                node.AddProperty(common);
-            }
-            int carrierMaxLevel = Math.Max(1, PathConfig.DefaultSuperSpCarrierMaxLevel);
-            ReplaceOrAddProperty(common, new WzIntProperty("maxLevel", carrierMaxLevel));
+            EnsureCarrierCommonTemplate(node);
+            EnsureCarrierIconTemplate(node, "icon");
+            EnsureCarrierIconTemplate(node, "iconMouseOver");
+            EnsureCarrierIconTemplate(node, "iconDisabled");
         }
 
         private static bool IsCarrierSkillNodeReady(WzSubProperty node)
@@ -801,11 +911,16 @@ namespace SuperSkillTool
             if (node == null)
                 return false;
 
-            var info = node["info"] as WzSubProperty;
-            var common = node["common"] as WzSubProperty;
             int carrierMaxLevel = Math.Max(1, PathConfig.DefaultSuperSpCarrierMaxLevel);
-            return HasIntValue(info, "type", 50)
-                && HasIntValue(common, "maxLevel", carrierMaxLevel);
+            var common = node["common"] as WzSubProperty;
+            bool hasCommonMaxLevel = common != null && HasIntValue(common, "maxLevel", carrierMaxLevel);
+            bool hasIcons = node["icon"] is WzCanvasProperty
+                && node["iconMouseOver"] is WzCanvasProperty
+                && node["iconDisabled"] is WzCanvasProperty;
+            return HasIntValue(node, "_superSkill", 1)
+                && HasIntValue(node, "invisible", 1)
+                && hasCommonMaxLevel
+                && hasIcons;
         }
 
         private static WzSubProperty BuildCarrierStringNode(int carrierId)
@@ -822,6 +937,12 @@ namespace SuperSkillTool
 
             ReplaceOrAddProperty(node, new WzIntProperty("_superSkill", 1));
             ReplaceOrAddProperty(node, new WzStringProperty("name", "Super SP"));
+            ReplaceOrAddProperty(node, new WzStringProperty("desc", "超级SP载体技能。"));
+            ReplaceOrAddProperty(node, new WzStringProperty("h1", "仅用于承载超级SP，不在技能栏显示。"));
+            RemoveProperty(node, "h");
+            RemoveProperty(node, "pdesc");
+            RemoveProperty(node, "ph");
+            RemoveCarrierExtraHLevels(node);
         }
 
         private static bool IsCarrierStringNodeReady(WzSubProperty node)
@@ -830,7 +951,218 @@ namespace SuperSkillTool
                 return false;
 
             var name = node["name"] as WzStringProperty;
-            return name != null && !string.IsNullOrEmpty(name.Value);
+            var desc = node["desc"] as WzStringProperty;
+            var h1 = node["h1"] as WzStringProperty;
+            return name != null && !string.IsNullOrEmpty(name.Value)
+                && desc != null && !string.IsNullOrEmpty(desc.Value)
+                && h1 != null && !string.IsNullOrEmpty(h1.Value);
+        }
+
+        private static void EnsureCarrierCommonTemplate(WzSubProperty node)
+        {
+            if (node == null)
+                return;
+
+            int carrierMaxLevel = Math.Max(1, PathConfig.DefaultSuperSpCarrierMaxLevel);
+
+            var common = node["common"] as WzSubProperty;
+            if (common == null)
+            {
+                RemoveProperty(node, "common");
+                common = new WzSubProperty("common");
+                node.AddProperty(common);
+            }
+
+            var remove = new List<WzImageProperty>();
+            foreach (var child in common.WzProperties)
+            {
+                if (child == null)
+                    continue;
+                if (!string.Equals(child.Name, "maxLevel", StringComparison.OrdinalIgnoreCase))
+                    remove.Add(child);
+            }
+            foreach (var child in remove)
+            {
+                common.WzProperties.Remove(child);
+                try { child.Dispose(); } catch { }
+            }
+
+            ReplaceOrAddProperty(common, new WzIntProperty("maxLevel", carrierMaxLevel));
+        }
+
+        private static void EnsureCarrierIconTemplate(WzSubProperty node, string iconName)
+        {
+            if (node == null || string.IsNullOrWhiteSpace(iconName))
+                return;
+
+            var canvas = node[iconName] as WzCanvasProperty;
+            if (canvas == null)
+            {
+                RemoveProperty(node, iconName);
+                canvas = BuildBlankCarrierIconCanvas(iconName);
+                if (canvas != null)
+                    node.AddProperty(canvas);
+                return;
+            }
+
+            ReplaceOrAddProperty(canvas, new WzVectorProperty("origin", 0, 32));
+            ReplaceOrAddProperty(canvas, new WzIntProperty("z", 0));
+        }
+
+        private static WzCanvasProperty BuildBlankCarrierIconCanvas(string name)
+        {
+            using (var bmp = new Bitmap(32, 32, PixelFormat.Format32bppArgb))
+            {
+                using (var g = Graphics.FromImage(bmp))
+                    g.Clear(Color.Transparent);
+
+                var legacyReady = EnsureLegacyAlphaFor4444(bmp);
+                var encoded = ReferenceEquals(legacyReady, bmp) ? new Bitmap(bmp) : legacyReady;
+
+                var canvas = new WzCanvasProperty(name);
+                var pngProp = new WzPngProperty();
+                pngProp.SetBitmapBgra4444(encoded);
+                canvas.PngProperty = pngProp;
+                ReplaceOrAddProperty(canvas, new WzVectorProperty("origin", 0, 32));
+                ReplaceOrAddProperty(canvas, new WzIntProperty("z", 0));
+
+                if (!ReferenceEquals(encoded, bmp))
+                    encoded.Dispose();
+                return canvas;
+            }
+        }
+
+        private static void PruneCarrierSkillTopLevel(WzSubProperty node)
+        {
+            if (node?.WzProperties == null)
+                return;
+
+            var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "_superSkill",
+                "icon",
+                "iconMouseOver",
+                "iconDisabled",
+                "common",
+                "invisible"
+            };
+
+            var remove = new List<WzImageProperty>();
+            foreach (var child in node.WzProperties)
+            {
+                if (child == null || string.IsNullOrEmpty(child.Name))
+                    continue;
+                if (!keep.Contains(child.Name))
+                    remove.Add(child);
+            }
+
+            foreach (var child in remove)
+            {
+                node.WzProperties.Remove(child);
+                try { child.Dispose(); } catch { }
+            }
+        }
+
+        private static void RemoveCarrierExtraHLevels(WzSubProperty node)
+        {
+            if (node?.WzProperties == null)
+                return;
+
+            var remove = new List<WzImageProperty>();
+            foreach (var child in node.WzProperties)
+            {
+                if (child == null || string.IsNullOrEmpty(child.Name))
+                    continue;
+                if (!child.Name.StartsWith("h", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (string.Equals(child.Name, "h1", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (child.Name.Length > 1 && int.TryParse(child.Name.Substring(1), out _))
+                    remove.Add(child);
+            }
+
+            foreach (var child in remove)
+            {
+                node.WzProperties.Remove(child);
+                try { child.Dispose(); } catch { }
+            }
+        }
+
+        private static bool ShouldMarkAsSuperSkill(SkillDefinition sd, WzImageProperty existingNode)
+        {
+            if (HasSuperSkillMarker(existingNode))
+                return true;
+            if (sd == null)
+                return true;
+            if (string.Equals(sd.SourceLabel ?? "", "超级技能", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (!sd.ExistsInImg)
+                return true;
+            return false;
+        }
+
+        private static bool ShouldProtectNativeSkillWrite(SkillDefinition sd, WzImageProperty existingNode)
+        {
+            if (sd == null || existingNode == null)
+                return false;
+            if (HasSuperSkillMarker(existingNode))
+                return false;
+            if (!sd.ExistsInImg)
+                return false;
+            if (!string.Equals(sd.SourceLabel ?? "", "原生技能", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            int sourceId = sd.ResolveCloneSourceSkillId();
+            if (sourceId > 0 && sourceId != sd.SkillId)
+                return false;
+
+            return true;
+        }
+
+        private static bool ShouldProtectNativeStringWrite(SkillDefinition sd, WzImageProperty existingNode)
+        {
+            if (sd == null || existingNode == null)
+                return false;
+            if (HasSuperSkillMarker(existingNode))
+                return false;
+            if (!sd.ExistsInImg)
+                return false;
+            if (!string.Equals(sd.SourceLabel ?? "", "原生技能", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            int sourceId = sd.ResolveCloneSourceSkillId();
+            if (sourceId > 0 && sourceId != sd.SkillId)
+                return false;
+
+            return true;
+        }
+
+        private static void ApplySuperSkillMarker(WzSubProperty node, bool markAsSuperSkill)
+        {
+            if (node == null)
+                return;
+
+            if (markAsSuperSkill)
+                ReplaceOrAddProperty(node, new WzIntProperty("_superSkill", 1));
+            else
+                RemoveProperty(node, "_superSkill");
+        }
+
+        private static bool HasSuperSkillMarker(WzImageProperty node)
+        {
+            if (node == null)
+                return false;
+
+            var marker = node["_superSkill"];
+            if (marker is WzIntProperty ip)
+                return ip.Value == 1;
+            if (marker is WzShortProperty sp)
+                return sp.Value == 1;
+            if (marker is WzLongProperty lp)
+                return lp.Value == 1;
+            if (marker is WzStringProperty str && int.TryParse(str.Value, out int parsed))
+                return parsed == 1;
+            return false;
         }
 
         private static bool HasIntValue(WzSubProperty parent, string childName, int expected)
@@ -966,7 +1298,7 @@ namespace SuperSkillTool
 
         private static Dictionary<string, List<WzEffectFrame>> GetEffectFramesByNode(SkillDefinition sd)
         {
-            if (sd == null)
+            if (sd == null || !sd.HasManualEffectOverride)
                 return null;
 
             var result = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
@@ -1012,7 +1344,7 @@ namespace SuperSkillTool
             var removeList = new List<WzImageProperty>();
             foreach (var child in node.WzProperties)
             {
-                if (child != null && IsEffectNodeName(child.Name))
+                if (child != null && IsAnimNodeName(child.Name))
                     removeList.Add(child);
             }
 
@@ -1023,16 +1355,35 @@ namespace SuperSkillTool
             }
         }
 
-        private static bool IsEffectNodeName(string name)
+        private static readonly string[] AnimNodeExactNames = new[]
+        {
+            "effect", "repeat", "ball", "hit", "prepare", "keydown",
+            "keydownend", "affected", "mob", "special", "screen", "tile", "finish"
+        };
+        private static readonly string[] AnimNodeIndexablePrefixes = new[]
+        {
+            "effect", "repeat", "ball", "keydown", "affected", "mob", "special", "tile", "finish"
+        };
+
+        private static bool IsAnimNodeName(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
                 return false;
-            if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, "repeat", StringComparison.OrdinalIgnoreCase))
-                return true;
-            return TryParseIndexedFrameNodeName(name, "effect", out _)
-                || TryParseIndexedFrameNodeName(name, "repeat", out _);
+            foreach (var exact in AnimNodeExactNames)
+            {
+                if (string.Equals(name, exact, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            foreach (var prefix in AnimNodeIndexablePrefixes)
+            {
+                if (TryParseIndexedFrameNodeName(name, prefix, out _))
+                    return true;
+            }
+            return false;
         }
+
+        // Keep old name as alias
+        private static bool IsEffectNodeName(string name) => IsAnimNodeName(name);
 
         private static int CompareEffectNodeNames(string a, string b)
         {
@@ -1043,24 +1394,83 @@ namespace SuperSkillTool
             int bRank = GetFrameNodeSortRank(b, out int bIndex);
             if (aRank != bRank)
                 return aRank.CompareTo(bRank);
-            if (aRank == 1 || aRank == 3)
+            if (aIndex != int.MaxValue || bIndex != int.MaxValue)
                 return aIndex.CompareTo(bIndex);
 
             return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
         }
 
+        private static readonly (string baseName, int baseRank, bool canIndex)[] FrameNodeSortTable = new[]
+        {
+            ("effect",     0, true),
+            ("repeat",     2, true),
+            ("ball",       4, true),
+            ("hit",        6, false),
+            ("prepare",    8, false),
+            ("keydown",   10, true),
+            ("keydownend",12, false),
+            ("affected",  14, true),
+            ("mob",       16, true),
+            ("special",   18, true),
+            ("screen",    20, false),
+            ("tile",      22, true),
+            ("finish",    24, true),
+        };
+
         private static int GetFrameNodeSortRank(string name, out int index)
         {
             index = int.MaxValue;
-            if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase))
-                return 0;
-            if (TryParseIndexedFrameNodeName(name, "effect", out index))
-                return 1;
-            if (string.Equals(name, "repeat", StringComparison.OrdinalIgnoreCase))
-                return 2;
-            if (TryParseIndexedFrameNodeName(name, "repeat", out index))
-                return 3;
-            return 4;
+            if (string.IsNullOrWhiteSpace(name))
+                return 99;
+
+            if (name.StartsWith("hit/", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(name.Substring(4), out index))
+                return 6;
+            if (string.Equals(name, "hit", StringComparison.OrdinalIgnoreCase))
+            {
+                index = -1;
+                return 6;
+            }
+
+            foreach (var (baseName, baseRank, canIndex) in FrameNodeSortTable)
+            {
+                if (baseName == "hit") continue;
+                if (string.Equals(name, baseName, StringComparison.OrdinalIgnoreCase))
+                    return baseRank;
+                if (canIndex && TryParseIndexedFrameNodeName(name, baseName, out index))
+                    return baseRank + 1;
+            }
+            return 99;
+        }
+
+        /// <summary>
+        /// Add a sub-group node to a parent. "effect/0" -> parent/effect/0/[frames].
+        /// Creates the container intermediate node if it doesn't exist yet.
+        /// Works for any family: hit/0, effect/0, ball/0, tile/0, etc.
+        /// </summary>
+        private static void AddSubGroupToParent(WzSubProperty parent, string slashKey, List<WzEffectFrame> frames)
+        {
+            // slashKey is like "hit/0", "effect/1", "ball/2"
+            int slashIdx = slashKey.IndexOf('/');
+            if (slashIdx < 0) return; // safety: not a sub-group key
+
+            string containerName = slashKey.Substring(0, slashIdx);
+            string groupIndex = slashKey.Substring(slashIdx + 1);
+            if (string.IsNullOrEmpty(containerName) || string.IsNullOrEmpty(groupIndex))
+                return;
+
+            // Find or create the container node
+            var containerNode = parent[containerName] as WzSubProperty;
+            if (containerNode == null)
+            {
+                containerNode = new WzSubProperty(containerName);
+                parent.AddProperty(containerNode);
+            }
+
+            // Build the group sub-node with frames
+            var groupNode = BuildEffectNode(frames, groupIndex);
+            if (groupNode != null)
+                containerNode.AddProperty(groupNode);
         }
 
         private static bool TryParseIndexedFrameNodeName(string name, string prefix, out int index)
@@ -1096,12 +1506,158 @@ namespace SuperSkillTool
 
             var canvas = new WzCanvasProperty(name);
             var pngProp = new WzPngProperty();
-            pngProp.PNG = bmp;
+            pngProp.SetBitmapBgra4444(bmp);
             canvas.PngProperty = pngProp;
             canvas.AddProperty(new WzVectorProperty("origin", 0, bmp.Height));
 
             bmp.Dispose();
             return canvas;
+        }
+
+        private static void MergeIconCanvas(WzSubProperty node, string iconName, string base64)
+        {
+            if (node == null || string.IsNullOrWhiteSpace(iconName) || string.IsNullOrEmpty(base64))
+                return;
+
+            var incoming = BuildCanvasFromBase64(base64, iconName);
+            if (incoming == null)
+                return;
+
+            var existing = node[iconName] as WzCanvasProperty;
+            if (existing != null)
+            {
+                if (AreCanvasPixelsEqual(existing, incoming))
+                {
+                    try { incoming.Dispose(); } catch { }
+                    return;
+                }
+
+                // Even when rewriting icon bitmap, preserve legacy metadata fields
+                // (z/origin/custom scalar flags) from the previous canvas node.
+                CopyCanvasMetadata(existing, incoming);
+            }
+
+            ReplaceOrAddProperty(node, incoming);
+        }
+
+        private static void CopyCanvasMetadata(WzCanvasProperty source, WzCanvasProperty target)
+        {
+            if (source == null || target == null)
+                return;
+            if (source.WzProperties == null || source.WzProperties.Count == 0)
+                return;
+
+            foreach (var child in source.WzProperties)
+            {
+                if (child == null || string.IsNullOrWhiteSpace(child.Name))
+                    continue;
+                if (string.Equals(child.Name, WzCanvasProperty.InlinkPropertyName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(child.Name, WzCanvasProperty.OutlinkPropertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Links are tied to source atlas/layout; don't carry across a rewritten bitmap.
+                    continue;
+                }
+
+                WzImageProperty clone = null;
+                try { clone = (WzImageProperty)child.DeepClone(); }
+                catch { }
+                if (clone == null)
+                {
+                    clone = CloneScalarProperty(child);
+                }
+                if (clone == null)
+                    continue;
+
+                ReplaceOrAddProperty(target, clone);
+            }
+        }
+
+        private static WzImageProperty CloneScalarProperty(WzImageProperty prop)
+        {
+            if (prop is WzIntProperty i32) return new WzIntProperty(prop.Name, i32.Value);
+            if (prop is WzShortProperty i16) return new WzShortProperty(prop.Name, i16.Value);
+            if (prop is WzLongProperty i64) return new WzLongProperty(prop.Name, i64.Value);
+            if (prop is WzFloatProperty f32) return new WzFloatProperty(prop.Name, f32.Value);
+            if (prop is WzDoubleProperty f64) return new WzDoubleProperty(prop.Name, f64.Value);
+            if (prop is WzStringProperty s) return new WzStringProperty(prop.Name, s.Value ?? "");
+            if (prop is WzVectorProperty v) return new WzVectorProperty(prop.Name, v.X?.Value ?? 0, v.Y?.Value ?? 0);
+            return null;
+        }
+
+        private static bool AreCanvasPixelsEqual(WzCanvasProperty left, WzCanvasProperty right)
+        {
+            Bitmap leftBmp = null;
+            Bitmap rightBmp = null;
+            bool disposeLeft = false;
+            bool disposeRight = false;
+
+            try
+            {
+                if (left == null || right == null)
+                    return false;
+
+                leftBmp = TryGetCanvasBitmap(left, out disposeLeft);
+                rightBmp = TryGetCanvasBitmap(right, out disposeRight);
+                if (leftBmp == null || rightBmp == null)
+                    return false;
+                if (leftBmp.Width != rightBmp.Width || leftBmp.Height != rightBmp.Height)
+                    return false;
+
+                for (int y = 0; y < leftBmp.Height; y++)
+                {
+                    for (int x = 0; x < leftBmp.Width; x++)
+                    {
+                        if (leftBmp.GetPixel(x, y) != rightBmp.GetPixel(x, y))
+                            return false;
+                    }
+                }
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                if (disposeLeft && leftBmp != null)
+                {
+                    try { leftBmp.Dispose(); } catch { }
+                }
+                if (disposeRight && rightBmp != null)
+                {
+                    try { rightBmp.Dispose(); } catch { }
+                }
+            }
+        }
+
+        private static Bitmap TryGetCanvasBitmap(WzCanvasProperty canvas, out bool shouldDispose)
+        {
+            shouldDispose = false;
+            if (canvas == null)
+                return null;
+
+            try
+            {
+                Bitmap linked = canvas.GetLinkedWzCanvasBitmap();
+                if (linked != null)
+                {
+                    shouldDispose = true;
+                    return linked;
+                }
+            }
+            catch { }
+
+            try
+            {
+                Bitmap bmp = canvas.GetBitmap();
+                if (bmp != null)
+                {
+                    shouldDispose = true;
+                    return bmp;
+                }
+            }
+            catch { }
+            return null;
         }
 
         /// <summary>
@@ -1125,7 +1681,7 @@ namespace SuperSkillTool
                         frameBmp.Dispose();
                     frameBmp = legacyReady;
 
-                    pngProp.PNG = frameBmp;
+                    pngProp.SetBitmapBgra4444(frameBmp);
                     canvas.PngProperty = pngProp;
                     canvas.AddProperty(new WzIntProperty("delay", ef.Delay > 0 ? ef.Delay : 100));
                     AddEffectFrameVectors(canvas, ef);

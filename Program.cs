@@ -42,7 +42,7 @@ namespace SuperSkillTool
             // CLI mode
             Console.WriteLine("================================================================");
             Console.WriteLine("  SuperSkillTool - MapleStory Super Skill System Generator");
-            Console.WriteLine("  Build: 2026-04-07-auto-create-imgxml-img");
+            Console.WriteLine("  Build: 2026-04-12-png-raw-preserve");
             Console.WriteLine($"  RunDir: {AppDomain.CurrentDomain.BaseDirectory}");
             Console.WriteLine("================================================================");
             Console.WriteLine();

@@ -17,6 +17,7 @@ namespace SuperSkillTool
     public static class DllJsonGenerator
     {
         private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
+        private static readonly string TransparentIconBase64 = BuildTransparentIconBase64();
 
         public static void GenerateSkillImgJson(List<SkillDefinition> skills, bool dryRun)
         {
@@ -482,24 +483,21 @@ namespace SuperSkillTool
         {
             string idStr = FormatSkillKey(carrierId);
             var entry = existingEntry ?? new Dictionary<string, object>();
+            PruneCarrierSkillEntry(entry);
             entry["_dirName"] = idStr;
             entry["_dirType"] = "sub";
             entry["_superSkill"] = BuildIntProperty("_superSkill", 1);
+            entry["invisible"] = BuildIntProperty("invisible", 1);
+            entry["icon"] = BuildCanvasEntry("icon", TransparentIconBase64);
+            entry["iconMouseOver"] = BuildCanvasEntry("iconMouseOver", TransparentIconBase64);
+            entry["iconDisabled"] = BuildCanvasEntry("iconDisabled", TransparentIconBase64);
+            entry["common"] = BuildCarrierCommonEntry();
 
-            var info = SimpleJson.GetObject(entry, "info") ?? new Dictionary<string, object>();
-            info["_dirName"] = "info";
-            info["_dirType"] = "sub";
-            info["type"] = BuildIntProperty("type", 50);
-            entry["info"] = info;
-
-            var common = SimpleJson.GetObject(entry, "common") ?? new Dictionary<string, object>();
-            common["_dirName"] = "common";
-            common["_dirType"] = "sub";
-            common["maxLevel"] = BuildIntProperty("maxLevel", Math.Max(1, PathConfig.DefaultSuperSpCarrierMaxLevel));
-            entry["common"] = common;
-
-            if (entry.ContainsKey("action"))
-                entry.Remove("action");
+            entry.Remove("action");
+            entry.Remove("info");
+            entry.Remove("level");
+            entry.Remove("req");
+            RemoveEffectEntries(entry);
 
             return entry;
         }
@@ -993,6 +991,8 @@ namespace SuperSkillTool
             entry["name"] = BuildStringProperty("name", sd.Name);
             if (!string.IsNullOrEmpty(sd.Desc))
                 entry["desc"] = BuildStringProperty("desc", sd.Desc);
+            if (!string.IsNullOrEmpty(sd.H))
+                entry["h"] = BuildStringProperty("h", sd.H);
 
             if (sd.HLevels != null)
             {
@@ -1011,7 +1011,85 @@ namespace SuperSkillTool
             entry["_dirType"] = "sub";
             entry["_superSkill"] = BuildIntProperty("_superSkill", 1);
             entry["name"] = BuildStringProperty("name", "Super SP");
+            entry["desc"] = BuildStringProperty("desc", "超级SP载体技能。");
+            entry["h1"] = BuildStringProperty("h1", "仅用于承载超级SP，不在技能栏显示。");
+            entry.Remove("h");
+            entry.Remove("pdesc");
+            entry.Remove("ph");
+            RemoveCarrierExtraHLevels(entry);
             return entry;
+        }
+
+        private static void PruneCarrierSkillEntry(Dictionary<string, object> entry)
+        {
+            if (entry == null)
+                return;
+
+            var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "_dirName",
+                "_dirType",
+                "_superSkill",
+                "icon",
+                "iconMouseOver",
+                "iconDisabled",
+                "common",
+                "invisible"
+            };
+
+            var remove = new List<string>();
+            foreach (var kv in entry)
+            {
+                if (string.IsNullOrEmpty(kv.Key))
+                    continue;
+                if (!keep.Contains(kv.Key))
+                    remove.Add(kv.Key);
+            }
+            foreach (string key in remove)
+                entry.Remove(key);
+        }
+
+        private static void RemoveCarrierExtraHLevels(Dictionary<string, object> entry)
+        {
+            if (entry == null)
+                return;
+
+            var remove = new List<string>();
+            foreach (var kv in entry)
+            {
+                if (string.IsNullOrEmpty(kv.Key))
+                    continue;
+                if (!kv.Key.StartsWith("h", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (string.Equals(kv.Key, "h1", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (kv.Key.Length > 1 && int.TryParse(kv.Key.Substring(1), out _))
+                    remove.Add(kv.Key);
+            }
+            foreach (string key in remove)
+                entry.Remove(key);
+        }
+
+        private static Dictionary<string, object> BuildCarrierCommonEntry()
+        {
+            int maxLevel = Math.Max(1, PathConfig.DefaultSuperSpCarrierMaxLevel);
+            var common = new Dictionary<string, object>();
+            common["_dirName"] = "common";
+            common["_dirType"] = "sub";
+            common["maxLevel"] = BuildIntProperty("maxLevel", maxLevel);
+            return common;
+        }
+
+        private static string BuildTransparentIconBase64()
+        {
+            using (var bmp = new Bitmap(32, 32, PixelFormat.Format32bppArgb))
+            using (var g = Graphics.FromImage(bmp))
+            using (var ms = new MemoryStream())
+            {
+                g.Clear(Color.Transparent);
+                bmp.Save(ms, ImageFormat.Png);
+                return Convert.ToBase64String(ms.ToArray());
+            }
         }
 
         private static Dictionary<string, object> BuildStringProperty(string name, string value)
@@ -1087,7 +1165,7 @@ namespace SuperSkillTool
             WzImage img = null;
             try
             {
-                fs = new FileStream(sourceImgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                fs = new FileStream(sourceImgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 img = new WzImage(sourceJobId + ".img", fs, WzMapleVersion.EMS);
                 if (!img.ParseImage(true))
                     return null;

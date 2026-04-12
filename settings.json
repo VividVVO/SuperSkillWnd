@@ -2,6 +2,7 @@
   "serverRootDir": "G:\\code\\server",
   "gameDataBaseDir": "G:\\code\\mxd\\Data",
   "outputDir": "G:\\code\\server\\output",
+  "configDataDir": "G:\\code\\Harepacker-resurrected-master\\SuperSkillTool",
   "serverWzRoot": "G:\\code\\server\\wz\\Skill.wz",
   "serverStringXml": "G:\\code\\server\\wz\\String.wz\\Skill.img.xml",
   "superSkillsServerJson": "G:\\code\\server\\super_skills_server.json",
@@ -12,10 +13,13 @@
   "serverTamingMobRoot": "G:\\code\\server\\wz\\TamingMob.wz",
   "defaultCharacterId": 13745,
   "defaultSuperSpCarrierSkillId": 1001999,
-  "defaultSuperSpCarrierMaxLevel": 32767,
+  "defaultSuperSpCarrierMaxLevel": 999,
   "knownCarrierSkillIds": [
     1001038,
     1001899,
-    1001999
+    1001999,
+    8001999,
+    10001999,
+    80001999
   ]
 }

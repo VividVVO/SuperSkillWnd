@@ -10,4 +10,9 @@
   <ItemGroup>
     <ProjectReference Include="..\MapleLib\MapleLib\MapleLib.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="repro_tmp*\**\*.cs" />
+    <EmbeddedResource Remove="repro_tmp*\**\*" />
+    <None Remove="repro_tmp*\**\*" />
+  </ItemGroup>
 </Project>

@@ -538,7 +538,7 @@ namespace SuperSkillTool
 
                 try
                 {
-                    fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                     wzImg = new WzImage(Path.GetFileName(imgPath), fs, candidate);
                     if (wzImg.ParseImage(true))
                     {

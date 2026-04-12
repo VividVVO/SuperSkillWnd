@@ -60,7 +60,7 @@ namespace SuperSkillTool
                 try
                 {
                     skillVersion = WzImageVersionHelper.DetectVersionForSkillImg(imgPath);
-                    fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                     wzImg = new WzImage(jobId + ".img", fs, skillVersion);
                     if (!wzImg.ParseImage(true))
                     {
@@ -86,6 +86,13 @@ namespace SuperSkillTool
                 int count = 0;
                 foreach (var sd in list)
                 {
+                    if (sd != null
+                        && string.Equals(sd.SourceLabel ?? "", "原生技能", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.WriteLine($"  [protect] Skip native skill {sd.SkillId} ({sd.Name})");
+                        continue;
+                    }
+
                     string idStr = sd.SkillId.ToString();
                     var existing = skillTop[idStr];
                     if (existing == null)
@@ -166,7 +173,7 @@ namespace SuperSkillTool
             try
             {
                 stringVersion = WzImageVersionHelper.DetectVersionForStringImg(imgPath);
-                fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 wzImg = new WzImage("Skill.img", fs, stringVersion);
                 if (!wzImg.ParseImage(true))
                 {

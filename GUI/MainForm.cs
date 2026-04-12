@@ -52,7 +52,11 @@ public class MainForm : Form
 			{
 				try
 				{
-					_tb.Invoke(delegate
+					if (!_tb.IsHandleCreated)
+					{
+						return;
+					}
+					_tb.BeginInvoke((Action)delegate
 					{
 						DoAppend(text);
 					});
@@ -353,6 +357,32 @@ public class MainForm : Form
 		"speed","jump","fs","swim","fatigue","continentMove","userSpeed","userJump"
 	};
 
+	private static readonly string[] BuiltinJobTextLines = new string[]
+	{
+		"新手(0)",
+		"战士(100)", "剑客(110)", "勇士(111)", "英雄(112)",
+		"准骑士(120)", "骑士(121)", "圣骑士(122)",
+		"枪战士(130)", "龙骑士(131)", "黑骑士(132)",
+		"魔法师(200)", "火毒巫师(210)", "火毒魔导师(211)", "火毒大魔导师(212)",
+		"冰雷巫师(220)", "冰雷魔导师(221)", "冰雷大魔导师(222)",
+		"牧师(230)", "祭司(231)", "主教(232)",
+		"弓箭手(300)", "猎人(310)", "射手(311)", "神射手(312)",
+		"弩弓手(320)", "游侠(321)", "箭神(322)",
+		"飞侠(400)", "刺客(410)", "无影人(411)", "隐士(412)",
+		"侠客(420)", "独行客(421)", "侠盗(422)",
+		"海盗(500)", "拳手(510)", "斗士(511)", "冲锋队长(512)",
+		"火枪手(520)", "大副(521)", "船长(522)",
+		"管理员(800)", "GM(900)",
+		"骑士团新手(1000)", "魂骑士1转(1100)", "魂骑士2转(1110)", "魂骑士3转(1111)", "魂骑士4转(1112)",
+		"炎术士1转(1200)", "炎术士2转(1210)", "炎术士3转(1211)", "炎术士4转(1212)",
+		"风灵使者1转(1300)", "风灵使者2转(1310)", "风灵使者3转(1311)", "风灵使者4转(1312)",
+		"夜行者1转(1400)", "夜行者2转(1410)", "夜行者3转(1411)", "夜行者4转(1412)",
+		"奇袭者1转(1500)", "奇袭者2转(1510)", "奇袭者3转(1511)", "奇袭者4转(1512)",
+		"战神(2000)", "龙神(2001)", "双弩精灵(2002)", "幻影(2003)", "隐月(2005)",
+		"恶魔猎手(3001)", "恶魔复仇者(3101)", "爆莉萌天使(6001)",
+		"神之子(10000)", "虎影(16000)"
+	};
+
 	private static readonly List<KeyValuePair<string, int>> JobList = LoadJobList();
 
 	private List<SkillDefinition> _pendingSkills = new List<SkillDefinition>();
@@ -567,6 +597,31 @@ public class MainForm : Form
 
 	private bool _hasManualEffectEdit;
 
+	private ComboBox cboAnimLevel;
+
+	private Button btnAddAnimLevel;
+
+	private Button btnRemoveAnimLevel;
+
+	private Button btnAddAnimNode;
+
+	private Button btnDeleteAnimNode;
+
+	private TextBox txtHTemplate;
+
+	private TextBox txtPDesc;
+
+	private TextBox txtPh;
+
+	private DataGridView dgvHLevels;
+
+	private TabControl tabTextEdit;
+	private Label lblTextMode;
+
+	private bool _suppressAnimLevelChange;
+
+	private int _executeBusy;
+
 	private ToolTip _toolTip;
 
 	private int _lastParamTipRow = -2;
@@ -604,6 +659,34 @@ public class MainForm : Form
 	private static List<KeyValuePair<string, int>> LoadJobList()
 	{
 		List<KeyValuePair<string, int>> list = new List<KeyValuePair<string, int>>();
+		HashSet<int> seen = new HashSet<int>();
+
+		void AddLine(string line)
+		{
+			if (string.IsNullOrWhiteSpace(line))
+			{
+				return;
+			}
+			string input = line.Trim().TrimEnd(',').TrimEnd(';');
+			Match match = Regex.Match(input, "^(.+?)\\((\\d+)\\)");
+			if (!match.Success)
+			{
+				return;
+			}
+			int value = int.Parse(match.Groups[2].Value);
+			if (seen.Add(value))
+			{
+				list.Add(new KeyValuePair<string, int>(match.Groups[1].Value + "(" + value + ")", value));
+			}
+		}
+
+		// 1) Built-in job text (hardcoded, no external dependency)
+		foreach (string line in (BuiltinJobTextLines ?? Array.Empty<string>()))
+		{
+			AddLine(line);
+		}
+
+		// 2) Optional external file merge (for custom naming)
 		string[] array = new string[5]
 		{
 			Path.Combine(PathConfig.ToolRoot, "职业ID.txt"),
@@ -625,15 +708,6 @@ public class MainForm : Form
 		{
 			return list;
 		}
-		void AddLine(string line)
-		{
-			string input = line.Trim().TrimEnd(',').TrimEnd(';');
-			Match match = Regex.Match(input, "^(.+?)\\((\\d+)\\)");
-			if (match.Success)
-			{
-				list.Add(new KeyValuePair<string, int>(match.Groups[1].Value + "(" + match.Groups[2].Value + ")", int.Parse(match.Groups[2].Value)));
-			}
-		}
 		foreach (string line in File.ReadAllLines(text, Encoding.UTF8))
 		{
 			AddLine(line);
@@ -654,6 +728,68 @@ public class MainForm : Form
 		return list;
 	}
 
+	private void RefreshJobIdComboItems()
+	{
+		List<KeyValuePair<string, int>> latest = LoadJobList();
+		if (latest == null || latest.Count == 0)
+		{
+			return;
+		}
+
+		int? oldJobId = null;
+		if (cboJobId != null)
+		{
+			int oldIndex = cboJobId.SelectedIndex;
+			if (oldIndex >= 0 && oldIndex < JobList.Count)
+			{
+				oldJobId = JobList[oldIndex].Value;
+			}
+		}
+
+		JobList.Clear();
+		JobList.AddRange(latest);
+
+		if (cboJobId == null)
+		{
+			return;
+		}
+
+		cboJobId.BeginUpdate();
+		try
+		{
+			cboJobId.Items.Clear();
+			foreach (KeyValuePair<string, int> job in JobList)
+			{
+				cboJobId.Items.Add(job.Key);
+			}
+
+			int targetIndex = -1;
+			if (oldJobId.HasValue)
+			{
+				for (int i = 0; i < JobList.Count; i++)
+				{
+					if (JobList[i].Value == oldJobId.Value)
+					{
+						targetIndex = i;
+						break;
+					}
+				}
+			}
+			if (targetIndex < 0 && JobList.Count > 0)
+			{
+				targetIndex = 0;
+			}
+			if (targetIndex >= 0)
+			{
+				cboJobId.SelectedIndex = targetIndex;
+			}
+		}
+		finally
+		{
+			cboJobId.EndUpdate();
+		}
+	}
+
 	public MainForm()
 	{
 		_wzLoader = new WzImgLoader();
@@ -662,6 +798,7 @@ public class MainForm : Form
 		Console.SetError(new TextBoxWriter(txtLog));
 		Console.WriteLine("[GUI] Build marker: 2026-04-08-param-tip-force-visible");
 		LoadConfigSnapshots();
+		RefreshJobIdComboItems();
 		LoadPendingFromJson();
 		LoadSuperSkillsFromImg();
 		LoadSkillLibrary(forceReload: true);
@@ -764,6 +901,7 @@ public class MainForm : Form
 		this.BuildTab3_Settings();
 		this.BuildTab4_MountEditor();
 		ConfigureToolTips();
+		RefreshAnimLevelSelector(preserveSelection: false);
 		RefreshEffectNodeSelector("effect", createIfMissing: true);
 		UpdateUndoRedoButtons();
 	}
@@ -1363,38 +1501,97 @@ public class MainForm : Form
 		int num10 = num + 8;
 		panel.Controls.Add(new Label
 		{
-			Text = "技能特效（拖入图片可添加帧）:",
+			Text = "动画编辑（拖入图片可添加帧）:",
 			Location = new Point(8, num10),
 			AutoSize = true
 		});
 		btnCopyEffects = new Button
 		{
-			Text = "从其他技能复制特效",
+			Text = "从其他技能复制",
 			Location = new Point(190, num10 - 3),
-			Width = 140
+			Width = 110
 		};
 		btnCopyEffects.Click += BtnCopyEffects_Click;
 		panel.Controls.Add(btnCopyEffects);
+		// Second row: level selector + node selector
+		int num10r2 = num10 + 22;
+		panel.Controls.Add(new Label
+		{
+			Text = "等级:",
+			Location = new Point(8, num10r2 + 3),
+			AutoSize = true
+		});
+		cboAnimLevel = new ComboBox
+		{
+			Location = new Point(43, num10r2),
+			Width = 90,
+			DropDownStyle = ComboBoxStyle.DropDownList
+		};
+		cboAnimLevel.SelectedIndexChanged += CboAnimLevel_SelectedIndexChanged;
+		panel.Controls.Add(cboAnimLevel);
+		btnAddAnimLevel = new Button
+		{
+			Text = "+",
+			Location = new Point(136, num10r2),
+			Size = new Size(22, 22),
+			ForeColor = Color.LimeGreen,
+			FlatStyle = FlatStyle.Flat,
+			Padding = Padding.Empty
+		};
+		btnAddAnimLevel.Click += BtnAddAnimLevel_Click;
+		panel.Controls.Add(btnAddAnimLevel);
+		btnRemoveAnimLevel = new Button
+		{
+			Text = "-",
+			Location = new Point(159, num10r2),
+			Size = new Size(22, 22),
+			ForeColor = Color.OrangeRed,
+			FlatStyle = FlatStyle.Flat,
+			Padding = Padding.Empty
+		};
+		btnRemoveAnimLevel.Click += BtnRemoveAnimLevel_Click;
+		panel.Controls.Add(btnRemoveAnimLevel);
 		panel.Controls.Add(new Label
 		{
 			Text = "节点:",
-			Location = new Point(340, num10),
+			Location = new Point(188, num10r2 + 3),
 			AutoSize = true
 		});
 		cboEffectNode = new ComboBox
 		{
-			Location = new Point(376, num10 - 6),
+			Location = new Point(223, num10r2),
 			Width = 90,
 			DropDownStyle = ComboBoxStyle.DropDownList
 		};
 		cboEffectNode.SelectedIndexChanged += CboEffectNode_SelectedIndexChanged;
 		panel.Controls.Add(cboEffectNode);
+		// Add/Delete node buttons next to node selector
+		btnAddAnimNode = new Button
+		{
+			Text = "+节点",
+			Location = new Point(317, num10r2),
+			Size = new Size(50, 22),
+			ForeColor = Color.LimeGreen
+		};
+		btnAddAnimNode.Click += BtnAddAnimNode_Click;
+		panel.Controls.Add(btnAddAnimNode);
+		btnDeleteAnimNode = new Button
+		{
+			Text = "-节点",
+			Location = new Point(369, num10r2),
+			Size = new Size(50, 22),
+			ForeColor = Color.OrangeRed
+		};
+		btnDeleteAnimNode.Click += BtnDeleteAnimNode_Click;
+		panel.Controls.Add(btnDeleteAnimNode);
+		int num10c = num10r2 + 26;
 		lvEffectFrames = new ListView
 		{
-			Location = new Point(8, num10 + 20),
+			Location = new Point(8, num10c),
 			Size = new Size(num12 - 102, 150),
 			View = View.Details,
 			FullRowSelect = true,
+			MultiSelect = true,
 			GridLines = true,
 			AllowDrop = true
 		};
@@ -1419,7 +1616,7 @@ public class MainForm : Form
 		panel.Controls.Add(lvEffectFrames);
 		_picEffectPreview = new PictureBox
 		{
-			Location = new Point(8 + num12 - 94, num10 + 20),
+			Location = new Point(8 + num12 - 94, num10c),
 			Size = new Size(90, 90),
 			SizeMode = PictureBoxSizeMode.Zoom,
 			BorderStyle = BorderStyle.FixedSingle,
@@ -1432,10 +1629,11 @@ public class MainForm : Form
 		panel.Controls.Add(new Label
 		{
 			Text = "预览",
-			Location = new Point(8 + num12 - 68, num10 + 114),
+			Location = new Point(8 + num12 - 68, num10c + 94),
 			AutoSize = true,
 			ForeColor = Color.Gray
 		});
+		// (Text editing TabControl is placed in right column — see below)
 		Label labelNodeTree = new Label
 		{
 			Text = "节点树（双击编辑值；右键菜单）:",
@@ -1497,6 +1695,193 @@ public class MainForm : Form
 		dgvLevelParams.MouseMove += DgvLevelParams_MouseMove;
 		dgvLevelParams.MouseLeave += DgvLevelParams_MouseLeave;
 		panel.Controls.Add(dgvLevelParams);
+
+		// ── Text editing section (right column, below params) ──
+		lblTextMode = new Label
+		{
+			Text = "技能文本:",
+			Location = new Point(num3, dgvLevelParams.Bottom + 8),
+			AutoSize = true,
+			Anchor = AnchorStyles.Top | AnchorStyles.Right
+		};
+		panel.Controls.Add(lblTextMode);
+
+		tabTextEdit = new TabControl
+		{
+			Location = new Point(num3, lblTextMode.Bottom + 4),
+			Size = new Size(rightEditorWidth, 200),
+			Font = new Font("Microsoft YaHei UI", 8.5f),
+			Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right
+		};
+		panel.Controls.Add(tabTextEdit);
+
+		// ── Tab 1: 通用文本 (h / pdesc / ph) ──
+		var tabGeneral = new TabPage("通用文本 (h/pdesc/ph)");
+		tabGeneral.BackColor = Color.FromArgb(45, 45, 45);
+		tabGeneral.ForeColor = Color.White;
+		tabTextEdit.TabPages.Add(tabGeneral);
+
+		int gY = 6;
+		var panelGeneral = new Panel
+		{
+			Dock = DockStyle.Fill,
+			BackColor = Color.FromArgb(45, 45, 45),
+			AutoScroll = true,
+			Padding = new Padding(4, 4, 4, 4)
+		};
+		tabGeneral.Controls.Add(panelGeneral);
+
+		panelGeneral.Controls.Add(new Label
+		{
+			Text = "h (模板描述):",
+			Location = new Point(0, gY),
+			AutoSize = true,
+			ForeColor = Color.FromArgb(180, 180, 180)
+		});
+		panelGeneral.Controls.Add(new Label
+		{
+			Text = "#mpCon #damage #time 等占位符。与 h1/h2 互斥",
+			Location = new Point(96, gY),
+			AutoSize = true,
+			ForeColor = Color.FromArgb(100, 100, 100),
+			Font = new Font("Microsoft YaHei UI", 7.5f)
+		});
+		gY += 18;
+		txtHTemplate = new TextBox
+		{
+			Location = new Point(0, gY),
+			Size = new Size(100, 36),
+			Multiline = true,
+			WordWrap = true,
+			BackColor = Color.FromArgb(35, 35, 35),
+			ForeColor = Color.FromArgb(220, 220, 220),
+			BorderStyle = BorderStyle.FixedSingle,
+			Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+		};
+		SetControlTip(txtHTemplate, "模板描述文本。例: 消耗MP#mpCon，在#time秒内物理防御力增加#pdd\n常见占位符: #mpCon #hpCon #time #damage #damage% #pdd #mdd #pad #mad #acc #eva #speed #jump #dot #dotTime");
+		panelGeneral.Controls.Add(txtHTemplate);
+		gY += 40;
+
+		panelGeneral.Controls.Add(new Label
+		{
+			Text = "pdesc:",
+			Location = new Point(0, gY),
+			AutoSize = true,
+			ForeColor = Color.FromArgb(180, 180, 180)
+		});
+		panelGeneral.Controls.Add(new Label
+		{
+			Text = "PvP / 特殊模式备用描述",
+			Location = new Point(48, gY),
+			AutoSize = true,
+			ForeColor = Color.FromArgb(100, 100, 100),
+			Font = new Font("Microsoft YaHei UI", 7.5f)
+		});
+		gY += 18;
+		txtPDesc = new TextBox
+		{
+			Location = new Point(0, gY),
+			Size = new Size(100, 20),
+			BackColor = Color.FromArgb(35, 35, 35),
+			ForeColor = Color.FromArgb(220, 220, 220),
+			BorderStyle = BorderStyle.FixedSingle,
+			Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+		};
+		SetControlTip(txtPDesc, "pdesc: 预览/PvP 模式下的备用技能描述文本");
+		panelGeneral.Controls.Add(txtPDesc);
+		gY += 24;
+
+		panelGeneral.Controls.Add(new Label
+		{
+			Text = "ph:",
+			Location = new Point(0, gY),
+			AutoSize = true,
+			ForeColor = Color.FromArgb(180, 180, 180)
+		});
+		panelGeneral.Controls.Add(new Label
+		{
+			Text = "与 pdesc 配套，可含占位符",
+			Location = new Point(30, gY),
+			AutoSize = true,
+			ForeColor = Color.FromArgb(100, 100, 100),
+			Font = new Font("Microsoft YaHei UI", 7.5f)
+		});
+		gY += 18;
+		txtPh = new TextBox
+		{
+			Location = new Point(0, gY),
+			Size = new Size(100, 20),
+			BackColor = Color.FromArgb(35, 35, 35),
+			ForeColor = Color.FromArgb(220, 220, 220),
+			BorderStyle = BorderStyle.FixedSingle,
+			Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+		};
+		SetControlTip(txtPh, "ph: 预览/PvP 模式下的详情模板，与 pdesc 配套。可用同类占位符");
+		panelGeneral.Controls.Add(txtPh);
+
+		// Size textboxes to fill panel width on first layout
+		panelGeneral.Layout += (s, e) =>
+		{
+			int w = panelGeneral.ClientSize.Width - 8;
+			if (w > 50)
+			{
+				txtHTemplate.Width = w;
+				txtPDesc.Width = w;
+				txtPh.Width = w;
+			}
+		};
+
+		// ── Tab 2: 等级描述 (h1/h2/h3...) ──
+		var tabHLevels = new TabPage("等级描述 (h1/h2/h3...)");
+		tabHLevels.BackColor = Color.FromArgb(45, 45, 45);
+		tabHLevels.ForeColor = Color.White;
+		tabTextEdit.TabPages.Add(tabHLevels);
+
+		var lblHLevelsHint = new Label
+		{
+			Text = "每个等级一条独立说明文本 h1/h2/h3...（与通用 h 互斥）",
+			Dock = DockStyle.Top,
+			Height = 20,
+			Padding = new Padding(4, 4, 0, 0),
+			ForeColor = Color.FromArgb(100, 100, 100),
+			Font = new Font("Microsoft YaHei UI", 7.5f)
+		};
+
+		dgvHLevels = new DataGridView
+		{
+			Dock = DockStyle.Fill,
+			ReadOnly = false,
+			AllowUserToAddRows = true,
+			AllowUserToDeleteRows = true,
+			RowHeadersVisible = false,
+			AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+			BackgroundColor = Color.FromArgb(45, 45, 45),
+			ForeColor = Color.White,
+			GridColor = Color.FromArgb(60, 60, 60)
+		};
+		dgvHLevels.Columns.Add("Key", "键 (h1/h2...)");
+		dgvHLevels.Columns.Add("Value", "文本内容");
+		dgvHLevels.Columns["Key"].FillWeight = 18;
+		dgvHLevels.Columns["Value"].FillWeight = 82;
+		dgvHLevels.DefaultCellStyle.BackColor = Color.FromArgb(45, 45, 45);
+		dgvHLevels.DefaultCellStyle.ForeColor = Color.White;
+		dgvHLevels.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(60, 60, 60);
+		dgvHLevels.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
+		dgvHLevels.EnableHeadersVisualStyles = false;
+
+		var hLevelsMenu = new ContextMenuStrip();
+		hLevelsMenu.Items.Add("添加一行 (下一个 h#)", null, HLevelsMenu_AddRow);
+		hLevelsMenu.Items.Add("批量添加 (按技能等级数)", null, HLevelsMenu_BatchAdd);
+		hLevelsMenu.Items.Add(new ToolStripSeparator());
+		hLevelsMenu.Items.Add("删除选中行", null, HLevelsMenu_DeleteRow);
+		hLevelsMenu.Items.Add("清空全部", null, HLevelsMenu_ClearAll);
+		hLevelsMenu.Items.Add(new ToolStripSeparator());
+		hLevelsMenu.Items.Add("从通用h模板复制到所有等级", null, HLevelsMenu_CopyFromTemplate);
+		dgvHLevels.ContextMenuStrip = hLevelsMenu;
+		// Dock order: Fill first, then Top (WinForms docks last-added first)
+		tabHLevels.Controls.Add(dgvHLevels);
+		tabHLevels.Controls.Add(lblHLevelsHint);
+
 		void LayoutRightEditorFill()
 		{
 			if (panel == null || treeSkillData == null || dgvLevelParams == null || _lblParamType == null || labelNodeTree == null)
@@ -1514,25 +1899,36 @@ public class MainForm : Form
 			int editorWidth = Math.Max(220, clientWidth - editorX - rightPadding);
 			int titleY = 43;
 			int treeTop = titleY + 20;
-			int bottom = Math.Max(treeTop + 260, clientHeight - 8);
+			int bottom = Math.Max(treeTop + 420, clientHeight - 8);
 			int paramLabelHeight = Math.Max(_lblParamType.Height, _lblParamType.PreferredHeight);
-			int minTreeHeight = 120;
-			int minParamHeight = 120;
+			int textLabelHeight = Math.Max(lblTextMode.Height, lblTextMode.PreferredHeight);
+			int minTreeHeight = 100;
+			int minParamHeight = 100;
+			int minTextHeight = 140;
 			int gapTreeToLabel = 8;
 			int gapLabelToGrid = 4;
-			int available = bottom - treeTop - gapTreeToLabel - paramLabelHeight - gapLabelToGrid;
-			if (available < minTreeHeight + minParamHeight)
+			int gapParamToTextLabel = 8;
+			int gapTextLabelToTab = 4;
+			int fixedGaps = gapTreeToLabel + paramLabelHeight + gapLabelToGrid
+				+ gapParamToTextLabel + textLabelHeight + gapTextLabelToTab;
+			int available = bottom - treeTop - fixedGaps;
+			if (available < minTreeHeight + minParamHeight + minTextHeight)
 			{
-				available = minTreeHeight + minParamHeight;
+				available = minTreeHeight + minParamHeight + minTextHeight;
 			}
-			int treeHeight = Math.Max(minTreeHeight, available / 2);
-			int paramHeight = Math.Max(minParamHeight, available - treeHeight);
+			// Split: tree ~30%, params ~35%, text ~35%
+			int treeHeight = Math.Max(minTreeHeight, available * 30 / 100);
+			int paramHeight = Math.Max(minParamHeight, available * 35 / 100);
+			int textHeight = Math.Max(minTextHeight, available - treeHeight - paramHeight);
 			labelNodeTree.Location = new Point(editorX, titleY);
 			treeSkillData.Location = new Point(editorX, treeTop);
 			treeSkillData.Size = new Size(editorWidth, treeHeight);
 			_lblParamType.Location = new Point(editorX, treeSkillData.Bottom + gapTreeToLabel);
 			dgvLevelParams.Location = new Point(editorX, _lblParamType.Bottom + gapLabelToGrid);
 			dgvLevelParams.Size = new Size(editorWidth, paramHeight);
+			lblTextMode.Location = new Point(editorX, dgvLevelParams.Bottom + gapParamToTextLabel);
+			tabTextEdit.Location = new Point(editorX, lblTextMode.Bottom + gapTextLabelToTab);
+			tabTextEdit.Size = new Size(editorWidth, textHeight);
 		}
 		panel.Resize += delegate
 		{
@@ -2450,6 +2846,7 @@ public class MainForm : Form
 			Dock = DockStyle.Fill,
 			View = View.Details,
 			FullRowSelect = true,
+			MultiSelect = true,
 			GridLines = true,
 			AllowDrop = true
 		};
@@ -2656,6 +3053,9 @@ public class MainForm : Form
 		int rowIndex = grid.CurrentCell.RowIndex;
 		if (rowIndex < 0 || rowIndex >= grid.Rows.Count || grid.Rows[rowIndex].IsNewRow)
 			return;
+		string key = grid.Rows[rowIndex].Cells[0].Value?.ToString() ?? "(空)";
+		if (MessageBox.Show($"确认删除参数 \"{key}\" 吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) != DialogResult.Yes)
+			return;
 		grid.Rows.RemoveAt(rowIndex);
 	}
 
@@ -2673,6 +3073,10 @@ public class MainForm : Form
 			if (row != null && !row.IsNewRow && row.Index >= 0)
 				rowIndexes.Add(row.Index);
 		}
+		if (rowIndexes.Count == 0)
+			return;
+		if (MessageBox.Show($"确认删除选中的 {rowIndexes.Count} 个参数吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) != DialogResult.Yes)
+			return;
 		rowIndexes.Sort();
 		rowIndexes.Reverse();
 		foreach (int idx in rowIndexes)
@@ -3696,11 +4100,32 @@ public class MainForm : Form
 		List<WzEffectFrame> frames = GetActiveMountFrames(createIfMissing: false);
 		if (frames == null || lvMountFrames == null || lvMountFrames.SelectedIndices.Count == 0)
 			return;
-		int idx = lvMountFrames.SelectedIndices[0];
-		if (idx < 0 || idx >= frames.Count) return;
-		frames.RemoveAt(idx);
+
+		List<int> indexes = new List<int>();
+		foreach (int idx in lvMountFrames.SelectedIndices)
+		{
+			if (idx >= 0 && idx < frames.Count)
+				indexes.Add(idx);
+		}
+		if (indexes.Count == 0)
+			return;
+		if (MessageBox.Show($"确认删除选中的 {indexes.Count} 帧吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) != DialogResult.Yes)
+			return;
+
+		indexes.Sort();
+		for (int i = indexes.Count - 1; i >= 0; i--)
+			frames.RemoveAt(indexes[i]);
+
 		ReindexEffectFrames(frames);
 		PopulateMountFrames(frames);
+		Console.WriteLine($"[坐骑编辑] 已删除 {indexes.Count} 帧");
+
+		int next = Math.Min(indexes[0], frames.Count - 1);
+		if (next >= 0 && next < lvMountFrames.Items.Count)
+		{
+			lvMountFrames.Items[next].Selected = true;
+			lvMountFrames.Items[next].Focused = true;
+		}
 	}
 
 	private void MountFrames_DragEnter(object sender, DragEventArgs e)
@@ -4591,6 +5016,7 @@ public class MainForm : Form
 			ProxySkillId = source.ProxySkillId,
 			VisualSkillId = source.VisualSkillId,
 			CloneFromSkillId = source.CloneFromSkillId,
+			PreserveClonedNode = source.PreserveClonedNode,
 			Action = source.Action,
 			InfoType = source.InfoType,
 			SourceLabel = source.SourceLabel,
@@ -4611,7 +5037,8 @@ public class MainForm : Form
 			MountJumpOverride = source.MountJumpOverride,
 			MountFatigueOverride = source.MountFatigueOverride,
 			SuperSpCarrierSkillId = source.SuperSpCarrierSkillId,
-			ServerEnabled = source.ServerEnabled
+			ServerEnabled = source.ServerEnabled,
+			HasManualEffectOverride = source.HasManualEffectOverride
 		};
 		if (source.Common != null)
 		{
@@ -5160,10 +5587,33 @@ public class MainForm : Form
 		return _deletedSkills.RemoveAll((SkillDefinition s) => s.SkillId == skillId);
 	}
 
+	private void QueueOldSkillWhenIdChanged(SkillDefinition oldSkill, SkillDefinition newSkill)
+	{
+		if (oldSkill == null || newSkill == null)
+		{
+			return;
+		}
+		if (oldSkill.SkillId <= 0 || newSkill.SkillId <= 0 || oldSkill.SkillId == newSkill.SkillId)
+		{
+			return;
+		}
+		QueueDeleteSkill(oldSkill);
+		Console.WriteLine($"[GUI] 技能ID已变更：{oldSkill.SkillId} -> {newSkill.SkillId}，已将旧ID加入删除队列");
+	}
+
 	private void QueueDeleteSkill(SkillDefinition skill)
 	{
 		_deletedSkills ??= new List<SkillDefinition>();
-		if (skill != null && !_deletedSkills.Any((SkillDefinition s) => s != null && s.SkillId == skill.SkillId))
+		if (skill == null)
+		{
+			return;
+		}
+		if (IsNativeSkillDeleteProtected(skill))
+		{
+			Console.WriteLine($"[GUI] 跳过删除队列：{skill.SkillId} ({skill.Name}) 为原版技能，仅从待执行列表移除。");
+			return;
+		}
+		if (!_deletedSkills.Any((SkillDefinition s) => s != null && s.SkillId == skill.SkillId))
 		{
 			_deletedSkills.Add(CloneSkillDefinition(skill));
 		}
@@ -5179,13 +5629,49 @@ public class MainForm : Form
 		_deletedSkills ??= new List<SkillDefinition>();
 		foreach (SkillDefinition skill in skills)
 		{
-			if (skill != null && !_deletedSkills.Any((SkillDefinition s) => s != null && s.SkillId == skill.SkillId))
+			if (skill == null)
+			{
+				continue;
+			}
+			if (IsNativeSkillDeleteProtected(skill))
+			{
+				Console.WriteLine($"[GUI] 跳过删除队列：{skill.SkillId} ({skill.Name}) 为原版技能，仅从待执行列表移除。");
+				continue;
+			}
+			if (!_deletedSkills.Any((SkillDefinition s) => s != null && s.SkillId == skill.SkillId))
 			{
 				_deletedSkills.Add(CloneSkillDefinition(skill));
 				num++;
 			}
 		}
 		return num;
+	}
+
+	private bool IsNativeSkillDeleteProtected(SkillDefinition skill)
+	{
+		if (skill == null || skill.SkillId <= 0)
+		{
+			return false;
+		}
+
+		// Fast path from queued metadata.
+		if (skill.ExistsInImg && string.Equals(skill.SourceLabel ?? "", "原生技能", StringComparison.OrdinalIgnoreCase))
+		{
+			return true;
+		}
+
+		// Safety fallback: query current .img marker.
+		try
+		{
+			if (_wzLoader != null && _wzLoader.SkillExistsInImg(skill.SkillId) && !_wzLoader.IsSuperSkill(skill.SkillId))
+			{
+				return true;
+			}
+		}
+		catch
+		{
+		}
+		return false;
 	}
 
 	private void SyncSkillIdFromJobAndNum()
@@ -5390,6 +5876,7 @@ public class MainForm : Form
 			PushUndoSnapshot();
 			_editState.LoadFromSkillData(wzSkillData);
 			_hasManualEffectEdit = false;
+			RefreshAnimLevelSelector(preserveSelection: false);
 			RefreshEffectNodeSelector("effect", createIfMissing: true);
 			int value = wzSkillData.JobId;
 			lblLoadStatus.Text = $"已加载 skill/{result}（来自 {PathConfig.SkillImgName(value)}）";
@@ -5456,7 +5943,9 @@ public class MainForm : Form
 			PopulateTreeView(wzSkillData.RootNode);
 			PopulateSkillParams(wzSkillData);
 			PopulateEffectFrames(_editState.EditedEffects);
-			Console.WriteLine($"[GUI] 已加载 skill/{result} (图标:{((wzSkillData.IconBitmap != null) ? "有" : "无")}, 通用参数:{wzSkillData.CommonParams?.Count ?? 0}, 等级数:{wzSkillData.LevelParams?.Count ?? 0}, 特效节点:{wzSkillData.EffectFramesByNode?.Count ?? 0}, 当前节点帧:{_editState.EditedEffects?.Count ?? 0})");
+			RefreshAnimLevelSelector(preserveSelection: false);
+			PopulateTextFields();
+			Console.WriteLine($"[GUI] 已加载 skill/{result} (图标:{((wzSkillData.IconBitmap != null) ? "有" : "无")}, 通用参数:{wzSkillData.CommonParams?.Count ?? 0}, 等级数:{wzSkillData.LevelParams?.Count ?? 0}, 特效节点:{wzSkillData.EffectFramesByNode?.Count ?? 0}, 当前节点帧:{_editState.EditedEffects?.Count ?? 0}, 等级动画:{wzSkillData.LevelAnimFramesByNode?.Count ?? 0})");
 		}
 		catch (Exception ex)
 		{
@@ -5840,45 +6329,63 @@ public class MainForm : Form
 		return int.TryParse(text, out index);
 	}
 
+	private static readonly (string baseName, int baseRank, bool canIndex)[] EffectNodeSortTable = new[]
+	{
+		("effect",     0, true),
+		("repeat",     2, true),
+		("ball",       4, true),
+		("hit",        6, false),
+		("prepare",    8, false),
+		("keydown",   10, true),
+		("keydownend",12, false),
+		("affected",  14, true),
+		("mob",       16, true),
+		("special",   18, true),
+		("screen",    20, false),
+		("tile",      22, true),
+		("finish",    24, true),
+	};
+
 	private static int CompareEffectNodeNames(string a, string b)
 	{
 		if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase))
-		{
 			return 0;
-		}
-		int num = GetEffectNodeSortRank(a, out var index);
-		int num2 = GetEffectNodeSortRank(b, out var index2);
-		if (num != num2)
-		{
-			return num.CompareTo(num2);
-		}
-		if (num == 1 || num == 3)
-		{
-			return index.CompareTo(index2);
-		}
+		int aRank = GetEffectNodeSortRank(a, out var aIndex);
+		int bRank = GetEffectNodeSortRank(b, out var bIndex);
+		if (aRank != bRank)
+			return aRank.CompareTo(bRank);
+		if (aIndex != int.MaxValue || bIndex != int.MaxValue)
+			return aIndex.CompareTo(bIndex);
 		return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
 	}
 
 	private static int GetEffectNodeSortRank(string name, out int index)
 	{
 		index = int.MaxValue;
-		if (string.Equals(name, "effect", StringComparison.OrdinalIgnoreCase))
+		if (string.IsNullOrWhiteSpace(name))
+			return 99;
+
+		if (name.StartsWith("hit/", StringComparison.OrdinalIgnoreCase))
 		{
-			return 0;
+			if (int.TryParse(name.Substring(4), out index))
+				return 6;
+			return 6;
 		}
-		if (TryParseIndexedEffectNodeName(name, "effect", out index))
+		if (string.Equals(name, "hit", StringComparison.OrdinalIgnoreCase))
 		{
-			return 1;
+			index = -1;
+			return 6;
 		}
-		if (string.Equals(name, "repeat", StringComparison.OrdinalIgnoreCase))
+
+		foreach (var (baseName, baseRank, canIndex) in EffectNodeSortTable)
 		{
-			return 2;
+			if (baseName == "hit") continue;
+			if (string.Equals(name, baseName, StringComparison.OrdinalIgnoreCase))
+				return baseRank;
+			if (canIndex && TryParseIndexedEffectNodeName(name, baseName, out index))
+				return baseRank + 1;
 		}
-		if (TryParseIndexedEffectNodeName(name, "repeat", out index))
-		{
-			return 3;
-		}
-		return 4;
+		return 99;
 	}
 
 	private List<WzEffectFrame> GetActiveEffectFrames(bool createIfMissing)
@@ -5894,8 +6401,7 @@ public class MainForm : Form
 
 	private void SetActiveEffectNode(string nodeName, bool createIfMissing)
 	{
-		_editState.SetSelectedEffectNode(nodeName, createIfMissing);
-		_editState.EditedEffects = _editState.GetSelectedEffectFrames(createIfMissing: false);
+		_editState.SetSelectedEffectNodeForActiveLevel(nodeName, createIfMissing);
 	}
 
 	private void RefreshEffectNodeSelector(string preferredNode = null, bool createIfMissing = true)
@@ -5905,11 +6411,11 @@ public class MainForm : Form
 			return;
 		}
 
-		List<string> effectNodeNames = _editState.GetEffectNodeNames();
+		List<string> effectNodeNames = _editState.GetActiveAnimNodeNames();
 		if (effectNodeNames.Count == 0 && createIfMissing)
 		{
-			_editState.SetSelectedEffectNode("effect", createIfMissing: true);
-			effectNodeNames = _editState.GetEffectNodeNames();
+			_editState.SetSelectedEffectNodeForActiveLevel("effect", createIfMissing: true);
+			effectNodeNames = _editState.GetActiveAnimNodeNames();
 		}
 		effectNodeNames.Sort(CompareEffectNodeNames);
 
@@ -5972,6 +6478,684 @@ public class MainForm : Form
 		}
 		SetActiveEffectNode(nodeName, createIfMissing: false);
 		PopulateEffectFrames(_editState.EditedEffects);
+	}
+
+	private void CboAnimLevel_SelectedIndexChanged(object sender, EventArgs e)
+	{
+		if (_suppressAnimLevelChange || cboAnimLevel == null || _editState == null)
+			return;
+		int idx = cboAnimLevel.SelectedIndex;
+		if (idx <= 0)
+		{
+			_editState.SetSelectedAnimLevel(null);
+		}
+		else
+		{
+			var levels = _editState.GetLevelsWithAnimFrames();
+			if (idx - 1 < levels.Count)
+				_editState.SetSelectedAnimLevel(levels[idx - 1]);
+			else
+				_editState.SetSelectedAnimLevel(null);
+		}
+		RefreshEffectNodeSelector(null, createIfMissing: false);
+		PopulateEffectFrames(_editState.EditedEffects);
+	}
+
+	/// <summary>
+	/// All known animation node families with Chinese descriptions.
+	/// canIndex: supports indexed siblings (effect0, effect1...).
+	/// canSubGroup: supports slash sub-groups (effect/0, effect/1...).
+	/// Both may be true — the actual pattern is determined by existing data.
+	/// </summary>
+	private static readonly (string baseName, string desc, bool canIndex, bool canSubGroup)[] AnimNodeFamilies = new[]
+	{
+		("effect",   "技能特效",       true,  true ),
+		("ball",     "弹道/飞行物",    true,  true ),
+		("hit",      "命中效果",       false, true ),
+		("repeat",   "循环特效",       true,  false),
+		("prepare",  "预备/蓄力前摇",  false, false),
+		("keydown",  "按键持续效果",   true,  false),
+		("keydownend","按键结束效果",   false, false),
+		("affected", "状态覆盖动画",   true,  true ),
+		("mob",      "怪物相关特效",   true,  false),
+		("special",  "特殊效果",       true,  true ),
+		("screen",   "全屏效果",       false, false),
+		("tile",     "地面效果",       true,  true ),
+		("finish",   "结束动画",       true,  true ),
+	};
+
+	/// <summary>
+	/// Build a smart list of suggested node names based on what already exists.
+	/// Rules:
+	/// - If "X/N" sub-groups exist, only suggest more "X/N+1" sub-groups (not X0 indexed siblings)
+	/// - If "X" exists as direct frames, suggest indexed siblings "X0" (not X/0 sub-groups)
+	/// - If nothing exists for this family, suggest the base name first
+	/// - If "X0" indexed siblings exist, don't suggest X/0 sub-groups
+	/// </summary>
+	private static List<(string key, string label)> BuildSmartNodeSuggestions(HashSet<string> existing)
+	{
+		var suggestions = new List<(string key, string label)>();
+
+		foreach (var (baseName, desc, canIndex, canSubGroup) in AnimNodeFamilies)
+		{
+			// Detect which pattern is already in use for this family
+			bool hasSubGroups = false;   // has baseName/N keys
+			bool hasBase = existing.Contains(baseName); // has base name as direct-frame node
+			bool hasIndexed = false;     // has baseNameN keys (effect0, effect1...)
+
+			foreach (var key in existing)
+			{
+				if (key.StartsWith(baseName + "/", StringComparison.OrdinalIgnoreCase))
+				{
+					hasSubGroups = true;
+				}
+				else if (key.Length > baseName.Length
+					&& key.StartsWith(baseName, StringComparison.OrdinalIgnoreCase)
+					&& !key.Equals(baseName, StringComparison.OrdinalIgnoreCase)
+					&& int.TryParse(key.Substring(baseName.Length), out _))
+				{
+					hasIndexed = true;
+				}
+			}
+
+			if (hasSubGroups)
+			{
+				// Sub-group pattern active: only suggest next sub-group
+				// Do NOT suggest base or indexed siblings
+				if (canSubGroup)
+				{
+					for (int i = 0; i <= 9; i++)
+					{
+						string key = baseName + "/" + i;
+						if (!existing.Contains(key))
+						{
+							suggestions.Add((key, $"{key} — {desc}(第{i + 1}组)"));
+							break;
+						}
+					}
+				}
+				continue;
+			}
+
+			if (hasBase || hasIndexed)
+			{
+				// Direct-frame or indexed pattern active
+				// Can add more indexed siblings, but NOT sub-groups
+				if (canIndex && !hasSubGroups)
+				{
+					for (int i = 0; i <= 9; i++)
+					{
+						string key = baseName + i;
+						if (!existing.Contains(key))
+						{
+							suggestions.Add((key, $"{key} — {desc}(第{i + 1}组)"));
+							break;
+						}
+					}
+				}
+				continue;
+			}
+
+			// Nothing exists for this family yet — offer base name
+			suggestions.Add((baseName, $"{baseName} — {desc}"));
+
+			// Also offer sub-group start if the family supports it
+			if (canSubGroup)
+			{
+				suggestions.Add((baseName + "/0", $"{baseName}/0 — {desc}(子分组模式)"));
+			}
+		}
+
+		return suggestions;
+	}
+
+	/// <summary>
+	/// Check if the proposed node name conflicts with existing naming patterns.
+	/// Returns an error message if there's a conflict, null if OK.
+	/// Rules:
+	/// - If sub-groups (X/N) exist for family X, cannot add indexed sibling (XN) or direct base (X)
+	/// - If direct base (X) or indexed siblings (XN) exist, cannot add sub-groups (X/N)
+	/// </summary>
+	private static string ValidateAnimNodeConflict(string proposed, HashSet<string> existing)
+	{
+		// Determine the family base name of the proposed node
+		string familyBase = null;
+		bool proposedIsSubGroup = false;   // X/N
+		bool proposedIsIndexed = false;    // XN
+
+		if (proposed.Contains("/"))
+		{
+			// Proposed is sub-group like "effect/0"
+			familyBase = proposed.Substring(0, proposed.IndexOf('/'));
+			proposedIsSubGroup = true;
+		}
+		else
+		{
+			// Check if it's an indexed name like "effect0"
+			foreach (var (baseName, _, canIndex, _) in AnimNodeFamilies)
+			{
+				if (canIndex && proposed.Length > baseName.Length
+					&& proposed.StartsWith(baseName, StringComparison.OrdinalIgnoreCase)
+					&& int.TryParse(proposed.Substring(baseName.Length), out _))
+				{
+					familyBase = baseName;
+					proposedIsIndexed = true;
+					break;
+				}
+				if (string.Equals(proposed, baseName, StringComparison.OrdinalIgnoreCase))
+				{
+					familyBase = baseName;
+					break;
+				}
+			}
+		}
+
+		if (familyBase == null)
+			return null; // Unknown family, no conflict rules apply
+
+		// Check existing nodes for conflicting patterns
+		bool existingHasSubGroups = false;
+		bool existingHasBase = existing.Contains(familyBase);
+		bool existingHasIndexed = false;
+
+		foreach (var key in existing)
+		{
+			if (key.StartsWith(familyBase + "/", StringComparison.OrdinalIgnoreCase))
+				existingHasSubGroups = true;
+			else if (key.Length > familyBase.Length
+				&& key.StartsWith(familyBase, StringComparison.OrdinalIgnoreCase)
+				&& !key.Equals(familyBase, StringComparison.OrdinalIgnoreCase)
+				&& int.TryParse(key.Substring(familyBase.Length), out _))
+				existingHasIndexed = true;
+		}
+
+		if (proposedIsSubGroup && (existingHasBase || existingHasIndexed))
+		{
+			return $"已存在 \"{familyBase}\" 的直接帧或索引节点（如 {familyBase}0），"
+				 + $"不能同时添加子分组节点 \"{proposed}\"。\n\n"
+				 + $"如果需要子分组模式，请先删除现有的 {familyBase} 系列节点。";
+		}
+
+		if ((proposedIsIndexed || string.Equals(proposed, familyBase, StringComparison.OrdinalIgnoreCase))
+			&& existingHasSubGroups)
+		{
+			return $"已存在 \"{familyBase}\" 的子分组节点（如 {familyBase}/0），"
+				 + $"不能同时添加直接帧或索引节点 \"{proposed}\"。\n\n"
+				 + $"如果需要索引模式，请先删除现有的 {familyBase}/N 系列节点。";
+		}
+
+		return null;
+	}
+
+	private void BtnAddAnimNode_Click(object sender, EventArgs e)
+	{
+		if (_editState == null) return;
+		var existing = new HashSet<string>(_editState.GetActiveAnimNodeNames(), StringComparer.OrdinalIgnoreCase);
+		var suggestions = BuildSmartNodeSuggestions(existing);
+
+		// Build picker dialog
+		using var form = new Form
+		{
+			Text = "添加动画节点",
+			ClientSize = new Size(380, 145),
+			StartPosition = FormStartPosition.CenterParent,
+			FormBorderStyle = FormBorderStyle.FixedDialog,
+			MaximizeBox = false,
+			MinimizeBox = false
+		};
+		form.Controls.Add(new Label { Text = "选择节点类型:", Location = new Point(10, 12), AutoSize = true });
+		var combo = new ComboBox
+		{
+			Location = new Point(10, 34),
+			Width = 360,
+			DropDownStyle = ComboBoxStyle.DropDownList
+		};
+		foreach (var item in suggestions)
+			combo.Items.Add(item.label);
+		combo.Items.Add("── 自定义名称 ──");
+		combo.SelectedIndex = 0;
+		form.Controls.Add(combo);
+
+		var txtCustom = new TextBox
+		{
+			Location = new Point(10, 64),
+			Width = 360,
+			PlaceholderText = "输入自定义节点名（如 effect2, hit/3, flipBall 等）",
+			Enabled = false
+		};
+		form.Controls.Add(txtCustom);
+		combo.SelectedIndexChanged += (s, ev) =>
+		{
+			txtCustom.Enabled = combo.SelectedIndex == combo.Items.Count - 1;
+			if (txtCustom.Enabled) txtCustom.Focus();
+		};
+
+		var btnOK = new Button { Text = "确定", Location = new Point(200, 105), Width = 80, DialogResult = DialogResult.OK };
+		var btnCancel = new Button { Text = "取消", Location = new Point(290, 105), Width = 80, DialogResult = DialogResult.Cancel };
+		form.Controls.AddRange(new Control[] { btnOK, btnCancel });
+		form.AcceptButton = btnOK;
+		form.CancelButton = btnCancel;
+
+		if (form.ShowDialog() != DialogResult.OK) return;
+
+		string selected;
+		if (combo.SelectedIndex == combo.Items.Count - 1)
+		{
+			selected = txtCustom.Text?.Trim().ToLowerInvariant();
+			if (string.IsNullOrWhiteSpace(selected)) return;
+		}
+		else if (combo.SelectedIndex >= 0 && combo.SelectedIndex < suggestions.Count)
+		{
+			selected = suggestions[combo.SelectedIndex].key;
+		}
+		else return;
+
+		if (existing.Contains(selected))
+		{
+			MessageBox.Show($"节点 \"{selected}\" 已存在。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+			return;
+		}
+
+		// Validate naming conflict rules for custom input
+		string conflictMsg = ValidateAnimNodeConflict(selected, existing);
+		if (conflictMsg != null)
+		{
+			MessageBox.Show(conflictMsg, "命名冲突", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+			return;
+		}
+
+		PushUndoSnapshot();
+		_editState.AddAnimNode(selected);
+		_hasManualEffectEdit = true;
+		RefreshEffectNodeSelector(selected, createIfMissing: false);
+		PopulateEffectFrames(_editState.EditedEffects);
+	}
+
+	private void BtnDeleteAnimNode_Click(object sender, EventArgs e)
+	{
+		if (_editState == null) return;
+		string current = _editState.SelectedEffectNodeName;
+		if (string.IsNullOrWhiteSpace(current)) return;
+		if (MessageBox.Show($"确定删除动画节点 \"{current}\" 及其所有帧吗？", "确认删除",
+			MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+			return;
+		PushUndoSnapshot();
+		_editState.DeleteAnimNode(current);
+		_hasManualEffectEdit = true;
+		RefreshEffectNodeSelector(null, createIfMissing: false);
+		PopulateEffectFrames(_editState.EditedEffects);
+	}
+
+	private void BtnAddAnimLevel_Click(object sender, EventArgs e)
+	{
+		if (_editState == null) return;
+		var existing = _editState.GetLevelsWithAnimFrames();
+		int nextLevel = existing.Count > 0 ? existing.Max() + 1 : 1;
+		string input = ShowInputBox("添加等级动画", $"输入等级编号 (1~30):", nextLevel.ToString());
+		if (string.IsNullOrWhiteSpace(input)) return;
+		if (!int.TryParse(input.Trim(), out int level) || level < 1 || level > 30)
+		{
+			MessageBox.Show("等级必须是 1~30 的整数。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+			return;
+		}
+		if (existing.Contains(level))
+		{
+			MessageBox.Show($"等级 {level} 已存在动画数据。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+			return;
+		}
+		PushUndoSnapshot();
+		if (_editState.EditedLevelAnimFramesByNode == null)
+			_editState.EditedLevelAnimFramesByNode = new Dictionary<int, Dictionary<string, List<WzEffectFrame>>>();
+		_editState.EditedLevelAnimFramesByNode[level] = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase)
+		{
+			["effect"] = new List<WzEffectFrame>()
+		};
+		_hasManualEffectEdit = true;
+		RefreshAnimLevelSelector(preserveSelection: false);
+		// Select the newly added level
+		_editState.SetSelectedAnimLevel(level);
+		_suppressAnimLevelChange = true;
+		try
+		{
+			var levels = _editState.GetLevelsWithAnimFrames();
+			int idx = levels.IndexOf(level);
+			if (idx >= 0)
+				cboAnimLevel.SelectedIndex = idx + 1;
+		}
+		finally
+		{
+			_suppressAnimLevelChange = false;
+		}
+		RefreshEffectNodeSelector("effect", createIfMissing: true);
+		PopulateEffectFrames(_editState.EditedEffects);
+	}
+
+	private void BtnRemoveAnimLevel_Click(object sender, EventArgs e)
+	{
+		if (_editState == null) return;
+		int? current = _editState.SelectedAnimLevel;
+		if (!current.HasValue)
+		{
+			MessageBox.Show("顶层(共享)不能删除，请先选择一个等级。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+			return;
+		}
+		if (MessageBox.Show($"确定删除等级 {current.Value} 的所有动画帧吗？", "确认删除",
+			MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+			return;
+		PushUndoSnapshot();
+		if (_editState.EditedLevelAnimFramesByNode != null)
+			_editState.EditedLevelAnimFramesByNode.Remove(current.Value);
+		_editState.SetSelectedAnimLevel(null);
+		_hasManualEffectEdit = true;
+		RefreshAnimLevelSelector(preserveSelection: false);
+		RefreshEffectNodeSelector(null, createIfMissing: false);
+		PopulateEffectFrames(_editState.EditedEffects);
+	}
+
+	private void RefreshAnimLevelSelector(bool preserveSelection = true)
+	{
+		if (cboAnimLevel == null || _editState == null) return;
+		int? prevLevel = preserveSelection ? _editState.SelectedAnimLevel : null;
+		_suppressAnimLevelChange = true;
+		try
+		{
+			cboAnimLevel.BeginUpdate();
+			cboAnimLevel.Items.Clear();
+			cboAnimLevel.Items.Add("顶层(共享)");
+			var levels = _editState.GetLevelsWithAnimFrames();
+			foreach (int lv in levels)
+			{
+				cboAnimLevel.Items.Add($"等级 {lv}");
+			}
+			if (prevLevel.HasValue && levels.Contains(prevLevel.Value))
+			{
+				cboAnimLevel.SelectedIndex = levels.IndexOf(prevLevel.Value) + 1;
+			}
+			else
+			{
+				// If top-level has no anim nodes but per-level does, auto-select first level
+				bool topLevelHasAnims = _editState.EditedEffectsByNode != null && _editState.EditedEffectsByNode.Count > 0;
+				if (!topLevelHasAnims && levels.Count > 0)
+					cboAnimLevel.SelectedIndex = 1; // first per-level entry
+				else
+					cboAnimLevel.SelectedIndex = 0;
+			}
+		}
+		finally
+		{
+			cboAnimLevel.EndUpdate();
+			_suppressAnimLevelChange = false;
+		}
+		// Sync editState to match the selected combo item
+		int selIdx = cboAnimLevel.SelectedIndex;
+		if (selIdx <= 0)
+		{
+			_editState.SetSelectedAnimLevel(null);
+		}
+		else
+		{
+			var lvs = _editState.GetLevelsWithAnimFrames();
+			if (selIdx - 1 < lvs.Count)
+				_editState.SetSelectedAnimLevel(lvs[selIdx - 1]);
+			else
+				_editState.SetSelectedAnimLevel(null);
+		}
+	}
+
+	private void PopulateTextFields()
+	{
+		if (_editState == null) return;
+		if (txtHTemplate != null) txtHTemplate.Text = _editState.EditedH ?? "";
+		if (txtPDesc != null) txtPDesc.Text = _editState.EditedPDesc ?? "";
+		if (txtPh != null) txtPh.Text = _editState.EditedPh ?? "";
+		PopulateHLevelsGrid();
+		UpdateTextModeLabel();
+	}
+
+	private void UpdateTextModeLabel()
+	{
+		if (lblTextMode == null) return;
+		var hLevels = _editState?.LoadedData?.HLevels;
+		bool hasH = !string.IsNullOrWhiteSpace(_editState?.EditedH);
+		bool hasPDesc = !string.IsNullOrWhiteSpace(_editState?.EditedPDesc);
+		bool hasPh = !string.IsNullOrWhiteSpace(_editState?.EditedPh);
+		bool hasHLevels = hLevels != null && hLevels.Count > 0;
+		if (hasH && !hasHLevels)
+			lblTextMode.Text = "技能文本: [模板模式 — 通用 h]";
+		else if (hasHLevels && !hasH)
+			lblTextMode.Text = $"技能文本: [等级模式 — h1~h{hLevels.Count}]";
+		else if (hasH && hasHLevels)
+			lblTextMode.Text = "技能文本: [混合模式 — h + h1~hN]";
+		else
+			lblTextMode.Text = "技能文本:";
+
+		// Update tab 1 title: show only fields that have content
+		if (tabTextEdit != null && tabTextEdit.TabPages.Count > 0)
+		{
+			var parts = new List<string>();
+			if (hasH) parts.Add("h");
+			if (hasPDesc) parts.Add("pdesc");
+			if (hasPh) parts.Add("ph");
+			tabTextEdit.TabPages[0].Text = parts.Count > 0
+				? $"通用文本 ({string.Join("/", parts)})"
+				: "通用文本";
+		}
+
+		// Update tab 2 title: show h-level range, truncate with ...
+		if (tabTextEdit != null && tabTextEdit.TabPages.Count > 1)
+		{
+			if (hasHLevels)
+			{
+				var keys = hLevels.Keys
+					.OrderBy(k => { string n = k.StartsWith("h", StringComparison.OrdinalIgnoreCase) ? k.Substring(1) : k; return int.TryParse(n, out int v) ? v : 9999; })
+					.ToList();
+				string summary;
+				if (keys.Count <= 3)
+					summary = string.Join("/", keys);
+				else
+					summary = $"{keys[0]}/{keys[1]}/{keys[2]}...";
+				tabTextEdit.TabPages[1].Text = $"等级描述 ({summary})";
+			}
+			else
+			{
+				tabTextEdit.TabPages[1].Text = "等级描述";
+			}
+		}
+	}
+
+	private void PopulateHLevelsGrid()
+	{
+		if (dgvHLevels == null) return;
+		dgvHLevels.Rows.Clear();
+		var hLevels = _editState?.LoadedData?.HLevels;
+		if (hLevels != null)
+		{
+			// Sort by numeric suffix so h1 < h2 < ... < h10 < h20
+			var sorted = hLevels.OrderBy(k =>
+			{
+				string numPart = k.Key.StartsWith("h", StringComparison.OrdinalIgnoreCase) ? k.Key.Substring(1) : k.Key;
+				return int.TryParse(numPart, out int n) ? n : 9999;
+			}).ToList();
+			foreach (var kv in sorted)
+			{
+				dgvHLevels.Rows.Add(kv.Key, kv.Value);
+			}
+		}
+	}
+
+	private void ClearTextFields()
+	{
+		if (txtHTemplate != null) txtHTemplate.Text = "";
+		if (txtPDesc != null) txtPDesc.Text = "";
+		if (txtPh != null) txtPh.Text = "";
+		if (dgvHLevels != null) dgvHLevels.Rows.Clear();
+		if (lblTextMode != null) lblTextMode.Text = "技能文本:";
+	}
+
+	private void CollectTextFieldsIntoEditState()
+	{
+		if (_editState == null) return;
+		_editState.EditedH = txtHTemplate?.Text?.Trim() ?? "";
+		_editState.EditedPDesc = txtPDesc?.Text?.Trim() ?? "";
+		_editState.EditedPh = txtPh?.Text?.Trim() ?? "";
+	}
+
+	private Dictionary<string, string> CollectHLevelsFromGrid()
+	{
+		if (dgvHLevels == null) return new Dictionary<string, string>();
+		var result = new Dictionary<string, string>();
+		foreach (DataGridViewRow row in dgvHLevels.Rows)
+		{
+			if (row.IsNewRow) continue;
+			string key = row.Cells["Key"].Value?.ToString()?.Trim() ?? "";
+			string val = row.Cells["Value"].Value?.ToString() ?? "";
+			if (!string.IsNullOrEmpty(key))
+				result[key] = val;
+		}
+		return result;
+	}
+
+	// ── hLevels grid right-click menu handlers ──
+
+	private int GetNextHLevelNumber()
+	{
+		int max = 0;
+		if (dgvHLevels == null) return 1;
+		foreach (DataGridViewRow row in dgvHLevels.Rows)
+		{
+			if (row.IsNewRow) continue;
+			string key = row.Cells["Key"].Value?.ToString()?.Trim() ?? "";
+			if (key.StartsWith("h", StringComparison.OrdinalIgnoreCase))
+			{
+				if (int.TryParse(key.Substring(1), out int n) && n > max)
+					max = n;
+			}
+		}
+		return max + 1;
+	}
+
+	private void HLevelsMenu_AddRow(object sender, EventArgs e)
+	{
+		if (dgvHLevels == null) return;
+		int next = GetNextHLevelNumber();
+		dgvHLevels.Rows.Add($"h{next}", "");
+		// Select the new row for immediate editing
+		int newIdx = dgvHLevels.Rows.Count - 2; // -2 because AllowUserToAddRows adds a blank row
+		if (newIdx >= 0 && newIdx < dgvHLevels.Rows.Count)
+		{
+			dgvHLevels.CurrentCell = dgvHLevels.Rows[newIdx].Cells["Value"];
+			dgvHLevels.BeginEdit(true);
+		}
+	}
+
+	private void HLevelsMenu_BatchAdd(object sender, EventArgs e)
+	{
+		if (dgvHLevels == null || _editState == null) return;
+
+		// Determine max level from level params
+		int maxLevel = 1;
+		if (_editState.EditedLevelParams != null)
+		{
+			foreach (var lv in _editState.EditedLevelParams.Keys)
+			{
+				if (lv > maxLevel) maxLevel = lv;
+			}
+		}
+		// Also check common params for maxLevel
+		if (_editState.LoadedData?.CommonParams != null
+			&& _editState.LoadedData.CommonParams.TryGetValue("maxLevel", out string mlStr)
+			&& int.TryParse(mlStr, out int ml) && ml > maxLevel)
+		{
+			maxLevel = ml;
+		}
+
+		string input = Microsoft.VisualBasic.Interaction.InputBox(
+			$"批量添加等级描述行。\n\n当前技能有 {maxLevel} 个等级。\n请输入要添加到第几级 (从 h1 开始):\n\n已存在的行不会被覆盖。",
+			"批量添加等级描述",
+			maxLevel.ToString());
+		if (string.IsNullOrWhiteSpace(input)) return;
+		if (!int.TryParse(input, out int count) || count <= 0) return;
+
+		// Collect existing keys
+		var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		foreach (DataGridViewRow row in dgvHLevels.Rows)
+		{
+			if (row.IsNewRow) continue;
+			string key = row.Cells["Key"].Value?.ToString()?.Trim() ?? "";
+			if (!string.IsNullOrEmpty(key)) existing.Add(key);
+		}
+
+		int added = 0;
+		for (int i = 1; i <= count; i++)
+		{
+			string key = $"h{i}";
+			if (!existing.Contains(key))
+			{
+				dgvHLevels.Rows.Add(key, "");
+				added++;
+			}
+		}
+		Console.WriteLine($"[文本编辑] 批量添加: 共添加 {added} 行 (h1~h{count})，跳过 {count - added} 行已存在");
+	}
+
+	private void HLevelsMenu_DeleteRow(object sender, EventArgs e)
+	{
+		if (dgvHLevels == null) return;
+		var selected = dgvHLevels.SelectedRows;
+		if (selected.Count == 0 && dgvHLevels.CurrentRow != null && !dgvHLevels.CurrentRow.IsNewRow)
+		{
+			string key = dgvHLevels.CurrentRow.Cells["Key"]?.Value?.ToString() ?? "(空)";
+			if (MessageBox.Show($"确认删除等级描述 \"{key}\" 吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) != DialogResult.Yes)
+				return;
+			dgvHLevels.Rows.Remove(dgvHLevels.CurrentRow);
+			return;
+		}
+		var toRemove = new List<DataGridViewRow>();
+		foreach (DataGridViewRow row in selected)
+		{
+			if (!row.IsNewRow) toRemove.Add(row);
+		}
+		if (toRemove.Count == 0) return;
+		if (MessageBox.Show($"确认删除选中的 {toRemove.Count} 行等级描述吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) != DialogResult.Yes)
+			return;
+		foreach (var row in toRemove)
+			dgvHLevels.Rows.Remove(row);
+	}
+
+	private void HLevelsMenu_ClearAll(object sender, EventArgs e)
+	{
+		if (dgvHLevels == null) return;
+		if (dgvHLevels.Rows.Count <= 1) return; // only the new-row placeholder
+		var result = MessageBox.Show("确定要清空所有等级描述吗？", "确认清空", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+		if (result == DialogResult.Yes)
+			dgvHLevels.Rows.Clear();
+	}
+
+	private void HLevelsMenu_CopyFromTemplate(object sender, EventArgs e)
+	{
+		if (dgvHLevels == null || txtHTemplate == null) return;
+		string template = txtHTemplate.Text?.Trim() ?? "";
+		if (string.IsNullOrEmpty(template))
+		{
+			MessageBox.Show("通用 h 模板为空，无法复制。\n请先在「通用文本」标签页填写 h 模板。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+			return;
+		}
+
+		int count = 0;
+		foreach (DataGridViewRow row in dgvHLevels.Rows)
+		{
+			if (row.IsNewRow) continue;
+			string val = row.Cells["Value"].Value?.ToString() ?? "";
+			if (string.IsNullOrWhiteSpace(val))
+			{
+				row.Cells["Value"].Value = template;
+				count++;
+			}
+		}
+		if (count > 0)
+			Console.WriteLine($"[文本编辑] 从 h 模板复制到 {count} 个空行");
+		else
+			MessageBox.Show("没有空行可以填充。如果要覆盖，请先清空对应行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
 	}
 
 	private static void ReindexEffectFrames(List<WzEffectFrame> frames)
@@ -6062,6 +7246,10 @@ public class MainForm : Form
 	private void TreeMenu_DeleteNode(object sender, EventArgs e)
 	{
 		if (treeSkillData.SelectedNode == null || !(treeSkillData.SelectedNode.Tag is WzNodeInfo item))
+		{
+			return;
+		}
+		if (MessageBox.Show($"确认删除节点 \"{item.Name}\" 吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) != DialogResult.Yes)
 		{
 			return;
 		}
@@ -6277,6 +7465,9 @@ public class MainForm : Form
 			int columnIndex = dgvLevelParams.CurrentCell.ColumnIndex;
 			if (columnIndex > 0)
 			{
+				string columnName = dgvLevelParams.Columns[columnIndex]?.Name ?? "(未命名)";
+				if (MessageBox.Show($"确认删除参数列 \"{columnName}\" 吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) != DialogResult.Yes)
+					return;
 				PushUndoSnapshot();
 				dgvLevelParams.Columns.RemoveAt(columnIndex);
 				SyncLevelParamsFromGrid();
@@ -6303,6 +7494,9 @@ public class MainForm : Form
 	{
 		if (dgvLevelParams.CurrentRow != null)
 		{
+			string levelName = dgvLevelParams.CurrentRow.Cells[0]?.Value?.ToString() ?? "(空)";
+			if (MessageBox.Show($"确认删除等级行 \"{levelName}\" 吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) != DialogResult.Yes)
+				return;
 			PushUndoSnapshot();
 			dgvLevelParams.Rows.Remove(dgvLevelParams.CurrentRow);
 			SyncLevelParamsFromGrid();
@@ -6459,14 +7653,21 @@ public class MainForm : Form
 				PushUndoSnapshot();
 				_editState.EditedEffectsByNode = dictionary;
 				_hasManualEffectEdit = true;
+				// Also copy per-level animation frames if present
+				if (wzSkillData.LevelAnimFramesByNode != null && wzSkillData.LevelAnimFramesByNode.Count > 0)
+				{
+					_editState.EditedLevelAnimFramesByNode = EditState.CloneLevelAnimFramesByNode(wzSkillData.LevelAnimFramesByNode);
+				}
 				RefreshEffectNodeSelector("effect", createIfMissing: true);
 				PopulateEffectFrames(_editState.EditedEffects);
+				RefreshAnimLevelSelector(preserveSelection: false);
 				int num = 0;
 				foreach (KeyValuePair<string, List<WzEffectFrame>> item in dictionary)
 				{
 					num += item.Value?.Count ?? 0;
 				}
-				Console.WriteLine($"[GUI] 已复制 {num} 帧特效（{dictionary.Count} 个节点），来源 skill/{result}");
+				int levelAnimCount = _editState.EditedLevelAnimFramesByNode?.Count ?? 0;
+				Console.WriteLine($"[GUI] 已复制 {num} 帧特效（{dictionary.Count} 个节点, {levelAnimCount} 个等级动画），来源 skill/{result}");
 			}
 			else
 			{
@@ -6634,7 +7835,7 @@ public class MainForm : Form
 		frame.Vectors = vectors;
 		frame.FrameProps = frameProps;
 		_hasManualEffectEdit = true;
-		PopulateEffectFrames(_editState.EditedEffects);
+		PopulateEffectFrames(GetActiveEffectFrames(createIfMissing: false));
 		if (index >= 0 && index < lvEffectFrames.Items.Count)
 		{
 			lvEffectFrames.Items[index].Selected = true;
@@ -6785,7 +7986,7 @@ public class MainForm : Form
 
 		root["vectors"] = vectors;
 		root["props"] = props;
-		return SimpleJson.Serialize(root);
+		return SimpleJson.Serialize(root, 2);
 	}
 
 	private static bool TryParseEffectFrameMetaJson(
@@ -6841,15 +8042,74 @@ public class MainForm : Form
 		{
 			return;
 		}
-		int num = lvEffectFrames.SelectedIndices[0];
-		if (num < activeEffectFrames.Count)
+
+		List<int> indexes = new List<int>();
+		foreach (int idx in lvEffectFrames.SelectedIndices)
 		{
-			PushUndoSnapshot();
-			activeEffectFrames.RemoveAt(num);
-			ReindexEffectFrames(activeEffectFrames);
-			_hasManualEffectEdit = true;
-			PopulateEffectFrames(activeEffectFrames);
+			if (idx >= 0 && idx < activeEffectFrames.Count)
+				indexes.Add(idx);
 		}
+		if (indexes.Count == 0)
+			return;
+		if (MessageBox.Show($"确认删除选中的 {indexes.Count} 帧吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) != DialogResult.Yes)
+			return;
+
+		PushUndoSnapshot();
+		indexes.Sort();
+		for (int i = indexes.Count - 1; i >= 0; i--)
+			activeEffectFrames.RemoveAt(indexes[i]);
+
+		ReindexEffectFrames(activeEffectFrames);
+		_hasManualEffectEdit = true;
+		PopulateEffectFrames(activeEffectFrames);
+		Console.WriteLine($"[GUI] 已删除 {indexes.Count} 帧");
+
+		int next = Math.Min(indexes[0], activeEffectFrames.Count - 1);
+		if (next >= 0 && next < lvEffectFrames.Items.Count)
+		{
+			lvEffectFrames.Items[next].Selected = true;
+			lvEffectFrames.Items[next].Focused = true;
+		}
+	}
+
+	private static bool StringDictEquals(Dictionary<string, string> left, Dictionary<string, string> right)
+	{
+		if (ReferenceEquals(left, right))
+		{
+			return true;
+		}
+		if (left == null || right == null || left.Count != right.Count)
+		{
+			return false;
+		}
+		foreach (KeyValuePair<string, string> item in left)
+		{
+			if (!right.TryGetValue(item.Key, out string value) || !string.Equals(item.Value ?? "", value ?? "", StringComparison.Ordinal))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private static bool LevelDictEquals(Dictionary<int, Dictionary<string, string>> left, Dictionary<int, Dictionary<string, string>> right)
+	{
+		if (ReferenceEquals(left, right))
+		{
+			return true;
+		}
+		if (left == null || right == null || left.Count != right.Count)
+		{
+			return false;
+		}
+		foreach (KeyValuePair<int, Dictionary<string, string>> item in left)
+		{
+			if (!right.TryGetValue(item.Key, out Dictionary<string, string> value) || !StringDictEquals(item.Value, value))
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private SkillDefinition BuildSkillFromForm()
@@ -7080,18 +8340,22 @@ public class MainForm : Form
 				skillDefinition.CloneFromSkillId = skillDefinition2.CloneFromSkillId;
 			}
 		}
-		bool hasIconOverride = _editState.IconOverride != null
-			|| _editState.IconMOOverride != null
-			|| _editState.IconDisOverride != null;
-		bool hasQueuedIconOverride = skillDefinition2 != null
-			&& (!string.IsNullOrEmpty(skillDefinition2.IconBase64)
-				|| !string.IsNullOrEmpty(skillDefinition2.IconMouseOverBase64)
-				|| !string.IsNullOrEmpty(skillDefinition2.IconDisabledBase64));
-		if (hasIconOverride || hasQueuedIconOverride)
+		// Always persist effective icons (override > loaded data).
+		// Otherwise "only change skillId then add to list" can accidentally drop icon fields.
+		string effectiveIconBase64 = _editState.GetEffectiveIconBase64();
+		string effectiveIconMOBase64 = _editState.GetEffectiveIconMOBase64();
+		string effectiveIconDisBase64 = _editState.GetEffectiveIconDisBase64();
+		if (!string.IsNullOrEmpty(effectiveIconBase64))
 		{
-			skillDefinition.IconBase64 = _editState.GetEffectiveIconBase64();
-			skillDefinition.IconMouseOverBase64 = _editState.GetEffectiveIconMOBase64();
-			skillDefinition.IconDisabledBase64 = _editState.GetEffectiveIconDisBase64();
+			skillDefinition.IconBase64 = effectiveIconBase64;
+		}
+		if (!string.IsNullOrEmpty(effectiveIconMOBase64))
+		{
+			skillDefinition.IconMouseOverBase64 = effectiveIconMOBase64;
+		}
+		if (!string.IsNullOrEmpty(effectiveIconDisBase64))
+		{
+			skillDefinition.IconDisabledBase64 = effectiveIconDisBase64;
 		}
 		string text2 = InferType(skillDefinition.ReleaseType, skillDefinition.Tab);
 		if (skillDefinition2 != null && string.Equals(skillDefinition2.Type, "newbie_level", StringComparison.OrdinalIgnoreCase))
@@ -7149,10 +8413,9 @@ public class MainForm : Form
 		{
 			skillDefinition.Type = "newbie_level";
 		}
-		bool hasQueuedEffectOverride = skillDefinition2 != null
-			&& ((skillDefinition2.CachedEffectsByNode != null && skillDefinition2.CachedEffectsByNode.Count > 0)
-				|| (skillDefinition2.CachedEffects != null && skillDefinition2.CachedEffects.Count > 0));
+		bool hasQueuedEffectOverride = skillDefinition2 != null && skillDefinition2.HasManualEffectOverride;
 		bool shouldPersistEffectOverrides = _hasManualEffectEdit || hasQueuedEffectOverride;
+		skillDefinition.HasManualEffectOverride = shouldPersistEffectOverrides;
 		if (shouldPersistEffectOverrides && _editState.EditedEffectsByNode != null && _editState.EditedEffectsByNode.Count > 0)
 		{
 			skillDefinition.CachedEffectsByNode = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
@@ -7223,6 +8486,51 @@ public class MainForm : Form
 		{
 			skillDefinition.Common["maxLevel"] = skillDefinition.MaxLevel.ToString();
 		}
+		// Collect text fields from UI
+		CollectTextFieldsIntoEditState();
+		if (!string.IsNullOrWhiteSpace(_editState.EditedH))
+			skillDefinition.H = _editState.EditedH;
+		if (!string.IsNullOrWhiteSpace(_editState.EditedPDesc))
+			skillDefinition.PDesc = _editState.EditedPDesc;
+		if (!string.IsNullOrWhiteSpace(_editState.EditedPh))
+			skillDefinition.Ph = _editState.EditedPh;
+		// Collect h-levels from grid
+		var gridHLevels = CollectHLevelsFromGrid();
+		if (gridHLevels.Count > 0)
+		{
+			skillDefinition.HLevels = gridHLevels;
+		}
+		// Collect per-level animation frames (always persist if present — not gated by manual edit flag)
+		if (_editState.EditedLevelAnimFramesByNode != null && _editState.EditedLevelAnimFramesByNode.Count > 0)
+		{
+			skillDefinition.LevelAnimFramesByNode = EditState.CloneLevelAnimFramesByNode(_editState.EditedLevelAnimFramesByNode);
+		}
+		bool isCloneSkill = skillDefinition.CloneFromSkillId > 0 && skillDefinition.CloneFromSkillId != skillDefinition.SkillId;
+		if (isCloneSkill)
+		{
+			bool preserveCloneNode = skillDefinition2?.PreserveClonedNode ?? true;
+			if (skillDefinition2 != null)
+			{
+				bool touchedStructurally = _hasManualEffectEdit
+					|| !string.Equals(skillDefinition.Action ?? "", skillDefinition2.Action ?? "", StringComparison.Ordinal)
+					|| skillDefinition.InfoType != skillDefinition2.InfoType
+					|| skillDefinition.MaxLevel != skillDefinition2.MaxLevel
+					|| !string.Equals(skillDefinition.IconBase64 ?? "", skillDefinition2.IconBase64 ?? "", StringComparison.Ordinal)
+					|| !string.Equals(skillDefinition.IconMouseOverBase64 ?? "", skillDefinition2.IconMouseOverBase64 ?? "", StringComparison.Ordinal)
+					|| !string.Equals(skillDefinition.IconDisabledBase64 ?? "", skillDefinition2.IconDisabledBase64 ?? "", StringComparison.Ordinal)
+					|| !StringDictEquals(skillDefinition.Common, skillDefinition2.Common)
+					|| !LevelDictEquals(skillDefinition.Levels, skillDefinition2.Levels);
+				if (touchedStructurally)
+				{
+					preserveCloneNode = false;
+				}
+			}
+			skillDefinition.PreserveClonedNode = preserveCloneNode;
+		}
+		else
+		{
+			skillDefinition.PreserveClonedNode = false;
+		}
 		skillDefinition.NormalizeTextFields();
 		return skillDefinition;
 	}
@@ -7241,6 +8549,7 @@ public class MainForm : Form
 		try
 		{
 			SkillDefinition skillDefinition = BuildSkillFromForm();
+			SkillDefinition oldSkill = _pendingSkills[value];
 			if (IsCarrierSkillId(skillDefinition.SkillId))
 			{
 				MessageBox.Show($"技能ID {skillDefinition.SkillId} 是载体技能ID，请在“设置”页维护，不加入列表。", "提示");
@@ -7255,6 +8564,7 @@ public class MainForm : Form
 				}
 			}
 			UpdateSourceLabel(skillDefinition);
+			QueueOldSkillWhenIdChanged(oldSkill, skillDefinition);
 			RemoveDeletedQueueBySkillId(skillDefinition.SkillId);
 			_pendingSkills[value] = skillDefinition;
 			RefreshListView();
@@ -7552,6 +8862,7 @@ public class MainForm : Form
 		try
 		{
 			SkillDefinition skillDefinition = BuildSkillFromForm();
+			SkillDefinition oldSkill = _pendingSkills[value];
 			if (IsCarrierSkillId(skillDefinition.SkillId))
 			{
 				MessageBox.Show($"技能ID {skillDefinition.SkillId} 是载体技能ID，请在“设置”页维护，不加入列表。", "提示");
@@ -7567,6 +8878,7 @@ public class MainForm : Form
 			}
 			UpdateSourceLabel(skillDefinition);
 			PushUndoSnapshot();
+			QueueOldSkillWhenIdChanged(oldSkill, skillDefinition);
 			RemoveDeletedQueueBySkillId(skillDefinition.SkillId);
 			_pendingSkills[value] = skillDefinition;
 			RefreshListView();
@@ -7670,8 +8982,9 @@ public class MainForm : Form
 			return;
 		}
 		SkillDefinition skillDefinition = _pendingSkills[num];
-		_hasManualEffectEdit = (skillDefinition.CachedEffectsByNode != null && skillDefinition.CachedEffectsByNode.Count > 0)
-			|| (skillDefinition.CachedEffects != null && skillDefinition.CachedEffects.Count > 0);
+		// Loading an item into editor should not be treated as a manual effect edit.
+		// Otherwise clone-save path may wrongly re-encode effect frames even when user changed nothing.
+		_hasManualEffectEdit = false;
 		Console.WriteLine($"[双击调试] 技能ID={skillDefinition.SkillId} 名称={skillDefinition.Name} 动作={skillDefinition.Action} 类型={skillDefinition.InfoType} 通用参数数={skillDefinition.Common?.Count ?? (-1)} H层级数={skillDefinition.HLevels?.Count ?? (-1)} 等级参数数={skillDefinition.Levels?.Count ?? (-1)} 缓存特效节点数={skillDefinition.CachedEffectsByNode?.Count ?? 0} 缓存当前特效帧数={skillDefinition.CachedEffects?.Count ?? (-1)} 缓存节点树={(skillDefinition.CachedTree != null)}");
 		txtSkillId.Text = skillDefinition.SkillId.ToString();
 		txtName.Text = skillDefinition.Name;
@@ -7757,10 +9070,21 @@ public class MainForm : Form
 				if (!string.IsNullOrEmpty(skillDefinition.PDesc))
 				{
 					_editState.LoadedData.PDesc = skillDefinition.PDesc;
+					_editState.EditedPDesc = skillDefinition.PDesc;
 				}
 				if (!string.IsNullOrEmpty(skillDefinition.Ph))
 				{
 					_editState.LoadedData.Ph = skillDefinition.Ph;
+					_editState.EditedPh = skillDefinition.Ph;
+				}
+				if (!string.IsNullOrEmpty(skillDefinition.H))
+				{
+					_editState.LoadedData.H = skillDefinition.H;
+					_editState.EditedH = skillDefinition.H;
+				}
+				if (skillDefinition.LevelAnimFramesByNode != null && skillDefinition.LevelAnimFramesByNode.Count > 0)
+				{
+					_editState.EditedLevelAnimFramesByNode = EditState.CloneLevelAnimFramesByNode(skillDefinition.LevelAnimFramesByNode);
 				}
 				if (skillDefinition.Common != null && skillDefinition.Common.Count > 0)
 				{
@@ -7843,8 +9167,10 @@ public class MainForm : Form
 					LevelParams = (dictionary ?? wzSkillData2.LevelParams)
 				};
 				PopulateSkillParams(data);
+				RefreshAnimLevelSelector(preserveSelection: false);
 				RefreshEffectNodeSelector("effect", createIfMissing: true);
 				PopulateEffectFrames(_editState.EditedEffects);
+				PopulateTextFields();
 				if (!string.IsNullOrEmpty(_editState.LoadedData?.Action))
 				{
 					lblAction.Text = "动作: " + _editState.LoadedData.Action;
@@ -7866,6 +9192,7 @@ public class MainForm : Form
 			{
 				treeSkillData.Nodes.Clear();
 			}
+			RefreshAnimLevelSelector(preserveSelection: false);
 			RefreshEffectNodeSelector("effect", createIfMissing: true);
 			if (_editState.EditedEffects != null && _editState.EditedEffects.Count > 0)
 			{
@@ -7875,6 +9202,7 @@ public class MainForm : Form
 			{
 				PopulateEffectFrames(null);
 			}
+			PopulateTextFields();
 		}
 		for (int i = 0; i < lvSkills.Items.Count; i++)
 		{
@@ -7960,13 +9288,24 @@ public class MainForm : Form
 		}
 		if (MessageBox.Show("确认执行：" + text + "?", "确认", MessageBoxButtons.YesNo) == DialogResult.Yes)
 		{
+			if (!TryBeginExecuteTask())
+			{
+				return;
+			}
 			PushUndoSnapshot();
 			bool skip = chkSkipImg.Checked;
 			List<SkillDefinition> skills = new List<SkillDefinition>(_pendingSkills);
 			List<SkillDefinition> deleted = new List<SkillDefinition>(_deletedSkills);
 			RunInThread(delegate
 			{
-				ExecuteAddAndDelete(skills, deleted, dryRun: false, skip);
+				try
+				{
+					ExecuteAddAndDelete(skills, deleted, dryRun: false, skip);
+				}
+				finally
+				{
+					EndExecuteTask();
+				}
 			});
 		}
 	}
@@ -7985,9 +9324,20 @@ public class MainForm : Form
 		bool skip = chkSkipImg.Checked;
 		List<SkillDefinition> skills = new List<SkillDefinition>(_pendingSkills);
 		List<SkillDefinition> deleted = new List<SkillDefinition>(_deletedSkills);
+		if (!TryBeginExecuteTask())
+		{
+			return;
+		}
 		RunInThread(delegate
 		{
-			ExecuteAddAndDelete(skills, deleted, dryRun: true, skip);
+			try
+			{
+				ExecuteAddAndDelete(skills, deleted, dryRun: true, skip);
+			}
+			finally
+			{
+				EndExecuteTask();
+			}
 		});
 	}
 
@@ -8006,7 +9356,7 @@ public class MainForm : Form
 			}
 			Console.WriteLine("================================================================");
 			Console.WriteLine(dryRun ? "  演练" : "  正式执行");
-			Console.WriteLine("  引擎版本: 2026-04-07-auto-create-imgxml-img");
+			Console.WriteLine("  引擎版本: 2026-04-12-png-raw-preserve");
 			Console.WriteLine("  运行目录: " + AppDomain.CurrentDomain.BaseDirectory);
 			Console.WriteLine("================================================================");
 			if (skills.Count > 0)
@@ -8031,6 +9381,8 @@ public class MainForm : Form
 					_wzLoader.ClearCache();
 				}
 				ImgWriteGenerator.Generate(skills, dryRun);
+				DllJsonGenerator.GenerateSkillImgJson(skills, dryRun);
+				DllJsonGenerator.GenerateStringImgJson(skills, dryRun);
 				MountResourceGenerator.Generate(skills, dryRun);
 				ConfigJsonGenerator.Generate(skills, dryRun);
 				SqlGenerator.Generate(skills, dryRun);
@@ -8050,6 +9402,8 @@ public class MainForm : Form
 					_wzLoader.ClearCache();
 				}
 				ImgDeleteGenerator.Delete(deletedSkills, dryRun);
+				DllJsonGenerator.RemoveSkillImgJson(deletedSkills, dryRun);
+				DllJsonGenerator.RemoveStringImgJson(deletedSkills, dryRun);
 				ConfigJsonGenerator.Remove(deletedSkills, dryRun);
 			}
 			Console.WriteLine("\n================================================================");
@@ -8231,6 +9585,7 @@ public class MainForm : Form
 		txtOutputDir.Text = PathConfig.OutputDir;
 		if (txtConfigDataDir != null) txtConfigDataDir.Text = PathConfig.ConfigDataDir;
 		LoadConfigSnapshots();
+		RefreshJobIdComboItems();
 		SettingsManager.Save();
 		LoadSkillLibrary(forceReload: true);
 		SyncCarrierSkillIdEditors();
@@ -8256,6 +9611,38 @@ public class MainForm : Form
 		});
 	}
 
+	private bool TryBeginExecuteTask()
+	{
+		if (Interlocked.CompareExchange(ref _executeBusy, 1, 0) != 0)
+		{
+			SafeInvoke(delegate
+			{
+				MessageBox.Show("已有执行任务正在进行，请稍候", "提示");
+			});
+			return false;
+		}
+		SafeInvoke(delegate
+		{
+			if (btnExecuteAdd != null)
+			{
+				btnExecuteAdd.Enabled = false;
+			}
+		});
+		return true;
+	}
+
+	private void EndExecuteTask()
+	{
+		Interlocked.Exchange(ref _executeBusy, 0);
+		SafeInvoke(delegate
+		{
+			if (btnExecuteAdd != null)
+			{
+				btnExecuteAdd.Enabled = true;
+			}
+		});
+	}
+
 	private void SafeInvoke(Action action)
 	{
 		if (base.InvokeRequired)
@@ -8273,7 +9660,7 @@ public class MainForm : Form
 		Form form = new Form
 		{
 			Text = title,
-			Size = new Size(350, 160),
+			Size = new Size(420, 170),
 			StartPosition = FormStartPosition.CenterParent,
 			FormBorderStyle = FormBorderStyle.FixedDialog,
 			MaximizeBox = false,
@@ -8283,28 +9670,32 @@ public class MainForm : Form
 		{
 			Text = prompt,
 			Location = new Point(10, 10),
+			MaximumSize = new Size(390, 0),
 			AutoSize = true
 		};
+		int inputY = Math.Max(50, label.PreferredHeight + 18);
 		TextBox textBox = new TextBox
 		{
-			Location = new Point(10, 50),
-			Width = 310,
+			Location = new Point(10, inputY),
+			Width = 380,
 			Text = defaultValue
 		};
+		int btnY = inputY + 35;
 		Button button = new Button
 		{
 			Text = "确定",
-			Location = new Point(150, 85),
+			Location = new Point(220, btnY),
 			Width = 80,
 			DialogResult = DialogResult.OK
 		};
 		Button button2 = new Button
 		{
 			Text = "取消",
-			Location = new Point(240, 85),
+			Location = new Point(310, btnY),
 			Width = 80,
 			DialogResult = DialogResult.Cancel
 		};
+		form.ClientSize = new Size(400, btnY + 40);
 		form.Controls.AddRange(label, textBox, button, button2);
 		form.AcceptButton = button;
 		form.CancelButton = button2;
@@ -8316,44 +9707,69 @@ public class MainForm : Form
 		Form form = new Form
 		{
 			Text = title,
-			Size = new Size(680, 560),
+			Size = new Size(760, 620),
 			StartPosition = FormStartPosition.CenterParent,
 			FormBorderStyle = FormBorderStyle.Sizable,
-			MinimizeBox = false
+			MinimizeBox = false,
+			KeyPreview = true
 		};
 		Label label = new Label
 		{
 			Text = prompt,
-			Location = new Point(12, 12),
+			Location = new Point(12, 10),
+			MaximumSize = new Size(720, 0),
 			AutoSize = true
 		};
+		int editorTop = label.Bottom + 8;
 		TextBox textBox = new TextBox
 		{
-			Location = new Point(12, 38),
-			Size = new Size(640, 430),
+			Location = new Point(12, editorTop),
+			Size = new Size(720, 520 - editorTop),
 			Multiline = true,
 			ScrollBars = ScrollBars.Both,
 			WordWrap = false,
 			AcceptsTab = true,
+			AcceptsReturn = true,
 			Font = new Font("Consolas", 10f),
 			Text = defaultValue ?? ""
 		};
+		textBox.Anchor = (AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right);
 		Button button = new Button
 		{
 			Text = "确定",
-			Location = new Point(482, 480),
+			Location = new Point(562, 548),
 			Width = 80,
 			DialogResult = DialogResult.OK
 		};
+		button.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
 		Button button2 = new Button
 		{
 			Text = "取消",
-			Location = new Point(572, 480),
+			Location = new Point(652, 548),
 			Width = 80,
 			DialogResult = DialogResult.Cancel
 		};
+		button2.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+		form.ClientSize = new Size(744, 582);
+		textBox.KeyDown += delegate(object sender, KeyEventArgs e)
+		{
+			if (e.Control && e.KeyCode == Keys.Enter)
+			{
+				e.SuppressKeyPress = true;
+				form.DialogResult = DialogResult.OK;
+				form.Close();
+			}
+		};
+		form.KeyDown += delegate(object sender, KeyEventArgs e)
+		{
+			if (e.KeyCode == Keys.Escape)
+			{
+				e.SuppressKeyPress = true;
+				form.DialogResult = DialogResult.Cancel;
+				form.Close();
+			}
+		};
 		form.Controls.AddRange(label, textBox, button, button2);
-		form.AcceptButton = button;
 		form.CancelButton = button2;
 		return (form.ShowDialog() == DialogResult.OK) ? textBox.Text : null;
 	}

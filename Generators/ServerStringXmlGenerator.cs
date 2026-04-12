@@ -86,13 +86,14 @@ namespace SuperSkillTool
             if (carrierId > 0)
             {
                 string carrierStr = FormatSkillKey(carrierId);
-                if (FindStringEntryBySkillId(root, carrierId) == null)
+                XmlElement carrierEntry = FindStringEntryBySkillId(root, carrierId) as XmlElement;
+                if (carrierEntry == null)
                 {
                     if (!dryRun)
                     {
-                        XmlElement carrierEntry = doc.CreateElement("imgdir");
+                        carrierEntry = doc.CreateElement("imgdir");
                         carrierEntry.SetAttribute("name", carrierStr);
-                        AppendStringNode(doc, carrierEntry, "name", "Super SP");
+                        EnsureCarrierStringEntry(doc, carrierEntry);
                         root.AppendChild(carrierEntry);
                         modified = true;
                         Console.WriteLine($"  [added] Carrier string entry {carrierStr}");
@@ -100,6 +101,14 @@ namespace SuperSkillTool
                     else
                     {
                         Console.WriteLine($"  [dry-run] Would add carrier string entry {carrierStr}");
+                    }
+                }
+                else if (!dryRun)
+                {
+                    if (EnsureCarrierStringEntry(doc, carrierEntry))
+                    {
+                        modified = true;
+                        Console.WriteLine($"  [write] Ensure carrier string entry {carrierStr}");
                     }
                 }
             }
@@ -131,6 +140,18 @@ namespace SuperSkillTool
                 // desc
                 if (!string.IsNullOrEmpty(sd.Desc))
                     AppendStringNode(doc, entry, "desc", sd.Desc);
+
+                // h template text (with #mpCon, #damage placeholders)
+                if (!string.IsNullOrEmpty(sd.H))
+                    AppendStringNode(doc, entry, "h", sd.H);
+
+                // pdesc
+                if (!string.IsNullOrEmpty(sd.PDesc))
+                    AppendStringNode(doc, entry, "pdesc", sd.PDesc);
+
+                // ph
+                if (!string.IsNullOrEmpty(sd.Ph))
+                    AppendStringNode(doc, entry, "ph", sd.Ph);
 
                 // hLevels
                 foreach (var kv in sd.HLevels)
@@ -190,6 +211,62 @@ namespace SuperSkillTool
             el.SetAttribute("name", name);
             el.SetAttribute("value", value);
             parent.AppendChild(el);
+        }
+
+        private static bool EnsureCarrierStringEntry(XmlDocument doc, XmlElement entry)
+        {
+            if (doc == null || entry == null)
+                return false;
+
+            bool changed = false;
+            changed |= EnsureStringNode(doc, entry, "name", "Super SP");
+            changed |= EnsureStringNode(doc, entry, "desc", "超级SP载体技能。");
+            changed |= EnsureStringNode(doc, entry, "h1", "仅用于承载超级SP，不在技能栏显示。");
+            changed |= EnsureIntNode(doc, entry, "_superSkill", 1);
+            return changed;
+        }
+
+        private static bool EnsureStringNode(XmlDocument doc, XmlElement parent, string name, string value)
+        {
+            return EnsureValueNode(doc, parent, "string", name, value ?? "");
+        }
+
+        private static bool EnsureIntNode(XmlDocument doc, XmlElement parent, string name, int value)
+        {
+            return EnsureValueNode(doc, parent, "int", name, value.ToString());
+        }
+
+        private static bool EnsureValueNode(XmlDocument doc, XmlElement parent, string tagName, string name, string value)
+        {
+            XmlElement existing = FindNamedElement(parent, tagName, name);
+            if (existing != null && string.Equals(existing.GetAttribute("value"), value, StringComparison.Ordinal))
+                return false;
+
+            XmlElement replacement = doc.CreateElement(tagName);
+            replacement.SetAttribute("name", name);
+            replacement.SetAttribute("value", value ?? "");
+            if (existing != null)
+                parent.ReplaceChild(replacement, existing);
+            else
+                parent.AppendChild(replacement);
+            return true;
+        }
+
+        private static XmlElement FindNamedElement(XmlElement parent, string tagName, string name)
+        {
+            if (parent == null || string.IsNullOrEmpty(tagName) || string.IsNullOrEmpty(name))
+                return null;
+
+            foreach (XmlNode child in parent.ChildNodes)
+            {
+                if (child.NodeType != XmlNodeType.Element)
+                    continue;
+                if (!string.Equals(child.Name, tagName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (child.Attributes?["name"]?.Value == name)
+                    return child as XmlElement;
+            }
+            return null;
         }
 
         private static XmlNode FindImgDir(XmlNode parent, string name)
@@ -282,7 +359,7 @@ namespace SuperSkillTool
                 EnsureDirectoryForFile(xmlPath);
                 BackupHelper.Backup(xmlPath);
 
-                fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 wzImg = new WzImage("Skill.img", fs, WzMapleVersion.EMS);
                 if (!wzImg.ParseImage(true))
                 {

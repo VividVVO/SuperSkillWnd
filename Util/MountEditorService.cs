@@ -662,7 +662,11 @@ namespace SuperSkillTool
                     continue;
 
                 var canvas = new WzCanvasProperty(i.ToString());
-                var png = new WzPngProperty { PNG = new Bitmap(frame.Bitmap) };
+                var png = new WzPngProperty();
+                using (var bmp = new Bitmap(frame.Bitmap))
+                {
+                    png.SetBitmapBgra4444(bmp);
+                }
                 canvas.PngProperty = png;
                 canvas.AddProperty(new WzIntProperty("delay", frame.Delay > 0 ? frame.Delay : 100));
 
@@ -822,7 +826,7 @@ namespace SuperSkillTool
                     continue;
                 try
                 {
-                    fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                     wzImg = new WzImage(Path.GetFileName(imgPath), fs, candidate);
                     if (wzImg.ParseImage(true))
                     {
