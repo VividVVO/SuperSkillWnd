@@ -29,3 +29,11 @@
 #define IDR_CURSOR_HOVER_B                127
 #define IDR_CURSOR_PRESSED                128
 #define IDR_CURSOR_DRAG                   129
+#define IDR_RESET_NOTICE_BG               130
+#define IDR_RESET_NOTICE_YES_NORMAL       131
+#define IDR_RESET_NOTICE_YES_MOUSEOVER    132
+#define IDR_RESET_NOTICE_YES_PRESSED      133
+#define IDR_RESET_NOTICE_NO_NORMAL        134
+#define IDR_RESET_NOTICE_NO_MOUSEOVER     135
+#define IDR_RESET_NOTICE_NO_PRESSED       136
+#define IDR_RESET_NOTICE_YES_DISABLED     137

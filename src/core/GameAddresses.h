@@ -244,6 +244,7 @@ const DWORD ADDR_StatusBar      = 0x00F6A18C;  // *(DWORD*)此地址 = StatusBar
 const DWORD ADDR_5E6F90         = 0x005E6F90;  // sub_5E6F90
 // 通用发包入口：栈参数 [esp+4]=packetData, [esp+8]=packetLen，packet[0..1]=opcode
 const DWORD ADDR_43D94D         = 0x0043D94D;  // send packet
+const DWORD ADDR_4D6A13         = 0x004D6A13;  // recv packet opcode dispatch prologue
 const DWORD ADDR_417240         = 0x00417240;  // COutPacket::Encode4 (__thiscall, push value)
 const DWORD ADDR_4D63A0         = 0x004D63A0;  // CWvsContext / network session send (__thiscall, push COutPacket*)
 const DWORD ADDR_750C20         = 0x00750C20;  // COutPacket ctor/init (__thiscall, push opcode)
@@ -257,9 +258,13 @@ const DWORD ADDR_4020B0         = 0x004020B0;  // game free (__thiscall ecx=ADDR
 // 00B31349: 技能释放分类根节点（完整 skillId 决策树入口）
 // 00B3144D: 技能释放高层分类分流块
 // 00B31722: 命中特定技能家族后的专门处理分支
-// 00B2F370: 技能释放大分支函数（独立函数入口，不能直接当作同函数内 label 跳转）
+// 00B2F370: 技能释放大分支函数（原 SkillWnd 双击会以 ECX=*(0x00F59FC0), push 0,0,0,skillId 调用）
 // 00ABAF70: 技能本地表现/特效分发表现函数（special_move 等最终会走到这里）
 // 007CE790/007D0000: 深层技能白名单判定（后续播放动画/效果链）
+// 004069E0: 坐骑特殊动作白名单（0042C300 的 case 51/52 会先经过这里）
+// 00406AB0: 坐骑隐藏动作白名单（0042C300 的 case 51/52 第二层表驱动白名单）
+// 007CF370: 飞行骑宠 itemId -> 原生飞行技能 ID 映射
+const DWORD ADDR_UserLocal      = 0x00F59FC0;  // 原生技能栏双击释放时作为 B2F370 的 this/ECX
 const DWORD ADDR_B2F370         = 0x00B2F370;
 const DWORD ADDR_B31349         = 0x00B31349;
 const DWORD ADDR_B3144D         = 0x00B3144D;
@@ -267,6 +272,12 @@ const DWORD ADDR_B31722         = 0x00B31722;
 const DWORD ADDR_ABAF70         = 0x00ABAF70;
 const DWORD ADDR_7CE790         = 0x007CE790;
 const DWORD ADDR_7D0000         = 0x007D0000;
+const DWORD ADDR_4069E0         = 0x004069E0;
+const DWORD ADDR_406AB0         = 0x00406AB0;
+const DWORD ADDR_7CF370         = 0x007CF370;
+const DWORD ADDR_7DC1B0         = 0x007DC1B0;
+const DWORD ADDR_7D4CA0         = 0x007D4CA0;
+const DWORD ADDR_7D4CD0         = 0x007D4CD0;
 
 // ============================================================================
 // 技能列表构建过滤点（sub_7DD420 LABEL_42 入口，技能加入 entries 前最后一刻）
@@ -274,3 +285,6 @@ const DWORD ADDR_7D0000         = 0x007D0000;
 const DWORD ADDR_7DD67D         = 0x007DD67D;  // LABEL_42: entries 加入入口
 const DWORD ADDR_7DD684         = 0x007DD684;  // LABEL_42 原始指令续接点
 const DWORD ADDR_7DD6E8         = 0x007DD6E8;  // loop continue（跳过当前技能）
+
+
+

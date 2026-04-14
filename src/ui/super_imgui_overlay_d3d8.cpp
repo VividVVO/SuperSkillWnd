@@ -5,7 +5,10 @@
 #include "d3d8/d3d8_renderer.h"
 #include "skill/skill_overlay_bridge.h"
 #include "ui/retro_skill_app.h"
+#include "ui/overlay_cursor_utils.h"
+#include "ui/overlay_input_utils.h"
 #include "ui/retro_skill_panel.h"
+#include "ui/overlay_style_utils.h"
 #include "ui/retro_skill_text_dwrite.h"
 
 #include "third_party/imgui/imgui.h"
@@ -13,7 +16,9 @@
 #include "third_party/imgui/backends/imgui_impl_win32.h"
 
 #include <cfloat>
+#include <cmath>
 #include <string>
+#include <cstdint>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -23,8 +28,14 @@ namespace
     {
         bool initialized = false;
         bool visible = false;
+        bool panelExpanded = false;
         bool mouseCapture = false;
         bool mouseHover = false;
+        bool superButtonVisible = false;
+        bool superButtonHover = false;
+        bool superButtonPressed = false;
+        bool superButtonToggleRequested = false;
+        bool superButtonHoverInstantUseNormal1 = false;
         bool cursorSuppressed = false;
         bool showCursorHidden = false;
         HWND hwnd = nullptr;
@@ -36,6 +47,8 @@ namespace
         float mainScale = 1.0f;
         int anchorX = -9999;
         int anchorY = -9999;
+        uint64_t superButtonHoverStartTick = 0;
+        RECT superButtonRect = { 0, 0, 0, 0 };
         RetroSkillRuntimeState state;
         RetroSkillAssets assets;
         RetroSkillBehaviorHooks hooks;
@@ -47,157 +60,254 @@ namespace
 
     bool IsMouseMessage(UINT msg)
     {
-        switch (msg)
-        {
-        case WM_MOUSEMOVE:
-        case WM_MOUSEWHEEL:
-        case WM_MOUSEHWHEEL:
-        case WM_LBUTTONDOWN:
-        case WM_LBUTTONUP:
-        case WM_LBUTTONDBLCLK:
-        case WM_RBUTTONDOWN:
-        case WM_RBUTTONUP:
-        case WM_RBUTTONDBLCLK:
-        case WM_MBUTTONDOWN:
-        case WM_MBUTTONUP:
-        case WM_MBUTTONDBLCLK:
-        case WM_XBUTTONDOWN:
-        case WM_XBUTTONUP:
-        case WM_XBUTTONDBLCLK:
-            return true;
-        default:
-            return false;
-        }
+        return OverlayIsMouseMessage(msg);
     }
 
     bool IsKeyboardMessage(UINT msg)
     {
-        switch (msg)
-        {
-        case WM_KEYDOWN:
-        case WM_KEYUP:
-        case WM_SYSKEYDOWN:
-        case WM_SYSKEYUP:
-        case WM_CHAR:
-        case WM_SYSCHAR:
-        case WM_IME_CHAR:
-            return true;
-        default:
-            return false;
-        }
+        return OverlayIsKeyboardMessage(msg);
     }
 
     bool IsMouseButtonMessage(UINT msg)
     {
-        switch (msg)
-        {
-        case WM_LBUTTONDOWN:
-        case WM_LBUTTONUP:
-        case WM_LBUTTONDBLCLK:
-        case WM_RBUTTONDOWN:
-        case WM_RBUTTONUP:
-        case WM_RBUTTONDBLCLK:
-        case WM_MBUTTONDOWN:
-        case WM_MBUTTONUP:
-        case WM_MBUTTONDBLCLK:
-        case WM_XBUTTONDOWN:
-        case WM_XBUTTONUP:
-        case WM_XBUTTONDBLCLK:
-            return true;
-        default:
-            return false;
-        }
+        return OverlayIsMouseButtonMessage(msg);
     }
 
     bool IsMouseButtonDownMessage(UINT msg)
     {
-        switch (msg)
-        {
-        case WM_LBUTTONDOWN:
-        case WM_LBUTTONDBLCLK:
-        case WM_RBUTTONDOWN:
-        case WM_RBUTTONDBLCLK:
-        case WM_MBUTTONDOWN:
-        case WM_MBUTTONDBLCLK:
-        case WM_XBUTTONDOWN:
-        case WM_XBUTTONDBLCLK:
-            return true;
-        default:
-            return false;
-        }
+        return OverlayIsMouseButtonDownMessage(msg);
     }
 
     bool IsMouseButtonUpMessage(UINT msg)
     {
-        switch (msg)
-        {
-        case WM_LBUTTONUP:
-        case WM_RBUTTONUP:
-        case WM_MBUTTONUP:
-        case WM_XBUTTONUP:
-            return true;
-        default:
-            return false;
-        }
+        return OverlayIsMouseButtonUpMessage(msg);
     }
 
     int ToImGuiMouseButton(UINT msg, WPARAM wParam)
     {
-        switch (msg)
-        {
-        case WM_LBUTTONDOWN:
-        case WM_LBUTTONUP:
-        case WM_LBUTTONDBLCLK:
-            return 0;
-        case WM_RBUTTONDOWN:
-        case WM_RBUTTONUP:
-        case WM_RBUTTONDBLCLK:
-            return 1;
-        case WM_MBUTTONDOWN:
-        case WM_MBUTTONUP:
-        case WM_MBUTTONDBLCLK:
-            return 2;
-        case WM_XBUTTONDOWN:
-        case WM_XBUTTONUP:
-        case WM_XBUTTONDBLCLK:
-            return (GET_XBUTTON_WPARAM(wParam) == XBUTTON1) ? 3 : 4;
-        default:
-            return -1;
-        }
+        return OverlayToImGuiMouseButton(msg, wParam);
     }
 
     bool GetClientMousePointFromMessage(HWND hwnd, UINT msg, LPARAM lParam, POINT* outPoint)
     {
-        if (!outPoint)
+        return OverlayGetClientMousePointFromMessage(hwnd, msg, lParam, outPoint);
+    }
+
+    RECT MakeRectXYWH(int x, int y, int w, int h)
+    {
+        RECT rc = { x, y, x + w, y + h };
+        return rc;
+    }
+
+    bool RectHasArea(const RECT& rc)
+    {
+        return rc.right > rc.left && rc.bottom > rc.top;
+    }
+
+    bool HasSuperButtonRect()
+    {
+        return g_overlay8.superButtonVisible && RectHasArea(g_overlay8.superButtonRect);
+    }
+
+    bool IsPointInsideSuperButton(int x, int y)
+    {
+        if (!HasSuperButtonRect())
             return false;
+        const RECT& rc = g_overlay8.superButtonRect;
+        return x >= rc.left && x < rc.right && y >= rc.top && y < rc.bottom;
+    }
 
-        auto getSignedX = [](LPARAM lp) -> LONG { return (LONG)(short)LOWORD(lp); };
-        auto getSignedY = [](LPARAM lp) -> LONG { return (LONG)(short)HIWORD(lp); };
+    void ResetSuperButtonState()
+    {
+        g_overlay8.superButtonHover = false;
+        g_overlay8.superButtonPressed = false;
+        g_overlay8.superButtonToggleRequested = false;
+        g_overlay8.superButtonHoverStartTick = 0;
+        g_overlay8.superButtonHoverInstantUseNormal1 = false;
+    }
 
-        POINT pt = {};
-        switch (msg)
+    void SetSuperButtonHoverState(bool hover)
+    {
+        if (g_overlay8.superButtonHover == hover)
+            return;
+
+        g_overlay8.superButtonHover = hover;
+        if (hover)
         {
-        case WM_MOUSEWHEEL:
-        case WM_MOUSEHWHEEL:
-            pt.x = getSignedX(lParam);
-            pt.y = getSignedY(lParam);
-            if (!hwnd || !::ScreenToClient(hwnd, &pt))
-                return false;
-            break;
-        default:
-            pt.x = getSignedX(lParam);
-            pt.y = getSignedY(lParam);
-            break;
+            g_overlay8.superButtonHoverStartTick = static_cast<uint64_t>(GetTickCount64());
+            g_overlay8.superButtonHoverInstantUseNormal1 = ((GetTickCount64() & 1ULL) != 0ULL);
+        }
+        else
+        {
+            g_overlay8.superButtonHoverStartTick = 0;
+            g_overlay8.superButtonHoverInstantUseNormal1 = false;
+        }
+    }
+
+    void RenderOverlaySuperButton()
+    {
+        if (!HasSuperButtonRect())
+            return;
+
+        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+        const ImVec2 minPos((float)g_overlay8.superButtonRect.left, (float)g_overlay8.superButtonRect.top);
+        const ImVec2 maxPos((float)g_overlay8.superButtonRect.right, (float)g_overlay8.superButtonRect.bottom);
+        if (!g_overlay8.superButtonVisible)
+        {
+            UITexture* disabled = GetRetroSkillTexture(g_overlay8.assets, "surpe.disabled");
+            if (disabled && disabled->texture)
+                drawList->AddImage((ImTextureID)disabled->texture, minPos, maxPos);
+            return;
         }
 
-        *outPoint = pt;
+        if (g_overlay8.superButtonPressed)
+        {
+            UITexture* pressed = GetRetroSkillTexture(g_overlay8.assets, "surpe.pressed");
+            if (!pressed || !pressed->texture)
+                pressed = GetRetroSkillTexture(g_overlay8.assets, "surpe.mouseOver");
+            if (!pressed || !pressed->texture)
+                pressed = GetRetroSkillTexture(g_overlay8.assets, "surpe.normal");
+            if (pressed && pressed->texture)
+                drawList->AddImage((ImTextureID)pressed->texture, minPos, maxPos);
+            return;
+        }
+
+        UITexture* normal = GetRetroSkillTexture(g_overlay8.assets, "surpe.normal");
+        UITexture* hover = GetRetroSkillTexture(g_overlay8.assets, "surpe.mouseOver");
+        if (normal && normal->texture)
+            drawList->AddImage((ImTextureID)normal->texture, minPos, maxPos);
+
+        if (g_overlay8.superButtonHover && hover && hover->texture)
+        {
+            const uint64_t nowTick = static_cast<uint64_t>(GetTickCount64());
+            const uint64_t hoverStartTick = g_overlay8.superButtonHoverStartTick ? g_overlay8.superButtonHoverStartTick : nowTick;
+            const float hoverElapsed = (float)(nowTick - hoverStartTick) / 1000.0f;
+            const float pulse = 0.70f + 0.30f * (0.5f + 0.5f * sinf(hoverElapsed * 7.2f));
+            const int alpha = (int)floorf(pulse * 255.0f + 0.5f);
+            drawList->AddImage((ImTextureID)hover->texture, minPos, maxPos, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32(255, 255, 255, alpha));
+            return;
+        }
+
+        if ((!normal || !normal->texture) && hover && hover->texture)
+            drawList->AddImage((ImTextureID)hover->texture, minPos, maxPos);
+    }
+
+    bool HandleOverlaySuperButtonMouseEvent(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+    {
+        UNREFERENCED_PARAMETER(wParam);
+
+        if (!HasSuperButtonRect())
+            return false;
+
+        if (msg == WM_CAPTURECHANGED || msg == WM_KILLFOCUS)
+        {
+            ResetSuperButtonState();
+            return false;
+        }
+        if (msg == WM_ACTIVATEAPP)
+        {
+            if (!wParam)
+                ResetSuperButtonState();
+            return false;
+        }
+
+        if (msg != WM_MOUSEMOVE && msg != WM_LBUTTONDOWN && msg != WM_LBUTTONUP)
+            return false;
+
+        POINT pt = {};
+        if (!GetClientMousePointFromMessage(hwnd, msg, lParam, &pt))
+            return false;
+
+        const bool hit = IsPointInsideSuperButton(pt.x, pt.y);
+        if (msg == WM_MOUSEMOVE)
+        {
+            if (g_overlay8.superButtonPressed || hit)
+            {
+                SetSuperButtonHoverState(hit);
+                return true;
+            }
+            SetSuperButtonHoverState(false);
+            return false;
+        }
+
+        if (msg == WM_LBUTTONDOWN)
+        {
+            if (!hit)
+                return false;
+            g_overlay8.superButtonPressed = true;
+            SetSuperButtonHoverState(true);
+            return true;
+        }
+
+        if (msg == WM_LBUTTONUP)
+        {
+            if (!g_overlay8.superButtonPressed)
+                return false;
+            g_overlay8.superButtonPressed = false;
+            SetSuperButtonHoverState(hit);
+            if (hit)
+                g_overlay8.superButtonToggleRequested = true;
+            return true;
+        }
+
+        return false;
+    }
+
+    bool GetResetConfirmRectForHitTest(RECT* outRect)
+    {
+        if (!outRect || !g_overlay8.state.superSkillResetConfirmVisible ||
+            g_overlay8.anchorX <= -9000 || g_overlay8.anchorY <= -9000)
+        {
+            return false;
+        }
+
+        const PanelMetrics metrics = GetPanelMetrics(g_overlay8.mainScale);
+        UITexture* noticeBg = GetRetroSkillTexture(g_overlay8.assets, "initial.backgrnd");
+        const float noticeWidth = ((noticeBg && noticeBg->width > 0) ? (float)noticeBg->width : 260.0f) * g_overlay8.mainScale;
+        const float noticeHeight = ((noticeBg && noticeBg->height > 0) ? (float)noticeBg->height : 131.0f) * g_overlay8.mainScale;
+        float noticeX = floorf((float)g_overlay8.anchorX + (metrics.width - noticeWidth) * 0.5f);
+        float noticeY = floorf((float)g_overlay8.anchorY + (metrics.height - noticeHeight) * 0.5f);
+
+        RECT clientRect = {};
+        if (g_overlay8.hwnd && ::GetClientRect(g_overlay8.hwnd, &clientRect))
+        {
+            const float clientW = (float)(clientRect.right - clientRect.left);
+            const float clientH = (float)(clientRect.bottom - clientRect.top);
+            if (noticeX < 0.0f)
+                noticeX = 0.0f;
+            if (noticeY < 0.0f)
+                noticeY = 0.0f;
+            if (noticeX + noticeWidth > clientW)
+                noticeX = floorf(clientW - noticeWidth);
+            if (noticeY + noticeHeight > clientH)
+                noticeY = floorf(clientH - noticeHeight);
+            if (noticeX < 0.0f)
+                noticeX = 0.0f;
+            if (noticeY < 0.0f)
+                noticeY = 0.0f;
+        }
+
+        *outRect = MakeRectXYWH(
+            (int)floorf(noticeX),
+            (int)floorf(noticeY),
+            (int)ceilf(noticeWidth),
+            (int)ceilf(noticeHeight));
         return true;
     }
 
     bool IsPointInsidePanel(int x, int y)
     {
+        if (IsPointInsideSuperButton(x, y))
+            return true;
         if (g_overlay8.anchorX <= -9000 || g_overlay8.anchorY <= -9000)
             return false;
+        RECT resetConfirmRect = {};
+        if (GetResetConfirmRectForHitTest(&resetConfirmRect) &&
+            x >= resetConfirmRect.left && x < resetConfirmRect.right &&
+            y >= resetConfirmRect.top && y < resetConfirmRect.bottom)
+        {
+            return true;
+        }
         const PanelMetrics metrics = GetPanelMetrics(g_overlay8.mainScale);
         return x >= g_overlay8.anchorX &&
                x < (int)(g_overlay8.anchorX + metrics.width) &&
@@ -215,12 +325,17 @@ namespace
 
     bool OverlayOwnsMouseInput()
     {
-        return g_overlay8.mouseCapture || g_overlay8.state.isDraggingSkill;
+        return g_overlay8.mouseCapture || g_overlay8.state.isDraggingSkill || g_overlay8.superButtonPressed;
     }
 
     bool IsOverlayWindowInteractive()
     {
         return g_overlay8.hwnd != nullptr;
+    }
+
+    bool IsGameWindowForeground()
+    {
+        return g_overlay8.hwnd && ::GetForegroundWindow() == g_overlay8.hwnd;
     }
 
     bool IsCurrentMouseInsidePanel()
@@ -246,11 +361,7 @@ namespace
 
     bool AreAnyPhysicalMouseButtonsDown()
     {
-        return ((::GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0) ||
-               ((::GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0) ||
-               ((::GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0) ||
-               ((::GetAsyncKeyState(VK_XBUTTON1) & 0x8000) != 0) ||
-               ((::GetAsyncKeyState(VK_XBUTTON2) & 0x8000) != 0);
+        return OverlayAreAnyPhysicalMouseButtonsDown();
     }
 
     bool ShouldUseOverlayCursor()
@@ -263,33 +374,11 @@ namespace
 
     void UpdateCursorSuppression(bool shouldSuppress)
     {
-        if (shouldSuppress)
-        {
-            if (!g_overlay8.cursorSuppressed)
-            {
-                g_overlay8.savedCursor = ::GetCursor();
-                g_overlay8.cursorSuppressed = true;
-            }
-            if (!g_overlay8.showCursorHidden)
-            {
-                while (::ShowCursor(FALSE) >= 0) {}
-                g_overlay8.showCursorHidden = true;
-            }
-            ::SetCursor(nullptr);
-            return;
-        }
-
-        if (g_overlay8.cursorSuppressed)
-        {
-            if (g_overlay8.showCursorHidden)
-            {
-                while (::ShowCursor(TRUE) < 0) {}
-                g_overlay8.showCursorHidden = false;
-            }
-            ::SetCursor(g_overlay8.savedCursor);
-            g_overlay8.savedCursor = nullptr;
-            g_overlay8.cursorSuppressed = false;
-        }
+        OverlayUpdateCursorSuppression(
+            g_overlay8.cursorSuppressed,
+            g_overlay8.showCursorHidden,
+            g_overlay8.savedCursor,
+            shouldSuppress);
     }
 
     bool FeedMouseEventToImGui(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -432,54 +521,6 @@ namespace
         }
     }
 
-    void ConfigureStyle(float mainScale)
-    {
-        ImGui::StyleColorsDark();
-        ImGuiStyle& style = ImGui::GetStyle();
-        style.ScaleAllSizes(mainScale);
-        style.FontScaleDpi = 1.0f;
-        style.WindowRounding = 0.0f;
-        style.FrameRounding = 2.0f * mainScale;
-        style.ScrollbarRounding = 2.0f * mainScale;
-        style.WindowBorderSize = 0.0f;
-        style.Colors[ImGuiCol_WindowBg] = ImVec4(0, 0, 0, 0);
-        style.Colors[ImGuiCol_Border] = ImVec4(0, 0, 0, 0);
-        style.Colors[ImGuiCol_Button] = ImVec4(0, 0, 0, 0);
-    }
-
-    void LoadMainFont(float mainScale)
-    {
-        ImGuiIO& io = ImGui::GetIO();
-        char winDir[MAX_PATH] = {};
-        GetWindowsDirectoryA(winDir, MAX_PATH);
-        std::string fontPath = std::string(winDir) + "\\Fonts\\msyh.ttc";
-
-        ImFontConfig fontConfig = {};
-        fontConfig.OversampleH = 1;
-        fontConfig.OversampleV = 1;
-        fontConfig.PixelSnapH = true;
-        g_overlay8.mainFont = io.Fonts->AddFontFromFileTTF(
-            fontPath.c_str(),
-            14.0f * mainScale,
-            &fontConfig,
-            io.Fonts->GetGlyphRangesChineseFull());
-
-        if (!g_overlay8.mainFont)
-            g_overlay8.mainFont = io.Fonts->AddFontDefault();
-
-        std::string consolasPath = std::string(winDir) + "\\Fonts\\times.ttf";
-        ImFontConfig consolasCfg = {};
-        consolasCfg.OversampleH = 1;
-        consolasCfg.OversampleV = 1;
-        consolasCfg.PixelSnapH = true;
-        static const ImWchar digitRanges[] = { 0x20, 0x7E, 0 };
-        g_overlay8.consolasFont = io.Fonts->AddFontFromFileTTF(
-            consolasPath.c_str(),
-            14.0f * mainScale,
-            &consolasCfg,
-            digitRanges);
-    }
-
     bool Reinitialize(HWND hwnd, void* device8, float mainScale, const char* assetPath)
     {
         if (g_overlay8.initialized)
@@ -502,8 +543,8 @@ namespace
         io.IniFilename = nullptr;
         io.MouseDrawCursor = false;
 
-        ConfigureStyle(g_overlay8.mainScale);
-        LoadMainFont(g_overlay8.mainScale);
+        OverlayConfigureImGuiStyle(g_overlay8.mainScale);
+        OverlayLoadMainAndConsolasFonts(g_overlay8.mainScale, &g_overlay8.mainFont, &g_overlay8.consolasFont);
 
         if (!ImGui_ImplWin32_Init(hwnd))
         {
@@ -571,14 +612,39 @@ void SuperD3D8OverlaySetVisible(bool visible)
     {
         g_overlay8.mouseCapture = false;
         g_overlay8.mouseHover = false;
+        ResetSuperButtonState();
         UpdateCursorSuppression(false);
     }
+}
+
+void SuperD3D8OverlaySetPanelExpanded(bool expanded)
+{
+    g_overlay8.panelExpanded = expanded;
 }
 
 void SuperD3D8OverlaySetAnchor(int x, int y)
 {
     g_overlay8.anchorX = x;
     g_overlay8.anchorY = y;
+}
+
+void SuperD3D8OverlaySetSuperButtonVisible(bool visible)
+{
+    g_overlay8.superButtonVisible = visible;
+    if (!visible)
+        ResetSuperButtonState();
+}
+
+void SuperD3D8OverlaySetSuperButtonRect(const RECT* rect)
+{
+    if (rect)
+    {
+        g_overlay8.superButtonRect = *rect;
+    }
+    else
+    {
+        SetRectEmpty(&g_overlay8.superButtonRect);
+    }
 }
 
 void SuperD3D8OverlayResetPanelState()
@@ -629,6 +695,13 @@ bool SuperD3D8OverlayHandleWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
     bool handledByImGui = false;
     bool messageInsidePanel = false;
 
+    if (HandleOverlaySuperButtonMouseEvent(hwnd, msg, wParam, lParam))
+    {
+        g_overlay8.mouseHover = g_overlay8.superButtonHover;
+        UpdateCursorSuppression(ShouldUseOverlayCursor());
+        return true;
+    }
+
     if (IsMouseMessage(msg))
         messageInsidePanel = IsPointInsidePanelClientRect(hwnd, msg, lParam);
 
@@ -671,51 +744,69 @@ void SuperD3D8OverlayRender(void* device8)
         return;
     if (!device8 || device8 != g_overlay8.device)
         return;
-    if (g_overlay8.anchorX <= -9000 || g_overlay8.anchorY <= -9000)
+    if (!HasSuperButtonRect() && (g_overlay8.anchorX <= -9000 || g_overlay8.anchorY <= -9000))
         return;
 
     ImGui::SetCurrentContext(g_overlay8.context);
     ImGuiIO& io = ImGui::GetIO();
     io.MouseDrawCursor = false;
+    const bool gameForeground = IsGameWindowForeground();
 
     if (g_overlay8.mouseCapture && !AreAnyPhysicalMouseButtonsDown())
         SuperD3D8OverlayCancelMouseCapture();
 
     ImGui_ImplD3D8_NewFrame();
     ImGui_ImplWin32_NewFrame();
+    if (!gameForeground)
+    {
+        io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+    }
     ImGui::NewFrame();
 
-    ImGui::SetNextWindowPos(ImVec2((float)g_overlay8.anchorX, (float)g_overlay8.anchorY), ImGuiCond_Always);
-    if (g_overlay8.mainFont)
-        ImGui::PushFont(g_overlay8.mainFont);
+    POINT mousePt = {};
+    const bool hasMousePt = TryGetCurrentMouseClientPos(&mousePt);
+    if (!g_overlay8.superButtonPressed)
+        SetSuperButtonHoverState(hasMousePt && IsPointInsideSuperButton(mousePt.x, mousePt.y));
 
-    SkillOverlayBridgeSyncRetroState(g_overlay8.state);
-    UpdateQuickSlotBarState(g_overlay8.state);
-    RenderRetroSkillPanel(g_overlay8.state, g_overlay8.assets, nullptr, g_overlay8.mainScale, &g_overlay8.hooks);
+    RenderOverlaySuperButton();
 
-    g_overlay8.mouseHover = IsCurrentMouseInsidePanel();
-    const bool shouldDrawOverlayCursor = g_overlay8.state.isDraggingSkill || g_overlay8.mouseHover || g_overlay8.mouseCapture;
-    if (shouldDrawOverlayCursor)
+    if (g_overlay8.panelExpanded && g_overlay8.anchorX > -9000 && g_overlay8.anchorY > -9000)
     {
-        POINT mousePt = {};
-        const bool hasMousePt = TryGetCurrentMouseClientPos(&mousePt);
-        const ImVec2 savedMousePos = io.MousePos;
-        if (hasMousePt)
-            io.MousePos = ImVec2((float)mousePt.x, (float)mousePt.y);
+        ImGui::SetNextWindowPos(ImVec2((float)g_overlay8.anchorX, (float)g_overlay8.anchorY), ImGuiCond_Always);
+        if (g_overlay8.mainFont)
+            ImGui::PushFont(g_overlay8.mainFont);
 
-        RenderRetroSkillCursorOverlay(g_overlay8.state, g_overlay8.assets, g_overlay8.mainScale);
-
-        if (hasMousePt)
-            io.MousePos = savedMousePos;
+        SkillOverlayBridgeSyncRetroState(g_overlay8.state);
+        UpdateQuickSlotBarState(g_overlay8.state);
+        RenderRetroSkillPanel(g_overlay8.state, g_overlay8.assets, nullptr, g_overlay8.mainScale, &g_overlay8.hooks);
     }
 
-    if (g_overlay8.mainFont)
+    g_overlay8.mouseHover = hasMousePt && IsPointInsidePanel(mousePt.x, mousePt.y);
+    const bool shouldDrawOverlayCursor = hasMousePt && (g_overlay8.state.isDraggingSkill || g_overlay8.mouseHover || g_overlay8.mouseCapture);
+    if (shouldDrawOverlayCursor)
+    {
+        const ImVec2 savedMousePos = io.MousePos;
+        io.MousePos = ImVec2((float)mousePt.x, (float)mousePt.y);
+
+        RenderRetroSkillCursorOverlay(
+            g_overlay8.state,
+            g_overlay8.assets,
+            g_overlay8.mainScale,
+            g_overlay8.superButtonHover,
+            g_overlay8.superButtonPressed,
+            g_overlay8.superButtonHoverStartTick,
+            g_overlay8.superButtonHoverInstantUseNormal1);
+
+        io.MousePos = savedMousePos;
+    }
+
+    if (g_overlay8.panelExpanded && g_overlay8.mainFont)
         ImGui::PopFont();
 
     ImGui::EndFrame();
 
-    g_overlay8.mouseCapture = io.WantCaptureMouse && IsOverlayWindowInteractive();
-    UpdateCursorSuppression(ShouldUseOverlayCursor());
+    g_overlay8.mouseCapture = gameForeground && io.WantCaptureMouse && IsOverlayWindowInteractive();
+    UpdateCursorSuppression(gameForeground && ShouldUseOverlayCursor());
 
     DWORD* vt = *(DWORD**)device8;
     auto fnBeginScene = (pfn_D3D8Scene)(void*)vt[D3D8VT::BeginScene];
@@ -752,6 +843,8 @@ void SuperD3D8OverlayCancelMouseCapture()
 
     g_overlay8.mouseCapture = false;
     g_overlay8.mouseHover = false;
+    g_overlay8.superButtonPressed = false;
+    g_overlay8.superButtonHover = false;
 
     if (g_overlay8.context)
     {
@@ -766,6 +859,13 @@ void SuperD3D8OverlayCancelMouseCapture()
     }
 
     UpdateCursorSuppression(false);
+}
+
+bool SuperD3D8OverlayConsumeToggleRequested()
+{
+    const bool requested = g_overlay8.superButtonToggleRequested;
+    g_overlay8.superButtonToggleRequested = false;
+    return requested;
 }
 
 HWND SuperD3D8OverlayGetGameHwnd()

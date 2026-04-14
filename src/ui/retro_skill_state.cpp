@@ -95,4 +95,15 @@ void ResetRetroSkillData(RetroSkillRuntimeState& state)
     state.quickSlotBarVisible = true;
     state.quickSlotBarAcceptDrop = true;
     state.quickSlotBarCollapsed = false;
+
+    state.superSkillResetConfirmVisible = false;
+    state.superSkillResetConfirmOpenRequested = false;
+    state.superSkillResetConfirmSpentSp = 0;
+    state.superSkillResetConfirmCostMeso = 0;
+    state.superSkillResetConfirmCostPending = false;
+    state.superSkillResetConfirmPreviewRequestRevision = 0;
+    state.superSkillResetConfirmPreviewRequestTick = 0;
+    state.superSkillResetPreviewSpentSp = 0;
+    state.superSkillResetPreviewCostMeso = 0;
+    state.superSkillResetPreviewRevision = 0;
 }

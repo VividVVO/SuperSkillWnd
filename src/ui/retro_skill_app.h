@@ -3,6 +3,7 @@
 #include "retro_skill_assets.h"
 #include "retro_skill_state.h"
 
+#include <cstdint>
 #include <d3d9.h>
 
 enum RetroSkillActionDecision {
@@ -28,6 +29,7 @@ struct RetroSkillActionContext {
 
 typedef RetroSkillActionDecision (*RetroSkillTabActionCallback)(const RetroSkillActionContext& context, void* userData);
 typedef RetroSkillActionDecision (*RetroSkillPlusActionCallback)(const RetroSkillActionContext& context, void* userData);
+typedef RetroSkillActionDecision (*RetroSkillInitPreviewActionCallback)(const RetroSkillActionContext& context, void* userData);
 typedef RetroSkillActionDecision (*RetroSkillInitActionCallback)(const RetroSkillActionContext& context, void* userData);
 typedef RetroSkillActionDecision (*RetroSkillSkillActionCallback)(const RetroSkillActionContext& context, void* userData);
 typedef RetroSkillActionDecision (*RetroSkillSkillDragEndCallback)(const RetroSkillActionContext& context, void* userData);
@@ -36,6 +38,7 @@ typedef RetroSkillActionDecision (*RetroSkillSkillUseCallback)(const RetroSkillA
 struct RetroSkillBehaviorHooks {
     RetroSkillTabActionCallback onTabAction = nullptr;
     RetroSkillPlusActionCallback onPlusAction = nullptr;
+    RetroSkillInitPreviewActionCallback onInitPreviewAction = nullptr;
     RetroSkillInitActionCallback onInitAction = nullptr;
     RetroSkillSkillActionCallback onSkillDragBegin = nullptr;
     RetroSkillSkillDragEndCallback onSkillDragEnd = nullptr;
@@ -46,6 +49,13 @@ struct RetroSkillBehaviorHooks {
 void InitializeRetroSkillApp(RetroSkillRuntimeState& state, RetroSkillAssets& assets, const RetroDeviceRef& deviceRef, const char* assetPath);
 void ShutdownRetroSkillApp(RetroSkillAssets& assets);
 void ConfigureRetroSkillDefaultBehaviorHooks(RetroSkillBehaviorHooks& hooks, RetroSkillRuntimeState& state);
-void RenderRetroSkillCursorOverlay(RetroSkillRuntimeState& state, RetroSkillAssets& assets, float mainScale);
+void RenderRetroSkillCursorOverlay(
+    RetroSkillRuntimeState& state,
+    RetroSkillAssets& assets,
+    float mainScale,
+    bool extraHoverAnimation = false,
+    bool extraPressed = false,
+    uint64_t extraHoverStartTick = 0,
+    bool extraHoverInstantUseNormal1 = false);
 void RenderRetroSkillScene(RetroSkillRuntimeState& state, RetroSkillAssets& assets, LPDIRECT3DDEVICE9 device, float mainScale);
 void RenderRetroSkillSceneEx(RetroSkillRuntimeState& state, RetroSkillAssets& assets, LPDIRECT3DDEVICE9 device, float mainScale, const RetroSkillBehaviorHooks* hooks);

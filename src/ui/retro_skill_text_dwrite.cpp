@@ -137,6 +137,23 @@ namespace
         return false;
     }
 
+    static bool IsBodyElevenPixelPunctuation(wchar_t ch)
+    {
+        if (IsFullWidthPunctuation(ch))
+            return true;
+
+        switch (ch)
+        {
+        case L',':
+        case L'.':
+        case L':':
+        case L';':
+            return true;
+        default:
+            return false;
+        }
+    }
+
     GlyphShapeClass ClassifyGlyphShape(wchar_t ch)
     {
         if (ch >= L'0' && ch <= L'9')
@@ -176,20 +193,24 @@ namespace
         case L'7':
         case L'8':
         case L'9':
-            *outWidth = ClampInt(sourceWidth, 1, 4);
+            *outWidth = ClampInt(sourceWidth, 1, 5);
             *outHeight = ClampInt(sourceHeight, 1, 12);
             return true;
         case 0x3002:
         case 0xFF0E:
+        case L'.':
             *outWidth = 4;
             *outHeight = ClampInt(sourceHeight, 1, 12);
             return true;
         case 0xFF0C:
         case 0x3001:
+        case L',':
             *outWidth = 2;
             *outHeight = ClampInt(sourceHeight, 1, 12);
             return true;
         case 0xFF1A:
+        case L':':
+        case L';':
             *outWidth = 2;
             *outHeight = ClampInt(sourceHeight, 1, 12);
             return true;
@@ -211,18 +232,53 @@ namespace
         if (ch == L'1')
             return 3;
 
-        return ClampInt(sourceWidth, 1, 4);
+        return ClampInt(sourceWidth, 1, 5);
     }
 
     int ResolveBodyGlyphCellWidth(const TextStyleKey& style, wchar_t ch)
     {
-        if (style.largeText || style.numeric)
+        if (style.numeric)
             return 0;
 
-        if (ch == 0xFF1A)
+        const GlyphShapeClass shape = ClassifyGlyphShape(ch);
+        if (style.largeText)
+            return (shape == GlyphShape_Cjk) ? 14 : 0;
+
+        if (IsBodyElevenPixelPunctuation(ch))
+            return 11;
+
+        if (shape == GlyphShape_Cjk)
             return 11;
 
         return 0;
+    }
+
+    int ResolveBodyGlyphCellOffsetX(const TextStyleKey& style, wchar_t ch, int cellWidth, int glyphWidth)
+    {
+        if (style.numeric || cellWidth <= glyphWidth)
+            return 0;
+
+        if (!style.largeText)
+        {
+            switch (ch)
+            {
+            case 0x3001:
+            case 0xFF0C:
+            case 0xFF1A:
+            case L',':
+            case L':':
+            case L';':
+                return 2;
+            case 0x3002:
+            case 0xFF0E:
+            case L'.':
+                return 3;
+            default:
+                break;
+            }
+        }
+
+        return (cellWidth - glyphWidth) / 2;
     }
 
     int ResolveBodyGlyphExtraLeftTrim(const TextStyleKey& style, wchar_t ch, int cropWidth)
@@ -234,6 +290,18 @@ namespace
             return 1;
 
         return 0;
+    }
+
+    int ResolveGlyphVerticalAdjustmentY(const TextStyleKey& style, wchar_t ch)
+    {
+        (void)style;
+        switch (ch)
+        {
+        case 0x4E00: // "一"
+            return -3;
+        default:
+            return 0;
+        }
     }
 
     void ResolveTargetGlyphSize(const TextStyleKey& style, wchar_t ch, int sourceWidth, int sourceHeight, int* outWidth, int* outHeight)
@@ -778,6 +846,8 @@ namespace
 
         int finalTextureWidth = targetWidth;
         int finalTextureHeight = targetHeight;
+        int bodyCellOffsetX = 0;
+        int bodyCellAdvance = 0;
         if (!style.largeText && ClassifyGlyphShape(ch) == GlyphShape_Digit)
         {
             const int numericCellWidth = style.numericCellWidth > 0 ? style.numericCellWidth : 5;
@@ -801,16 +871,10 @@ namespace
         const int bodyCellWidth = ResolveBodyGlyphCellWidth(style, ch);
         if (bodyCellWidth > finalTextureWidth)
         {
-            const int centeredOffsetX = (bodyCellWidth - finalTextureWidth) / 2;
-            pixels = PlacePixelsIntoCanvas(
-                pixels,
-                finalTextureWidth,
-                finalTextureHeight,
-                bodyCellWidth,
-                finalTextureHeight,
-                centeredOffsetX,
-                0);
-            finalTextureWidth = bodyCellWidth;
+            bodyCellOffsetX = ResolveBodyGlyphCellOffsetX(style, ch, bodyCellWidth, finalTextureWidth);
+            bodyCellAdvance = IsBodyElevenPixelPunctuation(ch)
+                ? (bodyCellWidth + bodyCellOffsetX)
+                : bodyCellWidth;
         }
 
         if (!CreateTextureFromArgbPixels(pixels, finalTextureWidth, finalTextureHeight, outGlyph))
@@ -818,14 +882,23 @@ namespace
 
         outGlyph->width = finalTextureWidth;
         outGlyph->height = finalTextureHeight;
-        outGlyph->advance = MaxInt(1, finalTextureWidth);
+        outGlyph->advance = bodyCellAdvance > 0 ? bodyCellAdvance : MaxInt(1, finalTextureWidth);
         if (outGlyph->advance <= 0)
             outGlyph->advance = finalTextureWidth;
-        outGlyph->offsetX = 0;
+        outGlyph->offsetX = bodyCellOffsetX;
         const GlyphShapeClass finalShape = ClassifyGlyphShape(ch);
-        outGlyph->offsetY = (style.largeText && finalShape != GlyphShape_Digit)
-            ? (font->metrics.tmAscent - finalTextureHeight)
-            : MaxInt(0, font->metrics.tmAscent - finalTextureHeight);
+        if (style.largeText)
+        {
+            const int largeTextBaseOffsetY = font->metrics.tmAscent - finalTextureHeight;
+            outGlyph->offsetY = (finalShape == GlyphShape_Digit)
+                ? (largeTextBaseOffsetY - 2)
+                : largeTextBaseOffsetY;
+        }
+        else
+        {
+            outGlyph->offsetY = MaxInt(0, font->metrics.tmAscent - finalTextureHeight);
+        }
+        outGlyph->offsetY += ResolveGlyphVerticalAdjustmentY(style, ch);
         outGlyph->whitespace = false;
         return true;
     }

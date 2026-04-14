@@ -30,6 +30,7 @@ internal sealed class SkillRecord
     public string HUtf8 { get; set; } = "";
     public string PdescUtf8 { get; set; } = "";
     public string PhUtf8 { get; set; } = "";
+    public int LevelTextCount { get; set; }
     public byte[] IconPngBytes { get; set; } = Array.Empty<byte>();
     public byte[] IconMouseOverPngBytes { get; set; } = Array.Empty<byte>();
     public byte[] IconDisabledPngBytes { get; set; } = Array.Empty<byte>();
@@ -370,7 +371,7 @@ internal sealed class SkillImageLoader : IDisposable
         record.IconPngBytes = SafeGetBitmapPng(skillNode, "icon");
         record.IconMouseOverPngBytes = SafeGetBitmapPng(skillNode, "iconMouseOver");
         record.IconDisabledPngBytes = SafeGetBitmapPng(skillNode, "iconDisabled");
-        record.MaxLevel = ExtractMaxLevel(skillNode, record.MaxLevel);
+        record.MaxLevel = ExtractMaxLevel(skillNode, record.MaxLevel, record.LevelTextCount);
         record.BehaviorKind = InferBehaviorKind(skillNode, record);
         ExtractLevelRecords(skillNode, record);
         return record;
@@ -395,7 +396,7 @@ internal sealed class SkillImageLoader : IDisposable
     private void LoadStringRecord(int skillId, SkillRecord record)
     {
         WzImage stringImage = GetOrLoadStringImage();
-        WzImageProperty? node = stringImage[skillId.ToString()] ?? stringImage[skillId.ToString("D7")];
+        WzImageProperty? node = FindStringNode(stringImage, skillId);
         if (node == null)
             return;
 
@@ -405,16 +406,22 @@ internal sealed class SkillImageLoader : IDisposable
         record.HUtf8 = ReadString(node["h"]);
         record.PdescUtf8 = ReadString(node["pdesc"]);
         record.PhUtf8 = ReadString(node["ph"]);
+        record.LevelTextCount = CountLevelTextNodes(node);
     }
 
     private WzImageProperty? TryGetSkillNode(int skillId)
     {
         int jobId = skillId / 10000;
-        string skillPath = "skill/" + skillId;
         try
         {
             WzImage image = GetOrLoadSkillImage(jobId);
-            return image.GetFromPath(skillPath);
+            foreach (string key in SkillKeyCandidates(skillId))
+            {
+                WzImageProperty? node = image.GetFromPath("skill/" + key);
+                if (node != null)
+                    return node;
+            }
+            return null;
         }
         catch
         {
@@ -444,19 +451,94 @@ internal sealed class SkillImageLoader : IDisposable
         if (_skillImages.TryGetValue(jobId, out WzImage? cached))
             return cached;
 
-        string path = Path.Combine(_skillDir, jobId + ".img");
+        string path = Path.Combine(_skillDir, SkillImgName(jobId));
         if (!File.Exists(path))
             throw new FileNotFoundException("Skill .img not found", path);
 
         WzMapleVersion version = WzImageVersionHelper.DetectVersionForSkillImg(path);
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        var image = new WzImage(jobId + ".img", stream, version);
+        var image = new WzImage(Path.GetFileName(path), stream, version);
         if (!image.ParseImage(true))
             throw new InvalidDataException("Failed to parse " + path);
 
         _skillStreams[jobId] = stream;
         _skillImages[jobId] = image;
         return image;
+    }
+
+    private WzImageProperty? FindStringNode(WzImage stringImage, int skillId)
+    {
+        foreach (string key in SkillKeyCandidates(skillId))
+        {
+            WzImageProperty? node = stringImage[key];
+            if (node != null)
+                return node;
+        }
+        return null;
+    }
+
+    private string SkillImgName(int jobId)
+    {
+        string plain = jobId + ".img";
+        string d3 = jobId.ToString("D3", CultureInfo.InvariantCulture) + ".img";
+        string d4 = jobId.ToString("D4", CultureInfo.InvariantCulture) + ".img";
+        string preferred = jobId < 1000 ? d3 : plain;
+
+        string preferredPath = Path.Combine(_skillDir, preferred);
+        if (File.Exists(preferredPath))
+            return preferred;
+
+        if (!string.Equals(d3, preferred, StringComparison.OrdinalIgnoreCase))
+        {
+            string d3Path = Path.Combine(_skillDir, d3);
+            if (File.Exists(d3Path))
+                return d3;
+        }
+
+        if (!string.Equals(plain, preferred, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(plain, d3, StringComparison.OrdinalIgnoreCase))
+        {
+            string plainPath = Path.Combine(_skillDir, plain);
+            if (File.Exists(plainPath))
+                return plain;
+        }
+
+        if (!string.Equals(d4, preferred, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(d4, plain, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(d4, d3, StringComparison.OrdinalIgnoreCase))
+        {
+            string d4Path = Path.Combine(_skillDir, d4);
+            if (File.Exists(d4Path))
+                return d4;
+        }
+
+        return preferred;
+    }
+
+    private static string SkillKey(int skillId)
+    {
+        return skillId <= 9999999
+            ? skillId.ToString("D7", CultureInfo.InvariantCulture)
+            : skillId.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static IEnumerable<string> SkillKeyCandidates(int skillId)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string canonical = SkillKey(skillId);
+        if (seen.Add(canonical))
+            yield return canonical;
+
+        string raw = skillId.ToString(CultureInfo.InvariantCulture);
+        if (seen.Add(raw))
+            yield return raw;
+
+        for (int width = 2; width <= 8; ++width)
+        {
+            string padded = skillId.ToString("D" + width, CultureInfo.InvariantCulture);
+            if (seen.Add(padded))
+                yield return padded;
+        }
     }
 
     private static string ReadString(WzImageProperty? node)
@@ -467,11 +549,19 @@ internal sealed class SkillImageLoader : IDisposable
         return "";
     }
 
-    private static int ExtractMaxLevel(WzImageProperty skillNode, int fallbackValue)
+    private static int ExtractMaxLevel(WzImageProperty skillNode, int fallbackValue, int levelTextCount)
     {
+        int maxLevel = 0;
+        void AddCandidate(int value)
+        {
+            if (value <= 0)
+                return;
+            maxLevel = maxLevel > 0 ? Math.Min(maxLevel, value) : value;
+        }
+
         WzImageProperty? commonMaxLevel = skillNode.GetFromPath("common/maxLevel");
         if (TryReadInt(commonMaxLevel, out int commonValue) && commonValue > 0)
-            return commonValue;
+            AddCandidate(commonValue);
 
         WzImageProperty? levelNode = skillNode["level"];
         if (levelNode?.WzProperties != null)
@@ -484,10 +574,32 @@ internal sealed class SkillImageLoader : IDisposable
             }
 
             if (levelCount > 0)
-                return levelCount;
+                AddCandidate(levelCount);
         }
 
+        AddCandidate(levelTextCount);
+        if (maxLevel > 0)
+            return maxLevel;
+
         return fallbackValue > 0 ? fallbackValue : 1;
+    }
+
+    private static int CountLevelTextNodes(WzImageProperty? stringNode)
+    {
+        if (stringNode?.WzProperties == null)
+            return 0;
+
+        int count = 0;
+        foreach (WzImageProperty child in stringNode.WzProperties)
+        {
+            string name = child.Name ?? "";
+            if (name.Length <= 1 || name[0] != 'h')
+                continue;
+
+            if (int.TryParse(name.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out int level) && level > 0)
+                ++count;
+        }
+        return count;
     }
 
     private static BehaviorKind InferBehaviorKind(WzImageProperty skillNode, SkillRecord record)

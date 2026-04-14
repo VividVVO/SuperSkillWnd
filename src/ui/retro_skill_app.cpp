@@ -78,28 +78,46 @@ namespace
         return RetroSkill_SuppressDefault;
     }
 
-    float GetRetroCursorFixedYOffset(RetroSkillAssets& assets, UITexture* currentTex)
+    ImVec2 GetRetroCursorFixedOffset(RetroSkillAssets& assets, UITexture* currentTex)
     {
-        // Keep the cursor hotspot stable while honoring the user's requested
-        // bottom alignment against System.mouse.normal.
-        const float normalBaselineYOffset = -4.0f;
-        float y = normalBaselineYOffset;
+        const ImVec2 normalBaselineOffset(0.0f, -4.0f);
+        const ImVec2 hoverABaselineOffset(0.0f, -2.0f);
         UITexture* normal = GetRetroSkillTexture(assets, "mouse.normal");
         UITexture* hoverA = GetRetroSkillTexture(assets, "mouse.normal.1");
         UITexture* hoverB = GetRetroSkillTexture(assets, "mouse.normal.2");
         UITexture* pressed = GetRetroSkillTexture(assets, "mouse.pressed");
+
+        if (!currentTex)
+            return normalBaselineOffset;
+
         if (currentTex && hoverA && currentTex == hoverA)
-            y += 2.0f;
-        else if (currentTex &&
-                 normal &&
-                 normal->height > 0 &&
-                 currentTex->height > 0 &&
-                 ((hoverB && currentTex == hoverB) ||
-                  (pressed && currentTex == pressed)))
+            return hoverABaselineOffset;
+
+        if (hoverB && currentTex == hoverB)
         {
-            y += (float)normal->height - (float)currentTex->height;
+            if (hoverA && hoverA->width > 0 && hoverA->height > 0 &&
+                currentTex->width > 0 && currentTex->height > 0)
+            {
+                return ImVec2(
+                    hoverABaselineOffset.x + (float)(hoverA->width - currentTex->width),
+                    hoverABaselineOffset.y + (float)(hoverA->height - currentTex->height));
+            }
+            return hoverABaselineOffset;
         }
-        return y;
+
+        if (pressed && currentTex == pressed)
+        {
+            if (normal && normal->width > 0 && normal->height > 0 &&
+                currentTex->width > 0 && currentTex->height > 0)
+            {
+                return ImVec2(
+                    normalBaselineOffset.x + (float)(normal->width - currentTex->width) - 3.0f,
+                    normalBaselineOffset.y + (float)(normal->height - currentTex->height) - 3.0f);
+            }
+            return ImVec2(normalBaselineOffset.x - 3.0f, normalBaselineOffset.y - 3.0f);
+        }
+
+        return normalBaselineOffset;
     }
 
     static DefaultBehaviorController g_defaultBehaviorController;
@@ -133,7 +151,14 @@ void RenderRetroSkillScene(RetroSkillRuntimeState& state, RetroSkillAssets& asse
     RenderRetroSkillSceneEx(state, assets, device, mainScale, nullptr);
 }
 
-void RenderRetroSkillCursorOverlay(RetroSkillRuntimeState& state, RetroSkillAssets& assets, float mainScale)
+void RenderRetroSkillCursorOverlay(
+    RetroSkillRuntimeState& state,
+    RetroSkillAssets& assets,
+    float mainScale,
+    bool extraHoverAnimation,
+    bool extraPressed,
+    uint64_t extraHoverStartTick,
+    bool extraHoverInstantUseNormal1)
 {
     ImGuiIO& io = ImGui::GetIO();
 
@@ -145,20 +170,34 @@ void RenderRetroSkillCursorOverlay(RetroSkillRuntimeState& state, RetroSkillAsse
     }
 
     bool isMouseDown = io.MouseDown[0];
+    const bool stateHoverAnimation = state.isHoveringActionButtons && !state.actionHoverStoppedByClick;
     MouseState mouseState = MS_NORMAL;
     if (state.isDraggingSkill)
     {
         mouseState = MS_DRAG;
     }
-    else if (isMouseDown && state.isPressingUiButton)
+    else if (isMouseDown && (state.isPressingUiButton || extraPressed))
     {
         mouseState = MS_PRESSED;
     }
-    else if (state.isHoveringActionButtons && !state.actionHoverStoppedByClick)
+    else if (stateHoverAnimation || extraHoverAnimation)
     {
-        double hoverElapsed = ImGui::GetTime() - state.actionButtonsHoverStartTime;
+        double hoverElapsed = 0.0;
+        bool hoverInstantUseNormal1 = false;
+        if (stateHoverAnimation)
+        {
+            hoverElapsed = ImGui::GetTime() - state.actionButtonsHoverStartTime;
+            hoverInstantUseNormal1 = state.actionHoverInstantUseNormal1;
+        }
+        else
+        {
+            const uint64_t nowTick = static_cast<uint64_t>(GetTickCount64());
+            const uint64_t hoverStartTick = extraHoverStartTick ? extraHoverStartTick : nowTick;
+            hoverElapsed = (double)(nowTick - hoverStartTick) / 1000.0;
+            hoverInstantUseNormal1 = extraHoverInstantUseNormal1;
+        }
         if (hoverElapsed < 0.5)
-            mouseState = state.actionHoverInstantUseNormal1 ? MS_HOVER_LOOP_A : MS_HOVER_LOOP_B;
+            mouseState = hoverInstantUseNormal1 ? MS_HOVER_LOOP_A : MS_HOVER_LOOP_B;
         else
         {
             double loopTime = hoverElapsed - 0.5;
@@ -188,10 +227,13 @@ void RenderRetroSkillCursorOverlay(RetroSkillRuntimeState& state, RetroSkillAsse
 
     if (mouseTex && mouseTex->texture)
     {
-        const float extraYOffset = GetRetroCursorFixedYOffset(assets, mouseTex) * mainScale;
-        ImVec2 cursorMin(mousePos.x, mousePos.y + extraYOffset);
-        ImVec2 cursorMax(mousePos.x + mouseTex->width * mainScale,
-                       cursorMin.y + mouseTex->height * mainScale);
+        const ImVec2 extraOffset = GetRetroCursorFixedOffset(assets, mouseTex);
+        ImVec2 cursorMin(
+            mousePos.x + extraOffset.x * mainScale,
+            mousePos.y + extraOffset.y * mainScale);
+        ImVec2 cursorMax(
+            cursorMin.x + mouseTex->width * mainScale,
+            cursorMin.y + mouseTex->height * mainScale);
         dl->AddImage((ImTextureID)mouseTex->texture, cursorMin, cursorMax);
     }
 }

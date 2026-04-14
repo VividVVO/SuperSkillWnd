@@ -133,6 +133,17 @@ struct RetroSkillRuntimeState {
     bool quickSlotBarAcceptDrop = true;
     bool quickSlotBarCollapsed = false;
 
+    bool superSkillResetConfirmVisible = false;
+    bool superSkillResetConfirmOpenRequested = false;
+    int superSkillResetConfirmSpentSp = 0;
+    int superSkillResetConfirmCostMeso = 0;
+    bool superSkillResetConfirmCostPending = false;
+    unsigned int superSkillResetConfirmPreviewRequestRevision = 0;
+    unsigned int superSkillResetConfirmPreviewRequestTick = 0;
+    int superSkillResetPreviewSpentSp = 0;
+    int superSkillResetPreviewCostMeso = 0;
+    unsigned int superSkillResetPreviewRevision = 0;
+
     QuickSlotBinding quickSlots[8];
 };
 

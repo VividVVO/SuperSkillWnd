@@ -36,3 +36,12 @@ IDR_CURSOR_HOVER_A            RCDATA  "..\\..\\UI\\SkillEx\\System.mouse.normal.
 IDR_CURSOR_HOVER_B            RCDATA  "..\\..\\UI\\SkillEx\\System.mouse.normal.2.png"
 IDR_CURSOR_PRESSED            RCDATA  "..\\..\\UI\\SkillEx\\System.mouse.pressed.png"
 IDR_CURSOR_DRAG               RCDATA  "..\\..\\UI\\SkillEx\\System.mouse.Drag.png"
+
+IDR_RESET_NOTICE_BG            RCDATA  "..\\..\\UI\\SkillEx\\SkillEx.initial.backgrnd.png"
+IDR_RESET_NOTICE_YES_NORMAL    RCDATA  "..\\..\\UI\\SkillEx\\Notice.btYes.normal.0.png"
+IDR_RESET_NOTICE_YES_MOUSEOVER RCDATA  "..\\..\\UI\\SkillEx\\Notice.btYes.mouseOver.0.png"
+IDR_RESET_NOTICE_YES_PRESSED   RCDATA  "..\\..\\UI\\SkillEx\\Notice.btYes.pressed.0.png"
+IDR_RESET_NOTICE_YES_DISABLED  RCDATA  "..\\..\\UI\\SkillEx\\Notice.btYes.disabled.0.png"
+IDR_RESET_NOTICE_NO_NORMAL     RCDATA  "..\\..\\UI\\SkillEx\\Notice.btNo.normal.0.png"
+IDR_RESET_NOTICE_NO_MOUSEOVER  RCDATA  "..\\..\\UI\\SkillEx\\Notice.btNo.mouseOver.0.png"
+IDR_RESET_NOTICE_NO_PRESSED    RCDATA  "..\\..\\UI\\SkillEx\\Notice.btNo.pressed.0.png"

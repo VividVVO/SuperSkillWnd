@@ -50,6 +50,34 @@ inline void WriteLogFmt(const char* fmt, ...)
     WriteLog(buf);
 }
 
+inline void HardenPixelArtAlphaEdgesRgba(
+    unsigned char* rgba,
+    int width,
+    int height,
+    unsigned char transparentCutoff = 64,
+    unsigned char alphaBoost = 48)
+{
+    if (!rgba || width <= 0 || height <= 0)
+        return;
+
+    const size_t pixelCount = (size_t)width * (size_t)height;
+    for (size_t i = 0; i < pixelCount; ++i)
+    {
+        unsigned char& alpha = rgba[i * 4 + 3];
+        if (alpha == 0 || alpha == 255)
+            continue;
+
+        if (alpha < transparentCutoff)
+        {
+            alpha = 0;
+            continue;
+        }
+
+        const unsigned int boosted = (unsigned int)alpha + (unsigned int)alphaBoost;
+        alpha = (unsigned char)(boosted > 255 ? 255 : boosted);
+    }
+}
+
 // ============================================================================
 // CWnd坐标读取
 // ============================================================================
