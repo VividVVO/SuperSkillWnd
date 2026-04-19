@@ -2,8 +2,10 @@
 
 #include "core/Common.h"
 #include "core/GameAddresses.h"
+#include "skill/skill_local_data.h"
 #include "skill/skill_overlay_bridge.h"
 #include "ui/retro_skill_app.h"
+#include "ui/retro_skill_assets.h"
 #include "ui/overlay_cursor_utils.h"
 #include "ui/overlay_input_utils.h"
 #include "ui/retro_skill_panel.h"
@@ -14,6 +16,7 @@
 #include "third_party/imgui/backends/imgui_impl_dx9.h"
 #include "third_party/imgui/backends/imgui_impl_win32.h"
 
+#include <algorithm>
 #include <string>
 #include <cstdint>
 #include <cfloat>
@@ -69,10 +72,19 @@ namespace
     SuperOverlayRuntime g_overlay;
     std::vector<RECT> g_overlayVisiblePieces;
     LONG g_overlayClipLogBudget = 32;
+    const int kIndependentBuffOverlayMaxColumns = 8;
+    bool g_independentBuffRightButtonWasDown = false;
+
+    bool ShouldKeepOverlayVisibleForIndependentBuff()
+    {
+        return SkillOverlayBridgeHasIndependentBuffOverlayEntries();
+    }
 
     bool GetClientMousePointFromMessage(HWND hwnd, UINT msg, LPARAM lParam, POINT* outPoint);
+    bool TryFindIndependentBuffOverlaySkillIdAtPoint(int x, int y, int* outSkillId);
     bool IsPointInsidePanel(int x, int y);
     bool OverlayOwnsMouseInput();
+    bool ProbeQuickSlotTopLevelWindow(int expectedOriginX, int expectedOriginY, bool wantCollapsedCandidate, QuickSlotWindowProbe* outProbe);
 
     bool RectHasArea(const RECT& rc)
     {
@@ -83,6 +95,709 @@ namespace
     {
         RECT rc = { x, y, x + w, y + h };
         return rc;
+    }
+
+    std::string ResolveIndependentBuffDisplayName(int skillId)
+    {
+        std::string name;
+        if (skillId > 0 && SkillLocalDataGetName(skillId, name) && !name.empty())
+            return name;
+
+        char buf[32] = {};
+        sprintf_s(buf, "Skill %d", skillId);
+        return buf;
+    }
+
+    std::string FormatIndependentBuffRemainingText(const IndependentBuffOverlayEntry& entry)
+    {
+        if (entry.totalDurationMs <= 0)
+            return "INF";
+
+        int totalSeconds = (entry.remainingMs + 999) / 1000;
+        if (totalSeconds < 0)
+            totalSeconds = 0;
+
+        char buf[32] = {};
+        if (totalSeconds >= 60)
+            sprintf_s(buf, "%d:%02d", totalSeconds / 60, totalSeconds % 60);
+        else
+            sprintf_s(buf, "%ds", totalSeconds);
+        return buf;
+    }
+
+    bool TryGetIndependentBuffOverlayClientRect(RECT* outClientRect)
+    {
+        if (!outClientRect || !g_overlay.hwnd)
+            return false;
+        return ::GetClientRect(g_overlay.hwnd, outClientRect) != FALSE;
+    }
+
+    int ResolveIndependentBuffOverlayColumnCount(const std::vector<IndependentBuffOverlayEntry>& entries)
+    {
+        int maxSlotIndex = -1;
+        for (size_t i = 0; i < entries.size(); ++i)
+        {
+            const int slotIndex = entries[i].slotIndex >= 0 ? entries[i].slotIndex : (int)i;
+            if (slotIndex > maxSlotIndex)
+                maxSlotIndex = slotIndex;
+        }
+
+        if (maxSlotIndex < 0)
+            return 1;
+        return (std::max)(1, (std::min)(kIndependentBuffOverlayMaxColumns, maxSlotIndex + 1));
+    }
+
+    struct IndependentBuffOverlayLayout
+    {
+        RECT clientRect = {};
+        RECT overlayRect = {};
+        int columns = 1;
+        int slotSize = 32;
+        int gap = 2;
+        bool usedNativeSlotLayout = false;
+        std::vector<RECT> explicitSlotRects;
+    };
+
+    struct NativeBuffSlotMetrics
+    {
+        bool valid = false;
+        int firstVisibleX = -1;
+        int firstVisibleY = -1;
+        int visibleCount = 0;
+        int slotSize = 32;
+        int stepX = 32;
+        int baseX = 0;
+        int baseY = 0;
+        bool topRowOccupied[6] = {};
+    };
+
+    bool TryGetIndependentBuffOverlayAnchorRect(RECT* outRect)
+    {
+        if (!outRect)
+            return false;
+
+        if (g_overlay.anchorX > -9000 && g_overlay.anchorY > -9000)
+        {
+            const PanelMetrics metrics = GetPanelMetrics(g_overlay.mainScale);
+            *outRect = MakeRectXYWH(
+                g_overlay.anchorX,
+                g_overlay.anchorY,
+                (int)floorf(metrics.width),
+                (int)floorf(metrics.height));
+            return true;
+        }
+
+        return false;
+    }
+
+    bool TryGetNativeBuffSlotMetrics(NativeBuffSlotMetrics* outMetrics)
+    {
+        if (!outMetrics)
+            return false;
+
+        *outMetrics = NativeBuffSlotMetrics{};
+
+        static DWORD s_lastNativeScanEarlyLogTick = 0;
+        const DWORD earlyNowTick = GetTickCount();
+
+        if (SafeIsBadReadPtr((void*)ADDR_StatusBar, 4))
+        {
+            if (earlyNowTick - s_lastNativeScanEarlyLogTick > 1000)
+            {
+                s_lastNativeScanEarlyLogTick = earlyNowTick;
+                WriteLogFmt("[IndependentBuffOverlayNativeScan] dx9 fail stage=global_ptr addr=0x%08X",
+                    (DWORD)ADDR_StatusBar);
+            }
+            return false;
+        }
+
+        uintptr_t statusBar = *(uintptr_t*)ADDR_StatusBar;
+        const char* statusSource = "global";
+        QuickSlotWindowProbe probe = {};
+        int probeClientW = 0;
+        int probeClientH = 0;
+        int probeOriginX = SKILL_BAR_ORIGIN_X;
+        int probeOriginY = SKILL_BAR_ORIGIN_Y;
+        if (!statusBar)
+        {
+            statusBar = SkillOverlayBridgeGetObservedStatusBarPtr();
+            if (statusBar)
+                statusSource = "cached";
+        }
+        if (!statusBar && g_overlay.hwnd)
+        {
+            RECT clientRect = {};
+            if (::GetClientRect(g_overlay.hwnd, &clientRect))
+            {
+                probeClientW = clientRect.right - clientRect.left;
+                probeClientH = clientRect.bottom - clientRect.top;
+                if (probeClientW == 800 && probeClientH == 600)
+                {
+                    probeOriginX = 661;
+                    probeOriginY = 470;
+                }
+                else if (probeClientW == 1024 && probeClientH == 768)
+                {
+                    probeOriginX = 883;
+                    probeOriginY = 697;
+                }
+                else if (probeClientW > 0 && probeClientH > 0 && probeClientW <= 820 && probeClientH <= 620)
+                {
+                    probeOriginX = 661;
+                    probeOriginY = 470;
+                }
+
+                if (ProbeQuickSlotTopLevelWindow(probeOriginX, probeOriginY, false, &probe) ||
+                    ProbeQuickSlotTopLevelWindow(probeOriginX, probeOriginY, true, &probe))
+                {
+                    statusBar = probe.wnd;
+                    statusSource = "probe";
+                }
+            }
+        }
+        if (!statusBar || SafeIsBadReadPtr((void*)statusBar, 0xB30 + 4))
+        {
+            if (earlyNowTick - s_lastNativeScanEarlyLogTick > 1000)
+            {
+                s_lastNativeScanEarlyLogTick = earlyNowTick;
+                WriteLogFmt("[IndependentBuffOverlayNativeScan] dx9 fail stage=status_bar_ptr statusBar=0x%08X readable=%d source=%s cached=0x%08X probeWnd=0x%08X probeXYWH=(%d,%d,%d,%d) origin=(%d,%d) client=%dx%d",
+                    (DWORD)statusBar,
+                    (!statusBar || SafeIsBadReadPtr((void*)statusBar, 0xB30 + 4)) ? 0 : 1,
+                    statusSource,
+                    (DWORD)SkillOverlayBridgeGetObservedStatusBarPtr(),
+                    (DWORD)probe.wnd,
+                    probe.x,
+                    probe.y,
+                    probe.w,
+                    probe.h,
+                    probeOriginX,
+                    probeOriginY,
+                    probeClientW,
+                    probeClientH);
+            }
+            return false;
+        }
+
+        struct SlotRect
+        {
+            int x = 0;
+            int y = 0;
+            int w = 0;
+            int h = 0;
+        };
+
+        std::vector<std::pair<int, SlotRect> > visibleTopRowSlots;
+        visibleTopRowSlots.reserve(6);
+        unsigned int wrapperMask = 0;
+        unsigned int childMask = 0;
+        unsigned int visibleMask = 0;
+        for (int i = 0; i < 6; ++i)
+        {
+            const uintptr_t slotAddr = statusBar + (i < 6 ? (0xAE8 + i * 8) : (0xB18 + (i - 6) * 8));
+            if (SafeIsBadReadPtr((void*)slotAddr, 8))
+                continue;
+
+            const uintptr_t wrapper = *(uintptr_t*)slotAddr;
+            if (!wrapper || SafeIsBadReadPtr((void*)wrapper, 8))
+                continue;
+            wrapperMask |= (1u << i);
+
+            const uintptr_t child = wrapper + 4;
+            if (!child || SafeIsBadReadPtr((void*)child, 0x4C))
+                continue;
+            childMask |= (1u << i);
+
+            SlotRect slot = {};
+            slot.x = CWnd_GetX(child);
+            slot.y = CWnd_GetY(child);
+            const int w = CWnd_GetWidth(child);
+            const int h = CWnd_GetHeight(child);
+            slot.w = w;
+            slot.h = h;
+            const int renderX = CWnd_GetRenderX(child);
+            const int renderY = CWnd_GetRenderY(child);
+            const bool slotLooksVisible =
+                w >= 16 &&
+                h >= 16 &&
+                (slot.x != 0 || slot.y != 0 || renderX != 0 || renderY != 0);
+            if (!slotLooksVisible)
+                continue;
+
+            visibleMask |= (1u << i);
+            visibleTopRowSlots.push_back(std::make_pair(i, slot));
+            outMetrics->topRowOccupied[i] = true;
+        }
+
+        if (visibleTopRowSlots.empty())
+        {
+            static DWORD s_lastNativeScanFailLogTick = 0;
+            const DWORD nowTick = GetTickCount();
+            if (nowTick - s_lastNativeScanFailLogTick > 1000)
+            {
+                s_lastNativeScanFailLogTick = nowTick;
+                WriteLogFmt("[IndependentBuffOverlayNativeScan] dx9 statusBar=0x%08X source=%s topWr=0x%02X topChild=0x%02X topVisible=0x%02X",
+                    (DWORD)statusBar,
+                    statusSource,
+                    wrapperMask,
+                    childMask,
+                    visibleMask);
+            }
+            return false;
+        }
+
+        std::sort(visibleTopRowSlots.begin(), visibleTopRowSlots.end(),
+            [](const std::pair<int, SlotRect>& left, const std::pair<int, SlotRect>& right)
+            {
+                if (left.first != right.first)
+                    return left.first < right.first;
+                if (left.second.x != right.second.x)
+                    return left.second.x < right.second.x;
+                return left.second.y < right.second.y;
+            });
+
+        int stepX = 0;
+        for (size_t i = 1; i < visibleTopRowSlots.size(); ++i)
+        {
+            const int deltaIndex = visibleTopRowSlots[i].first - visibleTopRowSlots[i - 1].first;
+            const int deltaX = visibleTopRowSlots[i].second.x - visibleTopRowSlots[i - 1].second.x;
+            if (deltaIndex > 0 && deltaX > 0)
+            {
+                const int candidate = deltaX / deltaIndex;
+                if (candidate > 0 && (stepX == 0 || candidate < stepX))
+                    stepX = candidate;
+            }
+        }
+
+        outMetrics->valid = true;
+        outMetrics->firstVisibleX = visibleTopRowSlots[0].second.x;
+        outMetrics->firstVisibleY = visibleTopRowSlots[0].second.y;
+        outMetrics->visibleCount = (int)visibleTopRowSlots.size();
+        outMetrics->slotSize = (std::max)(visibleTopRowSlots[0].second.w, visibleTopRowSlots[0].second.h);
+        outMetrics->stepX = stepX > 0 ? stepX : outMetrics->slotSize;
+        outMetrics->baseX = visibleTopRowSlots[0].second.x - visibleTopRowSlots[0].first * outMetrics->stepX;
+        outMetrics->baseY = visibleTopRowSlots[0].second.y;
+
+        static DWORD s_lastNativeScanOkLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastNativeScanOkLogTick > 1000)
+        {
+            s_lastNativeScanOkLogTick = nowTick;
+            WriteLogFmt("[IndependentBuffOverlayNativeScan] dx9 statusBar=0x%08X source=%s topWr=0x%02X topChild=0x%02X topVisible=0x%02X baseX=%d stepX=%d firstX=%d visibleCount=%d",
+                (DWORD)statusBar,
+                statusSource,
+                wrapperMask,
+                childMask,
+                visibleMask,
+                outMetrics->baseX,
+                outMetrics->stepX,
+                outMetrics->firstVisibleX,
+                outMetrics->visibleCount);
+        }
+
+        return true;
+    }
+
+    bool TryBuildIndependentBuffOverlayLayout(
+        const std::vector<IndependentBuffOverlayEntry>& entries,
+        IndependentBuffOverlayLayout* outLayout)
+    {
+        if (!outLayout)
+            return false;
+
+        outLayout->explicitSlotRects.clear();
+        outLayout->usedNativeSlotLayout = false;
+
+        RECT clientRect = {};
+        if (!TryGetIndependentBuffOverlayClientRect(&clientRect))
+            return false;
+
+        const float scale = (g_overlay.mainScale > 0.0f) ? g_overlay.mainScale : 1.0f;
+        int slotSize = (int)floorf(32.0f * scale);
+        int gap = (int)floorf(2.0f * scale);
+        const int marginX = (int)floorf(10.0f * scale);
+        const int marginY = (int)floorf(8.0f * scale);
+        const int offsetX = (int)floorf(7.0f * scale);
+        const int offsetY = -(int)floorf(5.0f * scale);
+        const int columns = ResolveIndependentBuffOverlayColumnCount(entries);
+        int maxSlotIndex = 0;
+        for (size_t i = 0; i < entries.size(); ++i)
+        {
+            const int slotIndex = entries[i].slotIndex >= 0 ? entries[i].slotIndex : (int)i;
+            if (slotIndex > maxSlotIndex)
+                maxSlotIndex = slotIndex;
+        }
+        const int rows = (maxSlotIndex / columns) + 1;
+        int width = columns * slotSize + (columns - 1) * gap;
+        int height = rows * slotSize + (rows - 1) * gap;
+        int x = 0;
+        int y = 0;
+
+        NativeBuffSlotMetrics nativeMetrics = {};
+        if (TryGetNativeBuffSlotMetrics(&nativeMetrics) && nativeMetrics.valid)
+        {
+            slotSize = nativeMetrics.slotSize > 0 ? nativeMetrics.slotSize : slotSize;
+            gap = nativeMetrics.stepX > slotSize ? (nativeMetrics.stepX - slotSize) : 0;
+            width = columns * slotSize + (columns - 1) * gap;
+            height = rows * slotSize + (rows - 1) * gap;
+
+            int minOccupied = INT_MAX;
+            int maxOccupied = INT_MIN;
+            for (int slot = 0; slot < 6; ++slot)
+            {
+                if (nativeMetrics.topRowOccupied[slot])
+                {
+                    if (slot < minOccupied) minOccupied = slot;
+                    if (slot > maxOccupied) maxOccupied = slot;
+                }
+            }
+
+            if (minOccupied == INT_MAX)
+                minOccupied = 0;
+            if (maxOccupied == INT_MIN)
+                maxOccupied = minOccupied - 1;
+
+            std::vector<int> plannedSlots;
+            plannedSlots.reserve(entries.size());
+            const int firstCustomSlot = minOccupied - (int)entries.size();
+            for (int slot = firstCustomSlot; slot < minOccupied; ++slot)
+            {
+                plannedSlots.push_back(slot);
+            }
+
+            outLayout->explicitSlotRects.reserve(plannedSlots.size());
+            int minLeft = INT_MAX;
+            int minTop = INT_MAX;
+            int maxRight = INT_MIN;
+            int maxBottom = INT_MIN;
+            for (size_t i = 0; i < plannedSlots.size(); ++i)
+            {
+                const int slotLeft = nativeMetrics.baseX + plannedSlots[i] * nativeMetrics.stepX;
+                const int slotTop = nativeMetrics.baseY;
+                RECT slotRect = MakeRectXYWH(slotLeft, slotTop, slotSize, slotSize);
+                outLayout->explicitSlotRects.push_back(slotRect);
+                if (slotRect.left < minLeft) minLeft = slotRect.left;
+                if (slotRect.top < minTop) minTop = slotRect.top;
+                if (slotRect.right > maxRight) maxRight = slotRect.right;
+                if (slotRect.bottom > maxBottom) maxBottom = slotRect.bottom;
+            }
+            x = minLeft;
+            y = minTop;
+            width = maxRight - minLeft;
+            height = maxBottom - minTop;
+            outLayout->usedNativeSlotLayout = true;
+        }
+        else
+        {
+            const int clientWidth = clientRect.right - clientRect.left;
+            std::vector<int> semanticNativeSlots;
+            SkillOverlayBridgeGetObservedNativeVisibleSemanticSlots(semanticNativeSlots);
+            std::sort(semanticNativeSlots.begin(), semanticNativeSlots.end());
+            semanticNativeSlots.erase(std::unique(semanticNativeSlots.begin(), semanticNativeSlots.end()), semanticNativeSlots.end());
+            if (!semanticNativeSlots.empty())
+            {
+                const int maxOccupiedSlot = semanticNativeSlots.back();
+                std::vector<int> plannedSlots;
+                plannedSlots.reserve(entries.size());
+                const int firstCustomSlot = -(int)entries.size();
+                for (int slot = firstCustomSlot; slot < 0; ++slot)
+                {
+                    plannedSlots.push_back(slot);
+                }
+
+                static DWORD s_lastSemanticLayoutLogTick = 0;
+                const DWORD nowTick = GetTickCount();
+                if (nowTick - s_lastSemanticLayoutLogTick > 1000)
+                {
+                    s_lastSemanticLayoutLogTick = nowTick;
+                    std::string slotsText;
+                    std::string plannedText;
+                    for (size_t i = 0; i < semanticNativeSlots.size(); ++i)
+                    {
+                        if (!slotsText.empty()) slotsText += ",";
+                        slotsText += std::to_string(semanticNativeSlots[i]);
+                    }
+                    for (size_t i = 0; i < plannedSlots.size(); ++i)
+                    {
+                        if (!plannedText.empty()) plannedText += ",";
+                        plannedText += std::to_string(plannedSlots[i]);
+                    }
+                    WriteLogFmt("[IndependentBuffOverlaySemanticLayout] dx9 slots=%s planned=%s entryCount=%d span=%d leftOnly=1",
+                        slotsText.c_str(),
+                        plannedText.c_str(),
+                        (int)entries.size(),
+                        maxOccupiedSlot + 1);
+                }
+
+                const int semanticSpanSlots = maxOccupiedSlot + 1;
+                const int baseX = clientWidth - marginX - semanticSpanSlots * slotSize + offsetX;
+                outLayout->explicitSlotRects.reserve(plannedSlots.size());
+                int minLeft = INT_MAX;
+                int minTop = INT_MAX;
+                int maxRight = INT_MIN;
+                int maxBottom = INT_MIN;
+                for (size_t i = 0; i < plannedSlots.size(); ++i)
+                {
+                    const int slotLeft = baseX + plannedSlots[i] * slotSize;
+                    const int slotTop = marginY + offsetY;
+                    RECT slotRect = MakeRectXYWH(slotLeft, slotTop, slotSize, slotSize);
+                    outLayout->explicitSlotRects.push_back(slotRect);
+                    if (slotRect.left < minLeft) minLeft = slotRect.left;
+                    if (slotRect.top < minTop) minTop = slotRect.top;
+                    if (slotRect.right > maxRight) maxRight = slotRect.right;
+                    if (slotRect.bottom > maxBottom) maxBottom = slotRect.bottom;
+                }
+                x = minLeft;
+                y = minTop;
+                width = maxRight - minLeft;
+                height = maxBottom - minTop;
+            }
+            else
+            {
+                const int nativeCount = SkillOverlayBridgeGetNativeVisibleBuffVisualCount();
+                const int nativeColumns = nativeCount > 0 ? (std::min)(kIndependentBuffOverlayMaxColumns, nativeCount) : 0;
+                const int nativeWidth = nativeColumns > 0
+                    ? (nativeColumns * slotSize + (nativeColumns - 1) * gap)
+                    : 0;
+                x = clientWidth - marginX - nativeWidth - width + offsetX;
+                const int observedNativeAnchorX = SkillOverlayBridgeGetObservedNativeVisibleBuffAnchorX();
+                if (observedNativeAnchorX >= 0 && observedNativeAnchorX <= clientWidth)
+                    x = observedNativeAnchorX - width + offsetX;
+                y = marginY + offsetY;
+            }
+        }
+
+        if (x < 0)
+            x = 0;
+        if (y < 0)
+            y = 0;
+
+        outLayout->clientRect = clientRect;
+        outLayout->overlayRect = MakeRectXYWH(x, y, width, height);
+        outLayout->columns = columns;
+        outLayout->slotSize = slotSize;
+        outLayout->gap = gap;
+        return true;
+    }
+
+    bool TryGetIndependentBuffOverlaySlotRect(
+        const IndependentBuffOverlayEntry& entry,
+        int fallbackSlotIndex,
+        const IndependentBuffOverlayLayout& layout,
+        RECT* outRect)
+    {
+        if (!outRect)
+            return false;
+
+        if (!layout.explicitSlotRects.empty())
+        {
+            const int slotIndex = entry.slotIndex >= 0 ? entry.slotIndex : fallbackSlotIndex;
+            if (slotIndex < 0 || slotIndex >= (int)layout.explicitSlotRects.size())
+                return false;
+            *outRect = layout.explicitSlotRects[slotIndex];
+            return true;
+        }
+
+        if (layout.columns <= 0)
+            return false;
+
+        const int slotIndex = entry.slotIndex >= 0 ? entry.slotIndex : fallbackSlotIndex;
+        const int row = slotIndex / layout.columns;
+        const int col = slotIndex % layout.columns;
+        const int slotLeft = layout.overlayRect.left + col * (layout.slotSize + layout.gap);
+        const int slotTop = layout.overlayRect.top + row * (layout.slotSize + layout.gap);
+        *outRect = MakeRectXYWH(slotLeft, slotTop, layout.slotSize, layout.slotSize);
+        return true;
+    }
+
+    bool GetIndependentBuffOverlayRect(RECT* outRect, std::vector<IndependentBuffOverlayEntry>* outEntries = nullptr)
+    {
+        if (!outRect)
+            return false;
+        if (!g_overlay.hwnd)
+        {
+            WriteLog("[IndependentBuffOverlayRect] dx9 fail: hwnd missing");
+            return false;
+        }
+
+        std::vector<IndependentBuffOverlayEntry> localEntries;
+        std::vector<IndependentBuffOverlayEntry>& entries = outEntries ? *outEntries : localEntries;
+        SkillOverlayBridgeGetIndependentBuffOverlayEntries(entries);
+        if (entries.empty())
+        {
+            WriteLog("[IndependentBuffOverlayRect] dx9 fail: entries empty");
+            return false;
+        }
+
+        IndependentBuffOverlayLayout layout = {};
+        if (!TryBuildIndependentBuffOverlayLayout(entries, &layout))
+        {
+            WriteLog("[IndependentBuffOverlayRect] dx9 fail: GetClientRect");
+            return false;
+        }
+        *outRect = layout.overlayRect;
+        return true;
+    }
+
+    bool IsPointInsideIndependentBuffOverlay(int x, int y)
+    {
+        int skillId = 0;
+        return TryFindIndependentBuffOverlaySkillIdAtPoint(x, y, &skillId);
+    }
+
+    bool TryFindIndependentBuffOverlaySkillIdAtPoint(int x, int y, int* outSkillId)
+    {
+        RECT overlayRect = {};
+        std::vector<IndependentBuffOverlayEntry> entries;
+        if (!GetIndependentBuffOverlayRect(&overlayRect, &entries))
+            return false;
+
+        if (x < overlayRect.left || x >= overlayRect.right ||
+            y < overlayRect.top || y >= overlayRect.bottom)
+        {
+            return false;
+        }
+
+        IndependentBuffOverlayLayout layout = {};
+        if (!TryBuildIndependentBuffOverlayLayout(entries, &layout))
+            return false;
+
+        for (size_t i = 0; i < entries.size(); ++i)
+        {
+            RECT slotRect = {};
+            if (!TryGetIndependentBuffOverlaySlotRect(entries[i], (int)i, layout, &slotRect))
+                continue;
+
+            if (x >= slotRect.left && x < slotRect.right && y >= slotRect.top && y < slotRect.bottom)
+            {
+                if (outSkillId)
+                    *outSkillId = entries[i].skillId;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    void RenderIndependentBuffOverlayBar(const std::vector<IndependentBuffOverlayEntry>& providedEntries)
+    {
+        std::vector<IndependentBuffOverlayEntry> entries = providedEntries;
+        RECT overlayRect = {};
+        if (!GetIndependentBuffOverlayRect(&overlayRect, &entries))
+            return;
+
+        const float scale = (g_overlay.mainScale > 0.0f) ? g_overlay.mainScale : 1.0f;
+        IndependentBuffOverlayLayout layout = {};
+        if (!TryBuildIndependentBuffOverlayLayout(entries, &layout))
+            return;
+
+        static DWORD s_lastRenderLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastRenderLogTick > 1000)
+        {
+            s_lastRenderLogTick = nowTick;
+            WriteLogFmt("[IndependentBuffOverlayRender] dx9 count=%d rect=(%d,%d,%d,%d) mode=%s explicitSlots=%d",
+                (int)entries.size(),
+                overlayRect.left,
+                overlayRect.top,
+                overlayRect.right,
+                overlayRect.bottom,
+                layout.usedNativeSlotLayout ? "fixed-child" : "fallback",
+                (int)layout.explicitSlotRects.size());
+        }
+
+        ImGui::SetNextWindowPos(ImVec2((float)overlayRect.left, (float)overlayRect.top), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2((float)(overlayRect.right - overlayRect.left), (float)(overlayRect.bottom - overlayRect.top)), ImGuiCond_Always);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(0, 0, 0, 0));
+        if (ImGui::Begin("##IndependentBuffOverlayDX9", nullptr,
+            ImGuiWindowFlags_NoDecoration |
+            ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoScrollWithMouse |
+            ImGuiWindowFlags_NoBackground))
+        {
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            const ImVec2 origin = ImGui::GetWindowPos();
+
+            for (int index = 0; index < (int)entries.size(); ++index)
+            {
+                const IndependentBuffOverlayEntry& entry = entries[index];
+                RECT slotRect = {};
+                if (!TryGetIndependentBuffOverlaySlotRect(entry, index, layout, &slotRect))
+                    continue;
+
+                const float localX = (float)(slotRect.left - overlayRect.left);
+                const float localY = (float)(slotRect.top - overlayRect.top);
+                const float slotSize = (float)(slotRect.right - slotRect.left);
+                const ImVec2 cursorPos(localX, localY);
+                const ImVec2 iconMin(origin.x + localX, origin.y + localY);
+                const ImVec2 iconMax(iconMin.x + slotSize, iconMin.y + slotSize);
+
+                ImGui::SetCursorPos(cursorPos);
+                ImGui::PushID(entry.skillId);
+                ImGui::InvisibleButton("independent_buff_icon", ImVec2(slotSize, slotSize));
+                const bool hovered = ImGui::IsItemHovered();
+
+                const ImU32 backColor = IM_COL32(0, 0, 0, 18);
+                const ImU32 borderColor = IM_COL32(255, 255, 255, 46);
+                drawList->AddRectFilled(iconMin, iconMax, backColor, 2.0f * scale);
+                drawList->AddRect(iconMin, iconMax, borderColor, 2.0f * scale);
+
+                UITexture* iconTexture = GetRetroSkillSkillIconTexture(g_overlay.assets, entry.iconSkillId);
+
+                if (iconTexture && iconTexture->texture)
+                {
+                    drawList->AddImage(
+                        (ImTextureID)iconTexture->texture,
+                        iconMin,
+                        iconMax,
+                        ImVec2(0.0f, 0.0f),
+                        ImVec2(1.0f, 1.0f),
+                        IM_COL32(255, 255, 255, 217));
+                }
+                else
+                {
+                    drawList->AddRectFilled(iconMin, iconMax, IM_COL32(82, 97, 120, 217), 2.0f * scale);
+                }
+
+                if (entry.totalDurationMs > 0 && entry.remainingMs > 0)
+                {
+                    float expiredRatio = 1.0f - ((float)entry.remainingMs / (float)entry.totalDurationMs);
+                    if (expiredRatio < 0.0f) expiredRatio = 0.0f;
+                    if (expiredRatio > 1.0f) expiredRatio = 1.0f;
+                    const float fadeStartY = iconMax.y - floorf((iconMax.y - iconMin.y) * expiredRatio);
+                    if (fadeStartY < iconMax.y)
+                    {
+                        drawList->AddRectFilled(
+                            ImVec2(iconMin.x, fadeStartY),
+                            iconMax,
+                            IM_COL32(72, 72, 72, 150));
+                    }
+                }
+
+                if (hovered)
+                {
+                    SkillEntry tooltipSkill = {};
+                    tooltipSkill.skillId = entry.skillId;
+                    tooltipSkill.iconId = entry.iconSkillId > 0 ? entry.iconSkillId : entry.skillId;
+                    tooltipSkill.name = !entry.name.empty()
+                        ? entry.name
+                        : ResolveIndependentBuffDisplayName(entry.skillId);
+                    tooltipSkill.maxLevel = entry.maxLevel;
+                    tooltipSkill.tooltipPreview = entry.tooltipPreview;
+                    tooltipSkill.tooltipDescription = entry.tooltipDescription;
+                    tooltipSkill.tooltipDetail = entry.tooltipDetail;
+                    RenderRetroBuffTooltipCard(tooltipSkill, g_overlay.assets, scale);
+                }
+
+                ImGui::PopID();
+            }
+        }
+        ImGui::End();
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
     }
 
     bool HasSuperButtonRect()
@@ -171,6 +886,37 @@ namespace
 
         if ((!normal || !normal->texture) && hover && hover->texture)
             drawList->AddImage((ImTextureID)hover->texture, minPos, maxPos);
+    }
+
+    void RenderObservedSceneFadeMask()
+    {
+        if (!g_overlay.hwnd)
+            return;
+
+        const int alpha = SkillOverlayBridgeGetObservedSceneFadeAlpha();
+        if (alpha <= 0)
+            return;
+
+        RECT clientRect = {};
+        if (!::GetClientRect(g_overlay.hwnd, &clientRect))
+            return;
+
+        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+        drawList->AddRectFilled(
+            ImVec2(0.0f, 0.0f),
+            ImVec2((float)(clientRect.right - clientRect.left), (float)(clientRect.bottom - clientRect.top)),
+            IM_COL32(0, 0, 0, alpha));
+
+        static DWORD s_lastFadeMaskLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastFadeMaskLogTick > 1000)
+        {
+            s_lastFadeMaskLogTick = nowTick;
+            WriteLogFmt("[ObservedSceneFade] dx9 apply alpha=%d client=%dx%d",
+                alpha,
+                clientRect.right - clientRect.left,
+                clientRect.bottom - clientRect.top);
+        }
     }
 
     bool HandleOverlaySuperButtonMouseEvent(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -600,6 +1346,8 @@ namespace
 
     bool IsPointInsidePanel(int x, int y)
     {
+        if (IsPointInsideIndependentBuffOverlay(x, y))
+            return true;
         if (IsPointInsideSuperButton(x, y))
             return true;
 
@@ -1033,6 +1781,15 @@ void SuperImGuiOverlayShutdown()
 
 void SuperImGuiOverlaySetVisible(bool visible)
 {
+    if (!visible && ShouldKeepOverlayVisibleForIndependentBuff())
+        visible = true;
+
+    static bool s_lastVisible = false;
+    if (visible != s_lastVisible)
+    {
+        s_lastVisible = visible;
+        WriteLogFmt("[ImGuiOverlay] visible=%d", visible ? 1 : 0);
+    }
     g_overlay.visible = visible;
     if (!visible)
     {
@@ -1123,6 +1880,31 @@ bool SuperImGuiOverlayHandleWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     bool handledByImGui = false;
     bool messageInsidePanel = false;
 
+    if (IsMouseMessage(msg))
+    {
+        POINT buffPt = {};
+        bool hasBuffPt = GetClientMousePointFromMessage(hwnd, msg, lParam, &buffPt);
+        int buffSkillId = 0;
+        bool buffHit = hasBuffPt && TryFindIndependentBuffOverlaySkillIdAtPoint(buffPt.x, buffPt.y, &buffSkillId);
+        if (!buffHit)
+        {
+            hasBuffPt = TryGetCurrentMouseClientPos(&buffPt);
+            buffHit = hasBuffPt && TryFindIndependentBuffOverlaySkillIdAtPoint(buffPt.x, buffPt.y, &buffSkillId);
+        }
+
+        if (buffHit)
+        {
+            g_overlay.mouseHover = true;
+            if (IsMouseButtonDownMessage(msg))
+                g_overlay.mouseCapture = true;
+            else if (IsMouseButtonUpMessage(msg) && !OverlayAreAnyPhysicalMouseButtonsDown())
+                g_overlay.mouseCapture = false;
+
+            UpdateCursorSuppression(true);
+            return true;
+        }
+    }
+
     if (HandleOverlaySuperButtonMouseEvent(hwnd, msg, wParam, lParam))
     {
         g_overlay.mouseHover = g_overlay.superButtonHover;
@@ -1172,7 +1954,24 @@ void SuperImGuiOverlayRender(IDirect3DDevice9* device)
         return;
     if (!device || device != g_overlay.device)
         return;
-    if (!HasSuperButtonRect() && (g_overlay.anchorX <= -9000 || g_overlay.anchorY <= -9000))
+    std::vector<IndependentBuffOverlayEntry> independentBuffEntries;
+    SkillOverlayBridgeGetIndependentBuffOverlayEntries(independentBuffEntries);
+    const bool hasIndependentBuffOverlay = !independentBuffEntries.empty();
+    static DWORD s_lastGateLogTick = 0;
+    const DWORD gateNow = GetTickCount();
+    if (hasIndependentBuffOverlay && gateNow - s_lastGateLogTick > 1000)
+    {
+        s_lastGateLogTick = gateNow;
+        WriteLogFmt("[IndependentBuffOverlayRenderGate] dx9 init=%d visible=%d ctx=%d hasEntries=%d btn=%d anchor=(%d,%d)",
+            g_overlay.initialized ? 1 : 0,
+            g_overlay.visible ? 1 : 0,
+            g_overlay.context ? 1 : 0,
+            hasIndependentBuffOverlay ? 1 : 0,
+            HasSuperButtonRect() ? 1 : 0,
+            g_overlay.anchorX,
+            g_overlay.anchorY);
+    }
+    if (!HasSuperButtonRect() && (g_overlay.anchorX <= -9000 || g_overlay.anchorY <= -9000) && !hasIndependentBuffOverlay)
         return;
 
     ImGui::SetCurrentContext(g_overlay.context);
@@ -1199,6 +1998,27 @@ void SuperImGuiOverlayRender(IDirect3DDevice9* device)
     if (!g_overlay.superButtonPressed)
         SetSuperButtonHoverState(hasMousePt && IsPointInsideSuperButton(mousePt.x, mousePt.y));
 
+    const bool rightButtonDown = ((::GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0);
+    if (gameForeground && hasIndependentBuffOverlay && hasMousePt)
+    {
+        int hoveredBuffSkillId = 0;
+        if (TryFindIndependentBuffOverlaySkillIdAtPoint(mousePt.x, mousePt.y, &hoveredBuffSkillId))
+        {
+            if (rightButtonDown && !g_independentBuffRightButtonWasDown && hoveredBuffSkillId > 0)
+            {
+                WriteLogFmt("[IndependentBuffOverlay] polled cancel request skillId=%d via render dx9 pt=(%d,%d)",
+                    hoveredBuffSkillId,
+                    mousePt.x,
+                    mousePt.y);
+                SkillOverlayBridgeCancelIndependentBuff(hoveredBuffSkillId);
+                independentBuffEntries.clear();
+            }
+        }
+    }
+    g_independentBuffRightButtonWasDown = rightButtonDown;
+
+    if (hasIndependentBuffOverlay)
+        RenderIndependentBuffOverlayBar(independentBuffEntries);
     RenderOverlaySuperButton();
 
     if (g_overlay.panelExpanded && g_overlay.anchorX > -9000 && g_overlay.anchorY > -9000)
@@ -1212,12 +2032,15 @@ void SuperImGuiOverlayRender(IDirect3DDevice9* device)
         RenderRetroSkillPanel(g_overlay.state, g_overlay.assets, device, g_overlay.mainScale, &g_overlay.hooks);
     }
 
+    RenderObservedSceneFadeMask();
+
     g_overlay.mouseHover = hasMousePt && IsPointInsidePanel(mousePt.x, mousePt.y);
-    const bool shouldDrawOverlayCursor = hasMousePt && (g_overlay.state.isDraggingSkill || g_overlay.mouseHover || g_overlay.mouseCapture);
+        const bool shouldDrawOverlayCursor = hasMousePt && (g_overlay.state.isDraggingSkill || g_overlay.mouseHover || g_overlay.mouseCapture);
     if (shouldDrawOverlayCursor)
     {
         const ImVec2 savedMousePos = io.MousePos;
         io.MousePos = ImVec2((float)mousePt.x, (float)mousePt.y);
+        const int observedNativeCursorState = SkillOverlayBridgeGetObservedNativeCursorState();
 
         RenderRetroSkillCursorOverlay(
             g_overlay.state,
@@ -1226,7 +2049,8 @@ void SuperImGuiOverlayRender(IDirect3DDevice9* device)
             g_overlay.superButtonHover,
             g_overlay.superButtonPressed,
             g_overlay.superButtonHoverStartTick,
-            g_overlay.superButtonHoverInstantUseNormal1);
+            g_overlay.superButtonHoverInstantUseNormal1,
+            observedNativeCursorState);
 
         io.MousePos = savedMousePos;
     }
@@ -1261,7 +2085,7 @@ bool SuperImGuiOverlayShouldSuppressGameMouse()
 {
     if (!g_overlay.initialized || !g_overlay.visible)
         return false;
-    return ShouldUseOverlayCursor();
+    return g_overlay.mouseHover || ShouldUseOverlayCursor();
 }
 
 void SuperImGuiOverlayCancelMouseCapture()

@@ -1819,6 +1819,80 @@ __declspec(naked) static void hkSkillWndDtorNaked()
 static void *oSendPacket = nullptr;
 static DWORD g_SendPacketOriginalCallTarget = 0;
 static void *oRecvPacket = nullptr;
+static void *oExternalPotentialWritePatch = nullptr;
+static void *oExternalPotentialClearPatch = nullptr;
+static uintptr_t g_ExternalPotentialIncreaseAddressRuntime = 0;
+static DWORD g_ExternalPotentialWriteContinue = 0;
+static DWORD g_ExternalPotentialWriteLoopTarget = 0;
+static DWORD g_ExternalPotentialClearContinue = 0;
+static void *oLocalIndependentPotentialPrimaryFlatStats = nullptr;
+static DWORD g_LocalIndependentPotentialPrimaryContinueNonZero = 0;
+static DWORD g_LocalIndependentPotentialPrimaryContinueZero = 0;
+static void *oLocalIndependentPotentialPrimaryPercentStats = nullptr;
+static DWORD g_LocalIndependentPotentialPrimaryPercentContinueNonZero = 0;
+static DWORD g_LocalIndependentPotentialPrimaryPercentContinueZero = 0;
+static void *oLocalIndependentPotentialFlatStats = nullptr;
+static uintptr_t g_LocalIndependentPotentialPreparedPtr = 0;
+static DWORD g_LocalIndependentPotentialContinueNonZero = 0;
+static DWORD g_LocalIndependentPotentialContinueZero = 0;
+static void *oLocalIndependentPotentialSkillLevelDisplay = nullptr;
+static void *oLocalIndependentPotentialDamageDisplay = nullptr;
+static void *oAbilityRedHashLookupHook = nullptr;
+static void *oAbilityRedHashInsertHook = nullptr;
+typedef int (__fastcall *tAbilityRedDisplayCandidateFn)(void *thisPtr, void *edxUnused, DWORD arg1, DWORD arg2, DWORD arg3, DWORD arg4, DWORD arg5, DWORD arg6, DWORD arg7);
+static tAbilityRedDisplayCandidateFn oAbilityRedDisplayCandidateFn = nullptr;
+typedef int (__fastcall *tAbilityRedExtendedAggregateFn)(void *thisPtr, void *edxUnused, DWORD arg1, DWORD arg2, DWORD arg3);
+static tAbilityRedExtendedAggregateFn oAbilityRedExtendedAggregateFn = nullptr;
+typedef int (__fastcall *tAbilityRedMasterAggregateFn)(void *thisPtr, void *edxUnused, DWORD arg1, DWORD arg2, DWORD arg3, DWORD arg4, DWORD arg5, DWORD arg6, DWORD arg7);
+static tAbilityRedMasterAggregateFn oAbilityRedMasterAggregateFn = nullptr;
+typedef int (__fastcall *tAbilityRedSiblingCalcFn)(void *thisPtr, void *edxUnused);
+static tAbilityRedSiblingCalcFn oAbilityRedSiblingCalc82F780Fn = nullptr;
+static tAbilityRedSiblingCalcFn oAbilityRedSiblingCalc82F870Fn = nullptr;
+static tAbilityRedSiblingCalcFn oAbilityRedSiblingCalc82F960Fn = nullptr;
+static tAbilityRedSiblingCalcFn oAbilityRedSiblingCalc82FA50Fn = nullptr;
+typedef int (__fastcall *tAbilityRedFinalCalc6Fn)(void *thisPtr, void *edxUnused, DWORD arg1, DWORD arg2, DWORD arg3, DWORD arg4, DWORD arg5, DWORD arg6);
+typedef int (__fastcall *tAbilityRedFinalCalc5Fn)(void *thisPtr, void *edxUnused, DWORD arg1, DWORD arg2, DWORD arg3, DWORD arg4, DWORD arg5);
+static tAbilityRedFinalCalc6Fn oAbilityRedFinalCalc84C470Fn = nullptr;
+static tAbilityRedFinalCalc5Fn oAbilityRedFinalCalc84CA90Fn = nullptr;
+static tAbilityRedFinalCalc5Fn oAbilityRedFinalCalc84CBD0Fn = nullptr;
+static DWORD g_AbilityRedDisplayCallsiteOriginalTarget = 0;
+static DWORD g_AbilityRedDiff84C470PreSubContinue = 0;
+static DWORD g_AbilityRedDiff84BE40PreSubContinue = 0;
+static DWORD g_AbilityRedDiff84CA90AccPreSubContinue = 0;
+static DWORD g_AbilityRedDiff84CA90MagicAccPreSubContinue = 0;
+static DWORD g_AbilityRedDiff84CBD0AvoidPreSubContinue = 0;
+static DWORD g_AbilityRedDiff84CBD0MagicAvoidPreSubContinue = 0;
+static DWORD g_AbilityRedAttackRangeStyleContinue = 0;
+static DWORD g_AbilityRedCriticalRateStyleContinue = 0;
+static DWORD g_AbilityRedSpeedStyleContinue = 0;
+static DWORD g_AbilityRedJumpStyleContinue = 0;
+static void *oAbilityRedBake857BB6Hook = nullptr;
+static void *oAbilityRedBake857C29Hook = nullptr;
+static void *oAbilityRedBake857C9CHook = nullptr;
+static void *oAbilityRedBake857D0FHook = nullptr;
+static void *oAbilityRedBake1988569C3Hook = nullptr;
+static void *oAbilityRedBake198856D57Hook = nullptr;
+static void *oAbilityRedBake19885725FHook = nullptr;
+static void *oAbilityRedBake198857C3BHook = nullptr;
+static void *oAbilityRedBake198858AEDHook = nullptr;
+static void *oAbilityRedBake198831A50Hook = nullptr;
+static void *oAbilityRedBake19883AF02Hook = nullptr;
+static void *oAbilityRedLevelReadHook = nullptr;
+static void *oAbilityRedSkillWrite52FE14Hook = nullptr;
+static void *oAbilityRedSkillWrite6226CEHook = nullptr;
+static void *oAbilityRedSkillWrite49CA01Hook = nullptr;
+typedef int (__stdcall *tLocalIndependentPotentialSkillLevelDisplayFn)(int a1, int a2, DWORD *a3);
+typedef LONG (__cdecl *tLocalIndependentPotentialPercentQuadDisplayFn)(int a1, int a2, DWORD *a3, DWORD *a4, DWORD *a5, DWORD *a6);
+typedef LONG (__thiscall *tLocalIndependentPotentialPercentFullDisplayFn)(DWORD *thisPtr, int pExceptionObject, int a3, DWORD *a4);
+typedef LONG (__thiscall *tLocalIndependentPotentialFlatBasicDisplayFn)(DWORD *thisPtr, int pExceptionObject, int a3);
+typedef LONG (__thiscall *tLocalIndependentPotentialFlatExtendedDisplayFn)(DWORD *thisPtr, int pExceptionObject, int a3);
+static tLocalIndependentPotentialSkillLevelDisplayFn oLocalIndependentPotentialSkillLevelDisplayFn = nullptr;
+static tLocalIndependentPotentialPercentQuadDisplayFn oLocalIndependentPotentialPercentQuadDisplayFn = nullptr;
+static tLocalIndependentPotentialPercentFullDisplayFn oLocalIndependentPotentialPercentFullDisplayFn = nullptr;
+static tLocalIndependentPotentialFlatBasicDisplayFn oLocalIndependentPotentialFlatBasicDisplayFn = nullptr;
+static tLocalIndependentPotentialFlatExtendedDisplayFn oLocalIndependentPotentialFlatExtendedDisplayFn = nullptr;
+typedef BYTE* (__stdcall *tPotentialTextFormatFn)(int* src, BYTE* statsPtr);
+static tPotentialTextFormatFn oPotentialTextFormat = nullptr;
 static void *oSkillReleaseClassifierRoot = nullptr;
 static void *oSkillReleaseClassifier = nullptr;
 static void *oSkillReleaseClassifierB2F370 = nullptr;
@@ -1842,12 +1916,3965 @@ static tSkillLevelBaseFn oSkillLevelBase = nullptr;
 static tSkillLevelCurrentFn oSkillLevelCurrent = nullptr;
 typedef void(__thiscall *tSkillPresentationDispatch)(void *thisPtr, int *skillData, int a3, int a4, int a5, int a6, int a7);
 static tSkillPresentationDispatch oSkillPresentationDispatch = nullptr;
+typedef void(__thiscall *tStatusBarInternalRefreshFn)(uintptr_t thisPtr);
+static tStatusBarInternalRefreshFn oStatusBarRefreshSlotsPrimary = nullptr;
+static tStatusBarInternalRefreshFn oStatusBarRefreshSlotsSecondary = nullptr;
+static tStatusBarInternalRefreshFn oStatusBarRefreshInternal = nullptr;
+static tStatusBarInternalRefreshFn oStatusBarCleanupTransient = nullptr;
+typedef int(__thiscall *tSurfaceDrawImageFn)(void *surface, int x, int y, int imageObj, DWORD *variantLikeAlpha);
+static tSurfaceDrawImageFn oSurfaceDrawImageFn = nullptr;
+typedef char(__thiscall *tNativeCursorStateSetFn)(uintptr_t thisPtr, unsigned int state);
+static tNativeCursorStateSetFn oNativeCursorStateSetFn = nullptr;
+typedef int(__thiscall *tStatusBarTransientRefreshFn)(uintptr_t thisPtr, int a2);
+typedef void(__thiscall *tStatusBarTransientDispatchFn)(uintptr_t thisPtr, int a2);
+typedef LONG* (__stdcall *tStatusBarTransientToggleFn)(int a1);
+static tStatusBarTransientRefreshFn oStatusBarTransientRefresh = nullptr;
+static tStatusBarTransientDispatchFn oStatusBarTransientDispatch = nullptr;
+static tStatusBarTransientToggleFn oStatusBarTransientToggle = nullptr;
+struct StatusBarObservedBuffSlot
+{
+    uintptr_t wrapper = 0;
+    uintptr_t child = 0;
+    int x = 0;
+    int y = 0;
+    int w = 0;
+    int h = 0;
+    int renderX = 0;
+    int renderY = 0;
+};
+static StatusBarObservedBuffSlot g_StatusBarObservedBuffSlots[9] = {};
+static bool g_StatusBarBuffSlotHooksInstalled = false;
 static volatile DWORD g_ClassifierOverrideSkillId = 0;
 static volatile DWORD g_ForcedNativeReleaseJump = 0;
+static void hkExternalPotentialWriteNaked();
+static void hkExternalPotentialClearNaked();
+static bool PatchExternalPotentialIncreaseStub(BYTE* stubTarget);
+static bool SetupLocalIndependentPotentialPrimaryFlatStatHook();
+static bool SetupLocalIndependentPotentialPrimaryPercentStatHook();
+static bool SetupLocalIndependentPotentialFlatStatHook();
+static bool SetupLocalIndependentPotentialDisplayFunctionHooks();
+static bool SetupAbilityRedHashContainerHooks();
+static bool SetupAbilityRedDisplayCandidateHook();
+static bool SetupAbilityRedDisplayCallsiteHook();
+static bool SetupAbilityRedLevelReadHook();
+static bool SetupAbilityRedSkillWriteHooks();
+static bool SetupAbilityRedExtendedAggregateHook();
+static bool SetupAbilityRedMasterAggregateHook();
+static bool SetupAbilityRedSiblingCalcHooks();
+static bool SetupAbilityRedDiff84C470PreSubHook();
+static bool SetupAbilityRedAdditionalDiffHooks();
+static bool SetupAbilityRedPositiveStyleHooks();
+static bool SetupAbilityRedBakeWriteHooks();
+static bool SetupAbilityRedBake198Hooks();
+static bool SetupAbilityRedFinalValueHooks();
+static bool SetupLocalIndependentPotentialSkillLevelDisplayHook();
+static bool SetupLocalIndependentPotentialDamageDisplayHook();
+static bool SetupPotentialTextDisplayHook();
+static bool SetupStatusBarBuffSlotHooks();
+static bool SetupSurfaceDrawImageObservationHook();
+static bool SetupNativeCursorStateHook();
 
-static void __cdecl hkSendPacketInspect(void *packetData, int packetLen, uintptr_t callerRetAddr)
+static uintptr_t g_LocalIndependentPotentialSkillLevelLastTarget = 0;
+static DWORD g_LocalIndependentPotentialSkillLevelLastTick = 0;
+static uintptr_t g_LocalIndependentPotentialDamageLastKey = 0;
+static DWORD g_LocalIndependentPotentialDamageLastTick = 0;
+static uintptr_t g_LocalIndependentPotentialPercentQuadLastKey = 0;
+static DWORD g_LocalIndependentPotentialPercentQuadLastTick = 0;
+static uintptr_t g_LocalIndependentPotentialPercentFullLastKey = 0;
+static DWORD g_LocalIndependentPotentialPercentFullLastTick = 0;
+static uintptr_t g_LocalIndependentPotentialFlatBasicLastKey = 0;
+static DWORD g_LocalIndependentPotentialFlatBasicLastTick = 0;
+static uintptr_t g_LocalIndependentPotentialFlatExtendedLastKey = 0;
+static DWORD g_LocalIndependentPotentialFlatExtendedLastTick = 0;
+static const bool kLocalIndependentPotentialDisplayObserveOnly = true;
+static uintptr_t g_AbilityRedDisplayCandidateLastThis = 0;
+static DWORD g_AbilityRedDisplayCandidateLastTick = 0;
+static DWORD g_AbilityRedDisplayCallsiteLastTick = 0;
+static DWORD g_AbilityRedLevelReadLastTick = 0;
+static DWORD g_AbilityRedSnapshotLastTick = 0;
+static DWORD g_AbilityRedSkillWriteLastTick = 0;
+static DWORD g_AbilityRedHashLookupLastCaller = 0;
+static uintptr_t g_AbilityRedHashLookupLastThis = 0;
+static DWORD g_AbilityRedHashLookupLastKey = 0;
+static DWORD g_AbilityRedHashLookupLastTick = 0;
+static DWORD g_AbilityRedHashInsertLastCaller = 0;
+static uintptr_t g_AbilityRedHashInsertLastThis = 0;
+static DWORD g_AbilityRedHashInsertLastKey = 0;
+static DWORD g_AbilityRedHashInsertLastValue = 0;
+static DWORD g_AbilityRedHashInsertLastTick = 0;
+static DWORD g_AbilityRedExtendedAggregateLastCaller = 0;
+static DWORD g_AbilityRedExtendedAggregateLastTick = 0;
+static DWORD g_AbilityRedMasterAggregateLastCaller = 0;
+static DWORD g_AbilityRedMasterAggregateLastTick = 0;
+static DWORD g_AbilityRedSibling82F780LastCaller = 0;
+static uintptr_t g_AbilityRedSibling82F780LastThis = 0;
+static DWORD g_AbilityRedSibling82F780LastTick = 0;
+static int g_AbilityRedSibling82F780LastActive = -1;
+static DWORD g_AbilityRedSibling82F870LastCaller = 0;
+static uintptr_t g_AbilityRedSibling82F870LastThis = 0;
+static DWORD g_AbilityRedSibling82F870LastTick = 0;
+static int g_AbilityRedSibling82F870LastActive = -1;
+static DWORD g_AbilityRedSibling82F960LastCaller = 0;
+static uintptr_t g_AbilityRedSibling82F960LastThis = 0;
+static DWORD g_AbilityRedSibling82F960LastTick = 0;
+static int g_AbilityRedSibling82F960LastActive = -1;
+static DWORD g_AbilityRedSibling82FA50LastCaller = 0;
+static uintptr_t g_AbilityRedSibling82FA50LastThis = 0;
+static DWORD g_AbilityRedSibling82FA50LastTick = 0;
+static int g_AbilityRedSibling82FA50LastActive = -1;
+static DWORD g_AbilityRedDiff84C470LastCaller = 0;
+static uintptr_t g_AbilityRedDiff84C470LastThis = 0;
+static DWORD g_AbilityRedDiff84C470LastTick = 0;
+static int g_AbilityRedDiff84C470LastActive = -1;
+static DWORD g_AbilityRedBaseSumInactive9F7241 = 0;
+static DWORD g_AbilityRedBaseSumInactive9F7546 = 0;
+static DWORD g_AbilityRedBaseSumInactive9F7893 = 0;
+static DWORD g_AbilityRedBaseSumInactive9F7C7F = 0;
+static DWORD g_AbilityRedBaseSumInactive9F8048 = 0;
+static DWORD g_AbilityRedBaseSumInactive9F82A8 = 0;
+static DWORD g_AbilityRedBake857BB6LastSig = 0;
+static DWORD g_AbilityRedBake857BB6LastTick = 0;
+static DWORD g_AbilityRedBake857C29LastSig = 0;
+static DWORD g_AbilityRedBake857C29LastTick = 0;
+static DWORD g_AbilityRedBake857C9CLastSig = 0;
+static DWORD g_AbilityRedBake857C9CLastTick = 0;
+static DWORD g_AbilityRedBake857D0FLastSig = 0;
+static DWORD g_AbilityRedBake857D0FLastTick = 0;
+static DWORD g_AbilityRedBake1988569C3LastSig = 0;
+static DWORD g_AbilityRedBake1988569C3LastTick = 0;
+static DWORD g_AbilityRedBake198856D57LastSig = 0;
+static DWORD g_AbilityRedBake198856D57LastTick = 0;
+static DWORD g_AbilityRedBake19885725FLastSig = 0;
+static DWORD g_AbilityRedBake19885725FLastTick = 0;
+static DWORD g_AbilityRedBake198857C3BLastSig = 0;
+static DWORD g_AbilityRedBake198857C3BLastTick = 0;
+static DWORD g_AbilityRedBake198858AEDLastSig = 0;
+static DWORD g_AbilityRedBake198858AEDLastTick = 0;
+static DWORD g_AbilityRedBake198831A50LastSig = 0;
+static DWORD g_AbilityRedBake198831A50LastTick = 0;
+static DWORD g_AbilityRedBake19883AF02LastSig = 0;
+static DWORD g_AbilityRedBake19883AF02LastTick = 0;
+static DWORD g_AbilityRedFinal84C470LastCaller = 0;
+static uintptr_t g_AbilityRedFinal84C470LastThis = 0;
+static DWORD g_AbilityRedFinal84C470LastTick = 0;
+static int g_AbilityRedFinal84C470LastActive = -1;
+static DWORD g_AbilityRedFinal84CA90LastCaller = 0;
+static uintptr_t g_AbilityRedFinal84CA90LastThis = 0;
+static DWORD g_AbilityRedFinal84CA90LastTick = 0;
+static int g_AbilityRedFinal84CA90LastActive = -1;
+static DWORD g_AbilityRedFinal84CBD0LastCaller = 0;
+static uintptr_t g_AbilityRedFinal84CBD0LastThis = 0;
+static DWORD g_AbilityRedFinal84CBD0LastTick = 0;
+static int g_AbilityRedFinal84CBD0LastActive = -1;
+
+static DWORD SeedAbilityRedInactiveBaselineFromPrimary(DWORD siteId, DWORD currentSum);
+
+static bool ShouldApplyLocalIndependentPotentialBurst(uintptr_t key, uintptr_t* lastKey, DWORD* lastTick)
 {
-    SkillOverlayBridgeInspectOutgoingPacket(packetData, packetLen, callerRetAddr);
+    if (!key || !lastKey || !lastTick)
+        return false;
+
+    const DWORD now = GetTickCount();
+    if (*lastKey == key && now - *lastTick <= 15)
+        return false;
+
+    *lastKey = key;
+    *lastTick = now;
+    return true;
+}
+
+static bool TryGetObservedDrawObjectSize(int imageObj, int* outW, int* outH)
+{
+    if (outW)
+        *outW = 0;
+    if (outH)
+        *outH = 0;
+    if (imageObj <= 0 || SafeIsBadReadPtr(reinterpret_cast<void*>(imageObj), 4))
+        return false;
+
+    __try
+    {
+        DWORD vtable = *reinterpret_cast<DWORD*>(imageObj);
+        if (!vtable ||
+            SafeIsBadReadPtr(reinterpret_cast<void*>(vtable + 64), 4) ||
+            SafeIsBadReadPtr(reinterpret_cast<void*>(vtable + 72), 4))
+        {
+            return false;
+        }
+
+        typedef int (__stdcall *tGetDrawObjMetric)(int obj, LONG* outValue);
+        tGetDrawObjMetric fnGetWidth = *reinterpret_cast<tGetDrawObjMetric*>(vtable + 64);
+        tGetDrawObjMetric fnGetHeight = *reinterpret_cast<tGetDrawObjMetric*>(vtable + 72);
+        if (!fnGetWidth || !fnGetHeight)
+            return false;
+
+        LONG w = 0;
+        LONG h = 0;
+        if (fnGetWidth(imageObj, &w) < 0 || fnGetHeight(imageObj, &h) < 0)
+            return false;
+        if (w <= 0 || h <= 0 || w > 4096 || h > 4096)
+            return false;
+
+        if (outW)
+            *outW = (int)w;
+        if (outH)
+            *outH = (int)h;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+static int ExtractObservedDrawAlpha(const DWORD* variantLikeAlpha, WORD* outVariantType)
+{
+    if (outVariantType)
+        *outVariantType = VT_EMPTY;
+    if (!variantLikeAlpha)
+        return 255;
+
+    const WORD variantType = static_cast<WORD>(variantLikeAlpha[0] & 0xFFFFu);
+    if (outVariantType)
+        *outVariantType = variantType;
+
+    switch (variantType)
+    {
+    case VT_I4:
+    case VT_INT:
+    case VT_UI4:
+    case VT_UINT:
+        return static_cast<int>(variantLikeAlpha[2]);
+    case VT_I2:
+    case VT_UI2:
+        return static_cast<short>(variantLikeAlpha[2] & 0xFFFFu);
+    case VT_EMPTY:
+    default:
+        return 255;
+    }
+}
+
+static void ObserveSurfaceDrawImageCall(void *surface, int x, int y, int imageObj, DWORD *variantLikeAlpha)
+{
+    UNREFERENCED_PARAMETER(surface);
+
+    HWND hwnd = g_GameHwnd ? g_GameHwnd : g_D3D8GameHwnd;
+    RECT clientRect = {};
+    if (!hwnd || !::GetClientRect(hwnd, &clientRect))
+        return;
+
+    int w = 0;
+    int h = 0;
+    if (!TryGetObservedDrawObjectSize(imageObj, &w, &h))
+        return;
+
+    const int clientW = clientRect.right - clientRect.left;
+    const int clientH = clientRect.bottom - clientRect.top;
+    WORD variantType = VT_EMPTY;
+    const int alpha = ExtractObservedDrawAlpha(variantLikeAlpha, &variantType);
+    const bool coversViewport =
+        x <= 16 &&
+        y <= 16 &&
+        x + w >= clientW - 16 &&
+        y + h >= clientH - 16 &&
+        w >= clientW - 32 &&
+        h >= clientH - 32;
+    const bool nearFullscreen =
+        x <= 64 &&
+        y <= 64 &&
+        x + w >= clientW - 64 &&
+        y + h >= clientH - 64 &&
+        w >= ((clientW * 3) / 4) &&
+        h >= ((clientH * 3) / 4);
+    if (nearFullscreen)
+    {
+        static DWORD s_lastNearFullscreenDrawLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastNearFullscreenDrawLogTick > 250)
+        {
+            s_lastNearFullscreenDrawLogTick = nowTick;
+            WriteLogFmt(
+                "[ObservedSceneFadeNearFullscreen] imageObj=0x%08X rect=(%d,%d,%d,%d) size=%dx%d alpha=%d vt=0x%04X raw=[0x%08X,0x%08X,0x%08X,0x%08X] client=%dx%d",
+                imageObj,
+                x,
+                y,
+                x + w,
+                y + h,
+                w,
+                h,
+                alpha,
+                static_cast<unsigned int>(variantType),
+                variantLikeAlpha ? variantLikeAlpha[0] : 0u,
+                variantLikeAlpha ? variantLikeAlpha[1] : 0u,
+                variantLikeAlpha ? variantLikeAlpha[2] : 0u,
+                variantLikeAlpha ? variantLikeAlpha[3] : 0u,
+                clientW,
+                clientH);
+        }
+    }
+    if (coversViewport)
+    {
+        static DWORD s_lastFullscreenDrawLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastFullscreenDrawLogTick > 250)
+        {
+            s_lastFullscreenDrawLogTick = nowTick;
+            WriteLogFmt("[ObservedSceneFadeCandidate] imageObj=0x%08X rect=(%d,%d,%d,%d) size=%dx%d alpha=%d vt=0x%04X client=%dx%d",
+                imageObj,
+                x,
+                y,
+                x + w,
+                y + h,
+                w,
+                h,
+                alpha,
+                static_cast<unsigned int>(variantType),
+                clientW,
+                clientH);
+        }
+    }
+
+    SkillOverlayBridgeObserveSceneFadeCandidate(imageObj, x, y, w, h, alpha, clientW, clientH);
+
+    POINT mousePt = {};
+    if (::GetCursorPos(&mousePt) && ::ScreenToClient(hwnd, &mousePt))
+    {
+        const bool nearMouse =
+            w <= 96 &&
+            h <= 96 &&
+            abs(x - mousePt.x) <= 48 &&
+            abs(y - mousePt.y) <= 48;
+        if (nearMouse)
+        {
+            static DWORD s_lastMouseDrawLogTick = 0;
+            const DWORD nowTick = GetTickCount();
+            if (nowTick - s_lastMouseDrawLogTick > 100)
+            {
+                s_lastMouseDrawLogTick = nowTick;
+                WriteLogFmt("[ObservedCursorDraw] imageObj=0x%08X pos=(%d,%d) size=%dx%d alpha=%d mouse=(%d,%d)",
+                    imageObj,
+                    x,
+                    y,
+                    w,
+                    h,
+                    alpha,
+                    mousePt.x,
+                    mousePt.y);
+            }
+        }
+    }
+}
+
+static int __fastcall hkSurfaceDrawImage(void *surface, void * /*edxUnused*/, int x, int y, int imageObj, DWORD *variantLikeAlpha)
+{
+    ObserveSurfaceDrawImageCall(surface, x, y, imageObj, variantLikeAlpha);
+    return oSurfaceDrawImageFn
+        ? oSurfaceDrawImageFn(surface, x, y, imageObj, variantLikeAlpha)
+        : 0;
+}
+
+static char __cdecl hkNativeCursorStateSetHandler(uintptr_t thisPtr, unsigned int requestedState)
+{
+    const char result = oNativeCursorStateSetFn
+        ? oNativeCursorStateSetFn(thisPtr, requestedState)
+        : 0;
+
+    int currentState = -1;
+    uintptr_t currentHandle = 0;
+    if (thisPtr && !SafeIsBadReadPtr((void*)(thisPtr + 0x9C8), 4))
+    {
+        currentState = *(int*)(thisPtr + 0x9C4);
+        currentHandle = *(uintptr_t*)(thisPtr + 0x978);
+    }
+
+    SkillOverlayBridgeSetObservedNativeCursorState(currentState);
+
+    static int s_lastLoggedState = -9999;
+    static uintptr_t s_lastLoggedHandle = 0;
+    static DWORD s_lastCursorStateLogTick = 0;
+    const DWORD nowTick = GetTickCount();
+    if (currentState != s_lastLoggedState ||
+        currentHandle != s_lastLoggedHandle ||
+        nowTick - s_lastCursorStateLogTick > 1000)
+    {
+        s_lastLoggedState = currentState;
+        s_lastLoggedHandle = currentHandle;
+        s_lastCursorStateLogTick = nowTick;
+        WriteLogFmt("[ObservedCursorState] req=%u current=%d manager=0x%08X handle=0x%08X result=%d",
+            requestedState,
+            currentState,
+            (DWORD)thisPtr,
+            (DWORD)currentHandle,
+            (int)result);
+    }
+
+    return result;
+}
+
+__declspec(naked) static void hkNativeCursorStateSetNaked()
+{
+    __asm {
+        mov eax, [esp + 4]
+        push eax
+        push ecx
+        call hkNativeCursorStateSetHandler
+        add esp, 8
+        ret 4
+    }
+}
+
+static bool IsAbilityRedHashReturnAddressOfInterest(DWORD returnAddr)
+{
+    return (returnAddr >= 0x009F5000 && returnAddr < 0x009F5600) ||
+           (returnAddr >= 0x00AE4000 && returnAddr < 0x00AE7800);
+}
+
+static void ReadAbilityRedHashContainerMeta(
+    uintptr_t thisPtr,
+    DWORD *bucketBase,
+    DWORD *bucketCount,
+    DWORD *entryCount)
+{
+    if (bucketBase)
+        *bucketBase = 0;
+    if (bucketCount)
+        *bucketCount = 0;
+    if (entryCount)
+        *entryCount = 0;
+    if (!thisPtr || SafeIsBadReadPtr(reinterpret_cast<void*>(thisPtr + 0x04), 0x0C))
+        return;
+
+    if (bucketBase)
+        *bucketBase = *reinterpret_cast<DWORD*>(thisPtr + 0x04);
+    if (bucketCount)
+        *bucketCount = *reinterpret_cast<DWORD*>(thisPtr + 0x08);
+    if (entryCount)
+        *entryCount = *reinterpret_cast<DWORD*>(thisPtr + 0x0C);
+}
+
+static bool ShouldLogAbilityRedHashLookup(DWORD returnAddr, uintptr_t thisPtr, DWORD key)
+{
+    if (!IsAbilityRedHashReturnAddressOfInterest(returnAddr))
+        return false;
+
+    const DWORD now = GetTickCount();
+    if (g_AbilityRedHashLookupLastCaller == returnAddr &&
+        g_AbilityRedHashLookupLastThis == thisPtr &&
+        g_AbilityRedHashLookupLastKey == key &&
+        now - g_AbilityRedHashLookupLastTick <= 1000)
+    {
+        return false;
+    }
+
+    g_AbilityRedHashLookupLastCaller = returnAddr;
+    g_AbilityRedHashLookupLastThis = thisPtr;
+    g_AbilityRedHashLookupLastKey = key;
+    g_AbilityRedHashLookupLastTick = now;
+    return true;
+}
+
+static bool ShouldLogAbilityRedHashInsert(DWORD returnAddr, uintptr_t thisPtr, DWORD key, DWORD value)
+{
+    if (!IsAbilityRedHashReturnAddressOfInterest(returnAddr))
+        return false;
+
+    const DWORD now = GetTickCount();
+    if (g_AbilityRedHashInsertLastCaller == returnAddr &&
+        g_AbilityRedHashInsertLastThis == thisPtr &&
+        g_AbilityRedHashInsertLastKey == key &&
+        g_AbilityRedHashInsertLastValue == value &&
+        now - g_AbilityRedHashInsertLastTick <= 1000)
+    {
+        return false;
+    }
+
+    g_AbilityRedHashInsertLastCaller = returnAddr;
+    g_AbilityRedHashInsertLastThis = thisPtr;
+    g_AbilityRedHashInsertLastKey = key;
+    g_AbilityRedHashInsertLastValue = value;
+    g_AbilityRedHashInsertLastTick = now;
+    return true;
+}
+
+static bool ShouldLogAbilityRedExtendedAggregate(DWORD returnAddr)
+{
+    const DWORD now = GetTickCount();
+    if (g_AbilityRedExtendedAggregateLastCaller == returnAddr &&
+        now - g_AbilityRedExtendedAggregateLastTick <= 1000)
+    {
+        return false;
+    }
+
+    g_AbilityRedExtendedAggregateLastCaller = returnAddr;
+    g_AbilityRedExtendedAggregateLastTick = now;
+    return true;
+}
+
+static bool ShouldLogAbilityRedMasterAggregate(DWORD returnAddr)
+{
+    const DWORD now = GetTickCount();
+    if (g_AbilityRedMasterAggregateLastCaller == returnAddr &&
+        now - g_AbilityRedMasterAggregateLastTick <= 1000)
+    {
+        return false;
+    }
+
+    g_AbilityRedMasterAggregateLastCaller = returnAddr;
+    g_AbilityRedMasterAggregateLastTick = now;
+    return true;
+}
+
+static unsigned int RotL32(unsigned int value, unsigned int count)
+{
+    count &= 31u;
+    return (value << count) | (value >> ((32u - count) & 31u));
+}
+
+static unsigned int RotR32(unsigned int value, unsigned int count)
+{
+    count &= 31u;
+    return (value >> count) | (value << ((32u - count) & 31u));
+}
+
+static int GenerateLocalIndependentPotentialCipherKey()
+{
+    typedef int (__fastcall *tGenerateCipherKeyFn)(void *seedPtr, void *edxUnused);
+    tGenerateCipherKeyFn generateCipherKey = reinterpret_cast<tGenerateCipherKeyFn>(ADDR_4098C0);
+    if (!generateCipherKey)
+        return 0;
+    return generateCipherKey(reinterpret_cast<void*>(ADDR_F631B8), nullptr);
+}
+
+static bool ReadEncryptedTripletValue(DWORD *base, size_t keyIndex, int *outValue)
+{
+    if (!base || !outValue)
+        return false;
+
+    const size_t maxIndex = keyIndex + 2;
+    if (SafeIsBadReadPtr(base, (maxIndex + 1) * sizeof(DWORD)))
+        return false;
+
+    const unsigned int key = static_cast<unsigned int>(base[keyIndex]);
+    const unsigned int enc = static_cast<unsigned int>(base[keyIndex + 1]);
+    const unsigned int check = static_cast<unsigned int>(base[keyIndex + 2]);
+    if (enc + RotR32(key ^ 0xBAADF00Du, 5) != check)
+        return false;
+
+    *outValue = static_cast<int>(key ^ RotL32(enc, 5));
+    return true;
+}
+
+static bool WriteEncryptedTripletValue(DWORD *base, size_t keyIndex, int plainValue)
+{
+    if (!base)
+        return false;
+
+    const size_t maxIndex = keyIndex + 2;
+    if (SafeIsBadWritePtr(base, (maxIndex + 1) * sizeof(DWORD)))
+        return false;
+
+    const int generatedKey = GenerateLocalIndependentPotentialCipherKey();
+    if (generatedKey == 0)
+        return false;
+
+    const unsigned int key = static_cast<unsigned int>(generatedKey);
+    const unsigned int enc = RotR32(static_cast<unsigned int>(plainValue) ^ key, 5);
+    const unsigned int check = enc + RotR32(key ^ 0xBAADF00Du, 5);
+    base[keyIndex] = key;
+    base[keyIndex + 1] = enc;
+    base[keyIndex + 2] = check;
+    return true;
+}
+
+static void LogAbilityRedDecodedSnapshot(const char *tag)
+{
+    const DWORD now = GetTickCount();
+    if (now - g_AbilityRedSnapshotLastTick <= 1000)
+        return;
+    g_AbilityRedSnapshotLastTick = now;
+
+    DWORD *basePrimary = reinterpret_cast<DWORD*>(0x00F6D134);
+    DWORD *baseExtended = reinterpret_cast<DWORD*>(0x00F6D200);
+
+    int strVal = 0, dexVal = 0, intVal = 0, lukVal = 0, hpVal = 0, mpVal = 0;
+    int watkVal = 0, matkVal = 0, wdefVal = 0, mdefVal = 0, accVal = 0, avoidVal = 0, speedVal = 0, jumpVal = 0;
+
+    ReadEncryptedTripletValue(basePrimary, 9, &strVal);
+    ReadEncryptedTripletValue(basePrimary, 12, &dexVal);
+    ReadEncryptedTripletValue(basePrimary, 15, &intVal);
+    ReadEncryptedTripletValue(basePrimary, 18, &lukVal);
+    ReadEncryptedTripletValue(basePrimary, 24, &hpVal);
+    ReadEncryptedTripletValue(basePrimary, 27, &mpVal);
+
+    ReadEncryptedTripletValue(baseExtended, 57, &watkVal);
+    ReadEncryptedTripletValue(baseExtended, 87, &matkVal);
+    ReadEncryptedTripletValue(baseExtended, 72, &wdefVal);
+    ReadEncryptedTripletValue(baseExtended, 102, &mdefVal);
+    ReadEncryptedTripletValue(baseExtended, 117, &accVal);
+    ReadEncryptedTripletValue(baseExtended, 132, &avoidVal);
+    ReadEncryptedTripletValue(baseExtended, 159, &speedVal);
+    ReadEncryptedTripletValue(baseExtended, 171, &jumpVal);
+
+    WriteLogFmt(
+        "[AbilityRedSnapshot] %s primary[str=%d dex=%d int=%d luk=%d hp=%d mp=%d] extended[watk=%d matk=%d wdef=%d mdef=%d acc=%d avoid=%d speed=%d jump=%d] active=%d",
+        tag ? tag : "unknown",
+        strVal,
+        dexVal,
+        intVal,
+        lukVal,
+        hpVal,
+        mpVal,
+        watkVal,
+        matkVal,
+        wdefVal,
+        mdefVal,
+        accVal,
+        avoidVal,
+        speedVal,
+        jumpVal,
+        SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0);
+}
+
+static void __cdecl hkApplyLocalIndependentPotentialSkillLevelDisplay(uintptr_t targetPtr)
+{
+    if (!targetPtr || SafeIsBadWritePtr(reinterpret_cast<void*>(targetPtr), sizeof(int)))
+        return;
+    if (!SkillOverlayBridgeHasLocalIndependentPotentialBonuses())
+        return;
+    if (!ShouldApplyLocalIndependentPotentialBurst(targetPtr, &g_LocalIndependentPotentialSkillLevelLastTarget, &g_LocalIndependentPotentialSkillLevelLastTick))
+        return;
+
+    const int delta = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x88);
+    if (delta == 0)
+        return;
+
+    if (kLocalIndependentPotentialDisplayObserveOnly)
+    {
+        WriteLogFmt("[IndependentBuffLocalDisplay] observe AE0A70 target=0x%08X delta=%d", (DWORD)targetPtr, delta);
+        return;
+    }
+
+    *reinterpret_cast<int*>(targetPtr) += delta;
+    WriteLogFmt("[IndependentBuffLocalDisplay] AE0B23 target=0x%08X delta=%d", (DWORD)targetPtr, delta);
+}
+
+static void __cdecl hkApplyLocalIndependentPotentialDamageDisplay(
+    uintptr_t critRatePtr,
+    uintptr_t option31Ptr,
+    uintptr_t damagePtr,
+    uintptr_t bossDamagePtr,
+    uintptr_t ignoreDefensePtr)
+{
+    (void)option31Ptr;
+
+    if (!SkillOverlayBridgeHasLocalIndependentPotentialBonuses())
+        return;
+
+    const uintptr_t key = critRatePtr ^ (option31Ptr << 1) ^ (damagePtr << 2) ^ (bossDamagePtr << 3) ^ (ignoreDefensePtr << 4);
+    if (!ShouldApplyLocalIndependentPotentialBurst(key, &g_LocalIndependentPotentialDamageLastKey, &g_LocalIndependentPotentialDamageLastTick))
+        return;
+
+    const struct
+    {
+        uintptr_t targetPtr;
+        int offset;
+    } targets[] = {
+        { critRatePtr, 0x78 },
+        { damagePtr, 0xAC },
+        { bossDamagePtr, 0xC4 },
+        { ignoreDefensePtr, 0xA0 },
+    };
+
+    int appliedValues[4] = {};
+    for (int i = 0; i < 4; ++i)
+    {
+        const uintptr_t targetPtr = targets[i].targetPtr;
+        if (!targetPtr || SafeIsBadWritePtr(reinterpret_cast<void*>(targetPtr), sizeof(int)))
+            continue;
+
+        const int delta = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(targets[i].offset);
+        if (delta == 0)
+            continue;
+
+        if (kLocalIndependentPotentialDisplayObserveOnly)
+        {
+            appliedValues[i] = delta;
+            continue;
+        }
+
+        *reinterpret_cast<int*>(targetPtr) += delta;
+        appliedValues[i] = delta;
+    }
+
+    if (appliedValues[0] || appliedValues[1] || appliedValues[2] || appliedValues[3])
+    {
+        WriteLogFmt(kLocalIndependentPotentialDisplayObserveOnly
+                ? "[IndependentBuffLocalDisplay] observe AE0FDC crit=%d damage=%d boss=%d ignore=%d"
+                : "[IndependentBuffLocalDisplay] AE0FDC crit=%d damage=%d boss=%d ignore=%d",
+            appliedValues[0],
+            appliedValues[1],
+            appliedValues[2],
+            appliedValues[3]);
+    }
+}
+
+static void __cdecl hkApplyLocalIndependentPotentialPercentQuadDisplay(
+    uintptr_t strPtr,
+    uintptr_t intPtr,
+    uintptr_t dexPtr,
+    uintptr_t lukPtr)
+{
+    if (!SkillOverlayBridgeHasLocalIndependentPotentialBonuses())
+        return;
+
+    const uintptr_t key = strPtr ^ (intPtr << 1) ^ (dexPtr << 2) ^ (lukPtr << 3);
+    if (!ShouldApplyLocalIndependentPotentialBurst(key, &g_LocalIndependentPotentialPercentQuadLastKey, &g_LocalIndependentPotentialPercentQuadLastTick))
+        return;
+
+    const struct
+    {
+        uintptr_t targetPtr;
+        int offset;
+    } targets[] = {
+        { strPtr, 0x48 },
+        { intPtr, 0x50 },
+        { dexPtr, 0x4C },
+        { lukPtr, 0x54 },
+    };
+
+    int appliedValues[4] = {};
+    for (int i = 0; i < 4; ++i)
+    {
+        if (!targets[i].targetPtr || SafeIsBadWritePtr(reinterpret_cast<void*>(targets[i].targetPtr), sizeof(DWORD)))
+            continue;
+
+        const int delta = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(targets[i].offset);
+        if (delta == 0)
+            continue;
+
+        if (kLocalIndependentPotentialDisplayObserveOnly)
+        {
+            appliedValues[i] = delta;
+            continue;
+        }
+
+        *reinterpret_cast<DWORD*>(targets[i].targetPtr) += delta;
+        appliedValues[i] = delta;
+    }
+
+    if (appliedValues[0] || appliedValues[1] || appliedValues[2] || appliedValues[3])
+    {
+        WriteLogFmt(kLocalIndependentPotentialDisplayObserveOnly
+                ? "[IndependentBuffLocalDisplay] observe 8538C0 str=%d int=%d dex=%d luk=%d"
+                : "[IndependentBuffLocalDisplay] 8538C0 str=%d int=%d dex=%d luk=%d",
+            appliedValues[0],
+            appliedValues[1],
+            appliedValues[2],
+            appliedValues[3]);
+    }
+}
+
+static void __cdecl hkApplyLocalIndependentPotentialPercentFullDisplay(uintptr_t valuesPtr)
+{
+    if (!valuesPtr || SafeIsBadWritePtr(reinterpret_cast<void*>(valuesPtr), 6 * sizeof(DWORD)))
+        return;
+    if (!SkillOverlayBridgeHasLocalIndependentPotentialBonuses())
+        return;
+    if (!ShouldApplyLocalIndependentPotentialBurst(valuesPtr, &g_LocalIndependentPotentialPercentFullLastKey, &g_LocalIndependentPotentialPercentFullLastTick))
+        return;
+
+    DWORD *values = reinterpret_cast<DWORD*>(valuesPtr);
+    const int offsets[] = { 0x48, 0x4C, 0x50, 0x54, 0x58, 0x5C };
+    int appliedValues[6] = {};
+    for (int i = 0; i < 6; ++i)
+    {
+        const int delta = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(offsets[i]);
+        if (delta == 0)
+            continue;
+        if (kLocalIndependentPotentialDisplayObserveOnly)
+        {
+            appliedValues[i] = delta;
+            continue;
+        }
+        values[i] += delta;
+        appliedValues[i] = delta;
+    }
+
+    if (appliedValues[0] || appliedValues[1] || appliedValues[2] || appliedValues[3] || appliedValues[4] || appliedValues[5])
+    {
+        WriteLogFmt(kLocalIndependentPotentialDisplayObserveOnly
+                ? "[IndependentBuffLocalDisplay] observe 853E10 str=%d dex=%d int=%d luk=%d hp=%d mp=%d"
+                : "[IndependentBuffLocalDisplay] 853E10 str=%d dex=%d int=%d luk=%d hp=%d mp=%d",
+            appliedValues[0],
+            appliedValues[1],
+            appliedValues[2],
+            appliedValues[3],
+            appliedValues[4],
+            appliedValues[5]);
+    }
+}
+
+static void __cdecl hkApplyLocalIndependentPotentialFlatBasicDisplay(uintptr_t thisPtr)
+{
+    if (!thisPtr)
+        return;
+    if (!SkillOverlayBridgeHasLocalIndependentPotentialBonuses())
+        return;
+    if (!ShouldApplyLocalIndependentPotentialBurst(thisPtr, &g_LocalIndependentPotentialFlatBasicLastKey, &g_LocalIndependentPotentialFlatBasicLastTick))
+        return;
+
+    DWORD *values = reinterpret_cast<DWORD*>(thisPtr);
+    const struct
+    {
+        size_t keyIndex;
+        int offset;
+    } targets[] = {
+        { 9,  0x08 }, // STR
+        { 12, 0x0C }, // DEX
+        { 15, 0x10 }, // INT
+        { 18, 0x14 }, // LUK
+        { 24, 0x20 }, // MAXHP
+        { 27, 0x24 }, // MAXMP
+    };
+
+    int appliedCount = 0;
+    for (int i = 0; i < (int)ARRAYSIZE(targets); ++i)
+    {
+        const int delta = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(targets[i].offset);
+        if (delta == 0)
+            continue;
+
+        if (kLocalIndependentPotentialDisplayObserveOnly)
+        {
+            ++appliedCount;
+            continue;
+        }
+
+        int currentValue = 0;
+        if (!ReadEncryptedTripletValue(values, targets[i].keyIndex, &currentValue))
+            continue;
+        if (!WriteEncryptedTripletValue(values, targets[i].keyIndex, currentValue + delta))
+            continue;
+        ++appliedCount;
+    }
+
+    if (appliedCount > 0)
+        WriteLogFmt(kLocalIndependentPotentialDisplayObserveOnly
+                ? "[IndependentBuffLocalDisplay] observe 853B00 applied=%d this=0x%08X"
+                : "[IndependentBuffLocalDisplay] 853B00 applied=%d this=0x%08X",
+            appliedCount,
+            (DWORD)thisPtr);
+}
+
+static void __cdecl hkApplyLocalIndependentPotentialFlatExtendedDisplay(uintptr_t thisPtr)
+{
+    if (!thisPtr)
+        return;
+    if (!SkillOverlayBridgeHasLocalIndependentPotentialBonuses())
+        return;
+    if (!ShouldApplyLocalIndependentPotentialBurst(thisPtr, &g_LocalIndependentPotentialFlatExtendedLastKey, &g_LocalIndependentPotentialFlatExtendedLastTick))
+        return;
+
+    DWORD *values = reinterpret_cast<DWORD*>(thisPtr);
+    const struct
+    {
+        size_t keyIndex;
+        int offset;
+    } targets[] = {
+        { 117, 0x28 }, // ACC
+        { 132, 0x2C }, // AVOID
+        { 159, 0x30 }, // SPEED
+        { 171, 0x34 }, // JUMP
+        { 57,  0x38 }, // WATK
+        { 87,  0x3C }, // MATK
+        { 72,  0x40 }, // WDEF
+        { 102, 0x44 }, // MDEF
+        { 1712,0xC8 }, // CRIT MIN
+        { 1724,0xCC }, // CRIT MAX
+        { 1736,0xD0 }, // TER
+        { 1748,0xD4 }, // ASR
+    };
+
+    int appliedCount = 0;
+    for (int i = 0; i < (int)ARRAYSIZE(targets); ++i)
+    {
+        const int delta = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(targets[i].offset);
+        if (delta == 0)
+            continue;
+
+        if (kLocalIndependentPotentialDisplayObserveOnly)
+        {
+            ++appliedCount;
+            continue;
+        }
+
+        int currentValue = 0;
+        if (!ReadEncryptedTripletValue(values, targets[i].keyIndex, &currentValue))
+            continue;
+        if (!WriteEncryptedTripletValue(values, targets[i].keyIndex, currentValue + delta))
+            continue;
+        ++appliedCount;
+    }
+
+    if (appliedCount > 0)
+        WriteLogFmt(kLocalIndependentPotentialDisplayObserveOnly
+                ? "[IndependentBuffLocalDisplay] observe 856830 applied=%d this=0x%08X"
+                : "[IndependentBuffLocalDisplay] 856830 applied=%d this=0x%08X",
+            appliedCount,
+            (DWORD)thisPtr);
+}
+
+static void __cdecl hkObserveAbilityRedDisplayCandidate(
+    uintptr_t thisPtr,
+    DWORD callerRet,
+    int resultValue,
+    DWORD arg1,
+    DWORD arg2,
+    DWORD arg3,
+    DWORD arg4,
+    DWORD arg5,
+    DWORD arg6,
+    DWORD arg7,
+    DWORD ptrMaskBefore,
+    const DWORD *ptrValuesBefore,
+    DWORD ptrMaskAfter,
+    const DWORD *ptrValuesAfter)
+{
+    const DWORD now = GetTickCount();
+    if (g_AbilityRedDisplayCandidateLastThis == thisPtr &&
+        now - g_AbilityRedDisplayCandidateLastTick <= 1000)
+    {
+        return;
+    }
+
+    g_AbilityRedDisplayCandidateLastThis = thisPtr;
+    g_AbilityRedDisplayCandidateLastTick = now;
+
+    DWORD vtable = 0;
+    DWORD vtD8 = 0;
+    DWORD field04 = 0;
+    DWORD field08 = 0;
+    DWORD field0C = 0;
+    DWORD field10 = 0;
+    DWORD field14 = 0;
+    DWORD field18 = 0;
+
+    if (thisPtr && !SafeIsBadReadPtr(reinterpret_cast<void*>(thisPtr), 0x1C))
+    {
+        vtable = *reinterpret_cast<DWORD*>(thisPtr + 0x00);
+        field04 = *reinterpret_cast<DWORD*>(thisPtr + 0x04);
+        field08 = *reinterpret_cast<DWORD*>(thisPtr + 0x08);
+        field0C = *reinterpret_cast<DWORD*>(thisPtr + 0x0C);
+        field10 = *reinterpret_cast<DWORD*>(thisPtr + 0x10);
+        field14 = *reinterpret_cast<DWORD*>(thisPtr + 0x14);
+        field18 = *reinterpret_cast<DWORD*>(thisPtr + 0x18);
+        if (vtable && !SafeIsBadReadPtr(reinterpret_cast<void*>(vtable + 0xD8), 4))
+            vtD8 = *reinterpret_cast<DWORD*>(vtable + 0xD8);
+    }
+
+    WriteLogFmt(
+        "[AbilityRedDisplay] AE0E60 caller=0x%08X this=0x%08X vt=0x%08X vtD8=0x%08X result=%d args=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X] ptrBefore(mask=0x%02X)=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X] ptrAfter(mask=0x%02X)=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X] fields=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X]",
+        callerRet,
+        (DWORD)thisPtr,
+        vtable,
+        vtD8,
+        resultValue,
+        arg1,
+        arg2,
+        arg3,
+        arg4,
+        arg5,
+        arg6,
+        arg7,
+        ptrMaskBefore,
+        ptrValuesBefore ? ptrValuesBefore[0] : 0,
+        ptrValuesBefore ? ptrValuesBefore[1] : 0,
+        ptrValuesBefore ? ptrValuesBefore[2] : 0,
+        ptrValuesBefore ? ptrValuesBefore[3] : 0,
+        ptrValuesBefore ? ptrValuesBefore[4] : 0,
+        ptrValuesBefore ? ptrValuesBefore[5] : 0,
+        ptrValuesBefore ? ptrValuesBefore[6] : 0,
+        ptrMaskAfter,
+        ptrValuesAfter ? ptrValuesAfter[0] : 0,
+        ptrValuesAfter ? ptrValuesAfter[1] : 0,
+        ptrValuesAfter ? ptrValuesAfter[2] : 0,
+        ptrValuesAfter ? ptrValuesAfter[3] : 0,
+        ptrValuesAfter ? ptrValuesAfter[4] : 0,
+        ptrValuesAfter ? ptrValuesAfter[5] : 0,
+        ptrValuesAfter ? ptrValuesAfter[6] : 0,
+        field04,
+        field08,
+        field0C,
+        field10,
+        field14,
+        field18);
+}
+
+static DWORD ReadAbilityRedDisplayPointerValue(DWORD candidatePtr, DWORD bitMask, DWORD *maskOut)
+{
+    if (maskOut && candidatePtr && !SafeIsBadReadPtr(reinterpret_cast<void*>(candidatePtr), sizeof(DWORD)))
+    {
+        *maskOut |= bitMask;
+        return *reinterpret_cast<DWORD*>(candidatePtr);
+    }
+    return 0;
+}
+
+static bool ShouldLogAbilityRedFinalCalculator(
+    DWORD *lastCaller,
+    uintptr_t *lastThis,
+    DWORD *lastTick,
+    int *lastActive,
+    DWORD returnAddr,
+    uintptr_t thisPtr,
+    int activeState)
+{
+    if (!lastCaller || !lastThis || !lastTick || !lastActive)
+        return true;
+
+    const DWORD now = GetTickCount();
+    if (*lastCaller == returnAddr &&
+        *lastThis == thisPtr &&
+        *lastActive == activeState &&
+        now - *lastTick <= 1000)
+    {
+        return false;
+    }
+
+    *lastCaller = returnAddr;
+    *lastThis = thisPtr;
+    *lastActive = activeState;
+    *lastTick = now;
+    return true;
+}
+
+static int __fastcall hkAbilityRedDisplayCandidateFunction(
+    void *thisPtr,
+    void *edxUnused,
+    DWORD arg1,
+    DWORD arg2,
+    DWORD arg3,
+    DWORD arg4,
+    DWORD arg5,
+    DWORD arg6,
+    DWORD arg7)
+{
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    const DWORD args[7] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
+    DWORD ptrMaskBefore = 0;
+    DWORD ptrValuesBefore[7] = {};
+    for (int i = 0; i < 7; ++i)
+        ptrValuesBefore[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskBefore);
+
+    const int resultValue = oAbilityRedDisplayCandidateFn
+        ? oAbilityRedDisplayCandidateFn(thisPtr, edxUnused, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+        : 0;
+
+    DWORD ptrMaskAfter = 0;
+    DWORD ptrValuesAfter[7] = {};
+    for (int i = 0; i < 7; ++i)
+        ptrValuesAfter[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskAfter);
+
+    hkObserveAbilityRedDisplayCandidate(
+        reinterpret_cast<uintptr_t>(thisPtr),
+        callerRet,
+        resultValue,
+        arg1,
+        arg2,
+        arg3,
+        arg4,
+        arg5,
+        arg6,
+        arg7,
+        ptrMaskBefore,
+        ptrValuesBefore,
+        ptrMaskAfter,
+        ptrValuesAfter);
+    return resultValue;
+}
+
+static int __fastcall hkAbilityRedExtendedAggregateFunction(
+    void *thisPtr,
+    void *edxUnused,
+    DWORD arg1,
+    DWORD arg2,
+    DWORD arg3)
+{
+    (void)edxUnused;
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    DWORD before[6] = {};
+    DWORD after[6] = {};
+    if (arg3 && !SafeIsBadReadPtr(reinterpret_cast<void*>(arg3), sizeof(before)))
+        memcpy(before, reinterpret_cast<void*>(arg3), sizeof(before));
+
+    const int resultValue = oAbilityRedExtendedAggregateFn
+        ? oAbilityRedExtendedAggregateFn(thisPtr, edxUnused, arg1, arg2, arg3)
+        : 0;
+
+    if (arg3 && !SafeIsBadReadPtr(reinterpret_cast<void*>(arg3), sizeof(after)))
+        memcpy(after, reinterpret_cast<void*>(arg3), sizeof(after));
+
+    if (ShouldLogAbilityRedExtendedAggregate(callerRet))
+    {
+        WriteLogFmt(
+            "[AbilityRedAggregate] 856BA0 caller=0x%08X this=0x%08X arg1=0x%08X arg2=0x%08X out=0x%08X result=%d before=[%u,%u,%u,%u,%u,%u] after=[%u,%u,%u,%u,%u,%u] active=%d",
+            callerRet,
+            (DWORD)(uintptr_t)thisPtr,
+            arg1,
+            arg2,
+            arg3,
+            resultValue,
+            before[0], before[1], before[2], before[3], before[4], before[5],
+            after[0], after[1], after[2], after[3], after[4], after[5],
+            SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0);
+    }
+
+    return resultValue;
+}
+
+static void ReadAbilityRedMasterAggregateBuffer(DWORD ptr, DWORD *outValues, size_t count)
+{
+    if (!outValues || count == 0)
+        return;
+    for (size_t i = 0; i < count; ++i)
+        outValues[i] = 0;
+    if (!ptr || SafeIsBadReadPtr(reinterpret_cast<void*>(ptr), count * sizeof(DWORD)))
+        return;
+    memcpy(outValues, reinterpret_cast<void*>(ptr), count * sizeof(DWORD));
+}
+
+static void DecodeAbilityRedMasterTripletPair(
+    DWORD ptr,
+    DWORD *rawValues,
+    int *decodedA,
+    int *decodedB,
+    bool *okA,
+    bool *okB)
+{
+    if (decodedA)
+        *decodedA = 0;
+    if (decodedB)
+        *decodedB = 0;
+    if (okA)
+        *okA = false;
+    if (okB)
+        *okB = false;
+
+    DWORD localRaw[6] = {};
+    if (rawValues)
+        memcpy(localRaw, rawValues, sizeof(localRaw));
+    else if (ptr && !SafeIsBadReadPtr(reinterpret_cast<void*>(ptr), sizeof(localRaw)))
+        memcpy(localRaw, reinterpret_cast<void*>(ptr), sizeof(localRaw));
+    else
+        return;
+
+    int valueA = 0;
+    int valueB = 0;
+    const bool localOkA = ReadEncryptedTripletValue(localRaw, 0, &valueA);
+    const bool localOkB = ReadEncryptedTripletValue(localRaw, 3, &valueB);
+
+    if (decodedA)
+        *decodedA = valueA;
+    if (decodedB)
+        *decodedB = valueB;
+    if (okA)
+        *okA = localOkA;
+    if (okB)
+        *okB = localOkB;
+}
+
+static void DecodeAbilityRedMasterDefenseValues(
+    DWORD ptr,
+    int *wdefValue,
+    int *mdefValue,
+    bool *wdefOk,
+    bool *mdefOk)
+{
+    if (wdefValue)
+        *wdefValue = 0;
+    if (mdefValue)
+        *mdefValue = 0;
+    if (wdefOk)
+        *wdefOk = false;
+    if (mdefOk)
+        *mdefOk = false;
+    if (!ptr)
+        return;
+
+    int localWdef = 0;
+    int localMdef = 0;
+    const bool localWdefOk = ReadEncryptedTripletValue(reinterpret_cast<DWORD*>(ptr), 72, &localWdef);
+    const bool localMdefOk = ReadEncryptedTripletValue(reinterpret_cast<DWORD*>(ptr), 102, &localMdef);
+
+    if (wdefValue)
+        *wdefValue = localWdef;
+    if (mdefValue)
+        *mdefValue = localMdef;
+    if (wdefOk)
+        *wdefOk = localWdefOk;
+    if (mdefOk)
+        *mdefOk = localMdefOk;
+}
+
+static void DecodeAbilityRedTripletAtOffset(
+    uintptr_t thisPtr,
+    size_t byteOffset,
+    int *outValue,
+    bool *outOk)
+{
+    if (outValue)
+        *outValue = 0;
+    if (outOk)
+        *outOk = false;
+    if (!thisPtr)
+        return;
+
+    DWORD *base = reinterpret_cast<DWORD*>(thisPtr + byteOffset);
+    int localValue = 0;
+    const bool localOk = ReadEncryptedTripletValue(base, 0, &localValue);
+    if (outValue)
+        *outValue = localValue;
+    if (outOk)
+        *outOk = localOk;
+}
+
+static BYTE ReadAbilityRedSiblingByte(uintptr_t thisPtr, size_t byteOffset, bool *outOk)
+{
+    if (outOk)
+        *outOk = false;
+    if (!thisPtr)
+        return 0;
+
+    BYTE *ptr = reinterpret_cast<BYTE*>(thisPtr + byteOffset);
+    if (SafeIsBadReadPtr(ptr, sizeof(BYTE)))
+        return 0;
+
+    if (outOk)
+        *outOk = true;
+    return *ptr;
+}
+
+static DWORD ReadAbilityRedSiblingDword(uintptr_t thisPtr, size_t byteOffset, bool *outOk)
+{
+    if (outOk)
+        *outOk = false;
+    if (!thisPtr)
+        return 0;
+
+    DWORD *ptr = reinterpret_cast<DWORD*>(thisPtr + byteOffset);
+    if (SafeIsBadReadPtr(ptr, sizeof(DWORD)))
+        return 0;
+
+    if (outOk)
+        *outOk = true;
+    return *ptr;
+}
+
+static void ObserveAbilityRedSiblingCalculator(
+    const char *label,
+    DWORD *lastCaller,
+    uintptr_t *lastThis,
+    DWORD *lastTick,
+    int *lastActive,
+    DWORD callerRet,
+    uintptr_t thisValue,
+    int resultValue)
+{
+    const int activeState = SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0;
+    if (!ShouldLogAbilityRedFinalCalculator(
+            lastCaller,
+            lastThis,
+            lastTick,
+            lastActive,
+            callerRet,
+            thisValue,
+            activeState))
+    {
+        return;
+    }
+
+    int slot24 = 0, slot30 = 0, slot3C = 0, slot48 = 0, slotB4 = 0;
+    bool slot24Ok = false, slot30Ok = false, slot3COk = false, slot48Ok = false, slotB4Ok = false;
+    DecodeAbilityRedTripletAtOffset(thisValue, 0x24, &slot24, &slot24Ok);
+    DecodeAbilityRedTripletAtOffset(thisValue, 0x30, &slot30, &slot30Ok);
+    DecodeAbilityRedTripletAtOffset(thisValue, 0x3C, &slot3C, &slot3COk);
+    DecodeAbilityRedTripletAtOffset(thisValue, 0x48, &slot48, &slot48Ok);
+    DecodeAbilityRedTripletAtOffset(thisValue, 0xB4, &slotB4, &slotB4Ok);
+
+    bool meta8COk = false, meta8DOk = false, meta90Ok = false;
+    bool meta94Ok = false, meta95Ok = false, meta98Ok = false;
+    const BYTE meta8C = ReadAbilityRedSiblingByte(thisValue, 0x8C, &meta8COk);
+    const BYTE meta8D = ReadAbilityRedSiblingByte(thisValue, 0x8D, &meta8DOk);
+    const DWORD meta90 = ReadAbilityRedSiblingDword(thisValue, 0x90, &meta90Ok);
+    const BYTE meta94 = ReadAbilityRedSiblingByte(thisValue, 0x94, &meta94Ok);
+    const BYTE meta95 = ReadAbilityRedSiblingByte(thisValue, 0x95, &meta95Ok);
+    const DWORD meta98 = ReadAbilityRedSiblingDword(thisValue, 0x98, &meta98Ok);
+
+    WriteLogFmt(
+        "[AbilityRedSibling] %s caller=0x%08X this=0x%08X result=%d active=%d metaA=[8C=0x%02X/%d 8D=0x%02X/%d 90=0x%08X/%d] metaB=[94=0x%02X/%d 95=0x%02X/%d 98=0x%08X/%d]",
+        label ? label : "unknown",
+        callerRet,
+        (DWORD)thisValue,
+        resultValue,
+        activeState,
+        meta8C, meta8COk ? 1 : 0,
+        meta8D, meta8DOk ? 1 : 0,
+        meta90, meta90Ok ? 1 : 0,
+        meta94, meta94Ok ? 1 : 0,
+        meta95, meta95Ok ? 1 : 0,
+        meta98, meta98Ok ? 1 : 0);
+    WriteLogFmt(
+        "[AbilityRedSibling] %s slots 24=%d/%d 30=%d/%d 3C=%d/%d 48=%d/%d B4=%d/%d",
+        label ? label : "unknown",
+        slot24, slot24Ok ? 1 : 0,
+        slot30, slot30Ok ? 1 : 0,
+        slot3C, slot3COk ? 1 : 0,
+        slot48, slot48Ok ? 1 : 0,
+        slotB4, slotB4Ok ? 1 : 0);
+}
+
+static int __fastcall hkAbilityRedSiblingCalc82F780(void *thisPtr, void *edxUnused)
+{
+    (void)edxUnused;
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    const int resultValue = oAbilityRedSiblingCalc82F780Fn
+        ? oAbilityRedSiblingCalc82F780Fn(thisPtr, edxUnused)
+        : 0;
+    ObserveAbilityRedSiblingCalculator(
+        "82F780",
+        &g_AbilityRedSibling82F780LastCaller,
+        &g_AbilityRedSibling82F780LastThis,
+        &g_AbilityRedSibling82F780LastTick,
+        &g_AbilityRedSibling82F780LastActive,
+        callerRet,
+        reinterpret_cast<uintptr_t>(thisPtr),
+        resultValue);
+    return resultValue;
+}
+
+static int __fastcall hkAbilityRedSiblingCalc82F870(void *thisPtr, void *edxUnused)
+{
+    (void)edxUnused;
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    const int resultValue = oAbilityRedSiblingCalc82F870Fn
+        ? oAbilityRedSiblingCalc82F870Fn(thisPtr, edxUnused)
+        : 0;
+    ObserveAbilityRedSiblingCalculator(
+        "82F870",
+        &g_AbilityRedSibling82F870LastCaller,
+        &g_AbilityRedSibling82F870LastThis,
+        &g_AbilityRedSibling82F870LastTick,
+        &g_AbilityRedSibling82F870LastActive,
+        callerRet,
+        reinterpret_cast<uintptr_t>(thisPtr),
+        resultValue);
+    return resultValue;
+}
+
+static int __fastcall hkAbilityRedSiblingCalc82F960(void *thisPtr, void *edxUnused)
+{
+    (void)edxUnused;
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    const int resultValue = oAbilityRedSiblingCalc82F960Fn
+        ? oAbilityRedSiblingCalc82F960Fn(thisPtr, edxUnused)
+        : 0;
+    ObserveAbilityRedSiblingCalculator(
+        "82F960",
+        &g_AbilityRedSibling82F960LastCaller,
+        &g_AbilityRedSibling82F960LastThis,
+        &g_AbilityRedSibling82F960LastTick,
+        &g_AbilityRedSibling82F960LastActive,
+        callerRet,
+        reinterpret_cast<uintptr_t>(thisPtr),
+        resultValue);
+    return resultValue;
+}
+
+static int __fastcall hkAbilityRedSiblingCalc82FA50(void *thisPtr, void *edxUnused)
+{
+    (void)edxUnused;
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    const int resultValue = oAbilityRedSiblingCalc82FA50Fn
+        ? oAbilityRedSiblingCalc82FA50Fn(thisPtr, edxUnused)
+        : 0;
+    ObserveAbilityRedSiblingCalculator(
+        "82FA50",
+        &g_AbilityRedSibling82FA50LastCaller,
+        &g_AbilityRedSibling82FA50LastThis,
+        &g_AbilityRedSibling82FA50LastTick,
+        &g_AbilityRedSibling82FA50LastActive,
+        callerRet,
+        reinterpret_cast<uintptr_t>(thisPtr),
+        resultValue);
+    return resultValue;
+}
+
+static DWORD __cdecl hkAdjustAbilityRedDiff84C470PreSub(
+    DWORD finalThisValue,
+    DWORD frameEbp,
+    DWORD mainSlotValue,
+    DWORD sumAfterAdds)
+{
+    DWORD adjustedSum = sumAfterAdds;
+    const int activeState = SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0;
+    if (!activeState)
+        g_AbilityRedBaseSumInactive9F7546 = sumAfterAdds;
+
+    DWORD inactiveBaseline = g_AbilityRedBaseSumInactive9F7546;
+    if (activeState && inactiveBaseline == 0)
+    {
+        const DWORD seededBaseline = SeedAbilityRedInactiveBaselineFromPrimary(ADDR_9F7546, sumAfterAdds);
+        if (seededBaseline > 0)
+        {
+            g_AbilityRedBaseSumInactive9F7546 = seededBaseline;
+            inactiveBaseline = seededBaseline;
+            WriteLogFmt("[AbilityRedDiff] seed baseline site=0x%08X current=%u seeded=%u",
+                ADDR_9F7546,
+                sumAfterAdds,
+                seededBaseline);
+        }
+    }
+    if (!ShouldLogAbilityRedFinalCalculator(
+            &g_AbilityRedDiff84C470LastCaller,
+            &g_AbilityRedDiff84C470LastThis,
+            &g_AbilityRedDiff84C470LastTick,
+            &g_AbilityRedDiff84C470LastActive,
+            ADDR_9F7546,
+            finalThisValue,
+            activeState))
+    {
+        const int localDeltaQuiet = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x44);
+        if (activeState && inactiveBaseline > 0 && sumAfterAdds > inactiveBaseline)
+            adjustedSum = inactiveBaseline;
+        else if (activeState && localDeltaQuiet > 0 && (int)mainSlotValue >= localDeltaQuiet)
+            adjustedSum = (DWORD)((int)sumAfterAdds - localDeltaQuiet);
+        return adjustedSum;
+    }
+
+    DWORD local48 = 0;
+    DWORD local50 = 0;
+    DWORD local60 = 0;
+    if (frameEbp && !SafeIsBadReadPtr(reinterpret_cast<void*>(frameEbp + 0x48), sizeof(DWORD)))
+        local48 = *reinterpret_cast<DWORD*>(frameEbp + 0x48);
+    if (frameEbp && !SafeIsBadReadPtr(reinterpret_cast<void*>(frameEbp + 0x50), sizeof(DWORD)))
+        local50 = *reinterpret_cast<DWORD*>(frameEbp + 0x50);
+    if (frameEbp && !SafeIsBadReadPtr(reinterpret_cast<void*>(frameEbp + 0x60), sizeof(DWORD)))
+        local60 = *reinterpret_cast<DWORD*>(frameEbp + 0x60);
+
+    int decoded198 = 0;
+    bool decoded198Ok = false;
+    DecodeAbilityRedTripletAtOffset(finalThisValue, 0x198, &decoded198, &decoded198Ok);
+
+    const int helperValue = static_cast<int>(sumAfterAdds) - static_cast<int>(mainSlotValue) - static_cast<int>(local48);
+    const int localDelta = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x44);
+    if (activeState && inactiveBaseline > 0 && sumAfterAdds > inactiveBaseline)
+        adjustedSum = inactiveBaseline;
+    else if (activeState && localDelta > 0 && (int)mainSlotValue >= localDelta)
+        adjustedSum = (DWORD)((int)sumAfterAdds - localDelta);
+    const int predictedDiffRaw = static_cast<int>(local60) - static_cast<int>(sumAfterAdds);
+    const int predictedDiffAdjusted = static_cast<int>(local60) - static_cast<int>(adjustedSum);
+
+    WriteLogFmt(
+        "[AbilityRedDiff] 84C470 this=0x%08X ebp=0x%08X final=%u sumRaw=%u sumAdj=%u helper=%d mainReg=%u slot198=%d/%d local48=%u local50=0x%08X localDelta=%d inactiveBase=%u diffRaw=%d diffAdj=%d active=%d",
+        finalThisValue,
+        frameEbp,
+        local60,
+        sumAfterAdds,
+        adjustedSum,
+        helperValue,
+        mainSlotValue,
+        decoded198,
+        decoded198Ok ? 1 : 0,
+        local48,
+        local50,
+        localDelta,
+        inactiveBaseline,
+        predictedDiffRaw,
+        predictedDiffAdjusted,
+        activeState);
+    return adjustedSum;
+}
+
+__declspec(naked) static void hkAbilityRedDiff84C470PreSubNaked()
+{
+    __asm {
+        add esi, ebx
+        add esi, dword ptr [ebp + 0x48]
+        pushfd
+        pushad
+        push esi
+        push ebx
+        push ebp
+        push edi
+        call hkAdjustAbilityRedDiff84C470PreSub
+        add esp, 16
+        mov dword ptr [esp + 4], eax
+        popad
+        popfd
+        jmp dword ptr [g_AbilityRedDiff84C470PreSubContinue]
+    }
+}
+
+static DWORD __cdecl hkAdjustAbilityRedBaseSumByLocalDelta(
+    DWORD frameEbp,
+    DWORD sumAfterAdds,
+    int deltaOffset)
+{
+    (void)frameEbp;
+
+    if (!SkillOverlayBridgeHasLocalIndependentPotentialBonuses())
+        return sumAfterAdds;
+
+    const int localDelta = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(deltaOffset);
+    if (localDelta <= 0)
+        return sumAfterAdds;
+
+    const int rawSum = static_cast<int>(sumAfterAdds);
+    if (rawSum < localDelta)
+        return sumAfterAdds;
+
+    return static_cast<DWORD>(rawSum - localDelta);
+}
+
+static DWORD* GetAbilityRedInactiveBaselineSlot(DWORD siteId)
+{
+    switch (siteId)
+    {
+    case ADDR_9F7241: return &g_AbilityRedBaseSumInactive9F7241;
+    case ADDR_9F7546: return &g_AbilityRedBaseSumInactive9F7546;
+    case ADDR_9F7893: return &g_AbilityRedBaseSumInactive9F7893;
+    case ADDR_9F7C7F: return &g_AbilityRedBaseSumInactive9F7C7F;
+    case ADDR_9F8048: return &g_AbilityRedBaseSumInactive9F8048;
+    case ADDR_9F82A8: return &g_AbilityRedBaseSumInactive9F82A8;
+    default:
+        return nullptr;
+    }
+}
+
+static bool HasPositiveLocalIndependentPotentialDeltaAny(const int* offsets, size_t count);
+
+static bool HasPositiveLocalIndependentPotentialPrimaryDelta()
+{
+    const int offsets[] = { 0x08, 0x0C, 0x10, 0x14 };
+    return HasPositiveLocalIndependentPotentialDeltaAny(offsets, ARRAYSIZE(offsets));
+}
+
+struct AbilityRedPrimaryDeltaBackup
+{
+    int originalValues[4];
+    bool valid[4];
+    bool applied;
+};
+
+static LONG g_AbilityRedBaselineSeedGuard = 0;
+
+static bool BeginTemporaryAbilityRedPrimaryBaseline(AbilityRedPrimaryDeltaBackup* backup)
+{
+    if (!backup)
+        return false;
+
+    ZeroMemory(backup, sizeof(*backup));
+
+    DWORD* const basePrimary = reinterpret_cast<DWORD*>(ADDR_AbilityPrimaryCache);
+    if (!basePrimary)
+        return false;
+
+    const struct
+    {
+        size_t keyIndex;
+        int offset;
+    } targets[] = {
+        { 9,  0x08 },
+        { 12, 0x0C },
+        { 15, 0x10 },
+        { 18, 0x14 },
+    };
+
+    for (int i = 0; i < (int)ARRAYSIZE(targets); ++i)
+    {
+        const int delta = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(targets[i].offset);
+        if (delta <= 0)
+            continue;
+
+        int currentValue = 0;
+        if (!ReadEncryptedTripletValue(basePrimary, targets[i].keyIndex, &currentValue))
+            return false;
+
+        backup->originalValues[i] = currentValue;
+        backup->valid[i] = true;
+        backup->applied = true;
+
+        if (!WriteEncryptedTripletValue(basePrimary, targets[i].keyIndex, currentValue - delta))
+            return false;
+    }
+
+    return backup->applied;
+}
+
+static void EndTemporaryAbilityRedPrimaryBaseline(const AbilityRedPrimaryDeltaBackup* backup)
+{
+    if (!backup)
+        return;
+
+    DWORD* const basePrimary = reinterpret_cast<DWORD*>(ADDR_AbilityPrimaryCache);
+    if (!basePrimary)
+        return;
+
+    const size_t keyIndices[] = { 9, 12, 15, 18 };
+    for (int i = 0; i < (int)ARRAYSIZE(keyIndices); ++i)
+    {
+        if (!backup->valid[i])
+            continue;
+        WriteEncryptedTripletValue(basePrimary, keyIndices[i], backup->originalValues[i]);
+    }
+}
+
+static tAbilityRedSiblingCalcFn SelectAbilityRedSiblingBaselineFn(DWORD siteId)
+{
+    switch (siteId)
+    {
+    case ADDR_9F7241:
+    case ADDR_9F7546:
+        return oAbilityRedSiblingCalc82F780Fn;
+    case ADDR_9F7893:
+        return oAbilityRedSiblingCalc82F870Fn;
+    case ADDR_9F7C7F:
+        return oAbilityRedSiblingCalc82F960Fn;
+    case ADDR_9F8048:
+    case ADDR_9F82A8:
+        return oAbilityRedSiblingCalc82FA50Fn;
+    default:
+        return nullptr;
+    }
+}
+
+static DWORD SeedAbilityRedInactiveBaselineFromPrimary(DWORD siteId, DWORD currentSum)
+{
+    if (!HasPositiveLocalIndependentPotentialPrimaryDelta())
+        return 0;
+
+    tAbilityRedSiblingCalcFn siblingFn = SelectAbilityRedSiblingBaselineFn(siteId);
+    if (!siblingFn)
+        return 0;
+
+    void* const primaryThis = reinterpret_cast<void*>(ADDR_AbilityPrimaryCache);
+    if (!primaryThis || SafeIsBadReadPtr(primaryThis, 0x40))
+        return 0;
+
+    if (InterlockedExchange(&g_AbilityRedBaselineSeedGuard, 1) != 0)
+        return 0;
+
+    DWORD seededBaseline = 0;
+    AbilityRedPrimaryDeltaBackup backup = {};
+    const int activeComparable = siblingFn(primaryThis, nullptr);
+    if (BeginTemporaryAbilityRedPrimaryBaseline(&backup))
+    {
+        const int inactiveComparable = siblingFn(primaryThis, nullptr);
+        const int effectDelta = activeComparable - inactiveComparable;
+        if (effectDelta > 0 && static_cast<int>(currentSum) >= effectDelta)
+            seededBaseline = static_cast<DWORD>(static_cast<int>(currentSum) - effectDelta);
+    }
+    EndTemporaryAbilityRedPrimaryBaseline(&backup);
+
+    InterlockedExchange(&g_AbilityRedBaselineSeedGuard, 0);
+    return seededBaseline;
+}
+
+static DWORD __cdecl hkAdjustAbilityRedBaseSumBySiteBaseline(
+    DWORD frameEbp,
+    DWORD sumAfterAdds,
+    int deltaOffset,
+    DWORD siteId)
+{
+    (void)frameEbp;
+
+    const bool active = SkillOverlayBridgeHasLocalIndependentPotentialBonuses();
+    DWORD* inactiveBaselineSlot = GetAbilityRedInactiveBaselineSlot(siteId);
+    if (!active)
+    {
+        if (inactiveBaselineSlot)
+            *inactiveBaselineSlot = sumAfterAdds;
+        return sumAfterAdds;
+    }
+
+    if (inactiveBaselineSlot && *inactiveBaselineSlot == 0)
+    {
+        const DWORD seededBaseline = SeedAbilityRedInactiveBaselineFromPrimary(siteId, sumAfterAdds);
+        if (seededBaseline > 0)
+        {
+            *inactiveBaselineSlot = seededBaseline;
+            WriteLogFmt("[AbilityRedDiff] seed baseline site=0x%08X current=%u seeded=%u",
+                siteId,
+                sumAfterAdds,
+                seededBaseline);
+            return seededBaseline;
+        }
+    }
+
+    if (inactiveBaselineSlot && *inactiveBaselineSlot > 0 && sumAfterAdds > *inactiveBaselineSlot)
+    {
+        const int directDelta = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(deltaOffset);
+        if (directDelta > 0 || HasPositiveLocalIndependentPotentialPrimaryDelta())
+            return *inactiveBaselineSlot;
+    }
+
+    return hkAdjustAbilityRedBaseSumByLocalDelta(frameEbp, sumAfterAdds, deltaOffset);
+}
+
+static bool HasPositiveLocalIndependentPotentialDeltaAny(const int* offsets, size_t count)
+{
+    if (!offsets || count == 0)
+        return false;
+    if (!SkillOverlayBridgeHasLocalIndependentPotentialBonuses())
+        return false;
+
+    for (size_t i = 0; i < count; ++i)
+    {
+        if (SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(offsets[i]) > 0)
+            return true;
+    }
+    return false;
+}
+
+enum AbilityRedPositiveStyleMode
+{
+    AbilityRedPositiveStyle_AttackRange = 1,
+    AbilityRedPositiveStyle_CriticalRate = 2,
+    AbilityRedPositiveStyle_Speed = 3,
+    AbilityRedPositiveStyle_Jump = 4,
+};
+
+static DWORD __cdecl hkSelectAbilityRedPositiveStyle(
+    DWORD frameEbp,
+    DWORD currentStyle,
+    int mode)
+{
+    const int attackOffsets[] = { 0x38, 0x3C };
+    const int criticalOffsets[] = { 0x78 };
+    const int speedOffsets[] = { 0x30 };
+    const int jumpOffsets[] = { 0x34 };
+
+    bool shouldUseRedStyle = false;
+    switch (mode)
+    {
+    case AbilityRedPositiveStyle_AttackRange:
+        shouldUseRedStyle = HasPositiveLocalIndependentPotentialDeltaAny(attackOffsets, ARRAYSIZE(attackOffsets));
+        if (!shouldUseRedStyle)
+            shouldUseRedStyle = HasPositiveLocalIndependentPotentialPrimaryDelta();
+        break;
+    case AbilityRedPositiveStyle_CriticalRate:
+        shouldUseRedStyle = HasPositiveLocalIndependentPotentialDeltaAny(criticalOffsets, ARRAYSIZE(criticalOffsets));
+        break;
+    case AbilityRedPositiveStyle_Speed:
+        shouldUseRedStyle = HasPositiveLocalIndependentPotentialDeltaAny(speedOffsets, ARRAYSIZE(speedOffsets));
+        break;
+    case AbilityRedPositiveStyle_Jump:
+        shouldUseRedStyle = HasPositiveLocalIndependentPotentialDeltaAny(jumpOffsets, ARRAYSIZE(jumpOffsets));
+        break;
+    default:
+        break;
+    }
+
+    if (!shouldUseRedStyle)
+        return currentStyle;
+
+    if (!frameEbp || SafeIsBadReadPtr(reinterpret_cast<void*>(frameEbp + 0x24), sizeof(DWORD)))
+        return currentStyle;
+
+    const DWORD redStyle = *reinterpret_cast<DWORD*>(frameEbp + 0x24);
+    return redStyle ? redStyle : currentStyle;
+}
+
+__declspec(naked) static void hkAbilityRedDiff84BE40PreSubNaked()
+{
+    __asm {
+        add esi, ebx
+        add esi, dword ptr [ebp + 0x48]
+        pushfd
+        pushad
+        push ADDR_9F7241
+        push 0x40
+        push esi
+        push ebp
+        call hkAdjustAbilityRedBaseSumBySiteBaseline
+        add esp, 16
+        mov dword ptr [esp + 4], eax
+        popad
+        popfd
+        jmp dword ptr [g_AbilityRedDiff84BE40PreSubContinue]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedDiff84CA90AccPreSubNaked()
+{
+    __asm {
+        add esi, edi
+        add esi, dword ptr [ebp + 0x48]
+        pushfd
+        pushad
+        push ADDR_9F7893
+        push 0x28
+        push esi
+        push ebp
+        call hkAdjustAbilityRedBaseSumBySiteBaseline
+        add esp, 16
+        mov dword ptr [esp + 4], eax
+        popad
+        popfd
+        jmp dword ptr [g_AbilityRedDiff84CA90AccPreSubContinue]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedDiff84CA90MagicAccPreSubNaked()
+{
+    __asm {
+        add esi, ebx
+        add esi, dword ptr [ebp + 0x48]
+        pushfd
+        pushad
+        push ADDR_9F7C7F
+        push 0x28
+        push esi
+        push ebp
+        call hkAdjustAbilityRedBaseSumBySiteBaseline
+        add esp, 16
+        mov dword ptr [esp + 4], eax
+        popad
+        popfd
+        jmp dword ptr [g_AbilityRedDiff84CA90MagicAccPreSubContinue]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedDiff84CBD0AvoidPreSubNaked()
+{
+    __asm {
+        add esi, ebx
+        add esi, dword ptr [ebp + 0x48]
+        pushfd
+        pushad
+        push ADDR_9F8048
+        push 0x2C
+        push esi
+        push ebp
+        call hkAdjustAbilityRedBaseSumBySiteBaseline
+        add esp, 16
+        mov dword ptr [esp + 4], eax
+        popad
+        popfd
+        jmp dword ptr [g_AbilityRedDiff84CBD0AvoidPreSubContinue]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedDiff84CBD0MagicAvoidPreSubNaked()
+{
+    __asm {
+        add eax, dword ptr [ebp + 0x48]
+        add esi, eax
+        pushfd
+        pushad
+        push ADDR_9F82A8
+        push 0x2C
+        push esi
+        push ebp
+        call hkAdjustAbilityRedBaseSumBySiteBaseline
+        add esp, 16
+        mov dword ptr [esp + 4], eax
+        popad
+        popfd
+        jmp dword ptr [g_AbilityRedDiff84CBD0MagicAvoidPreSubContinue]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedAttackRangeStyleNaked()
+{
+    __asm {
+        pushfd
+        pushad
+        push AbilityRedPositiveStyle_AttackRange
+        push dword ptr [ebp + 0x68]
+        push ebp
+        call hkSelectAbilityRedPositiveStyle
+        add esp, 12
+        mov dword ptr [esp + 28], eax
+        popad
+        popfd
+        lea ecx, [ebp + 0x34]
+        push ecx
+        jmp dword ptr [g_AbilityRedAttackRangeStyleContinue]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedCriticalRateStyleNaked()
+{
+    __asm {
+        pushfd
+        pushad
+        push AbilityRedPositiveStyle_CriticalRate
+        push dword ptr [ebp + 0x68]
+        push ebp
+        call hkSelectAbilityRedPositiveStyle
+        add esp, 12
+        mov dword ptr [esp + 28], eax
+        popad
+        popfd
+        lea ecx, [ebp + 0x34]
+        push ecx
+        jmp dword ptr [g_AbilityRedCriticalRateStyleContinue]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedSpeedStyleNaked()
+{
+    __asm {
+        pushfd
+        pushad
+        push AbilityRedPositiveStyle_Speed
+        push dword ptr [ebp + 0x30]
+        push ebp
+        call hkSelectAbilityRedPositiveStyle
+        add esp, 12
+        mov dword ptr [esp + 28], eax
+        popad
+        popfd
+        lea ecx, [ebp + 0x94]
+        push ecx
+        jmp dword ptr [g_AbilityRedSpeedStyleContinue]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedJumpStyleNaked()
+{
+    __asm {
+        pushfd
+        pushad
+        push AbilityRedPositiveStyle_Jump
+        push dword ptr [ebp + 0x30]
+        push ebp
+        call hkSelectAbilityRedPositiveStyle
+        add esp, 12
+        mov dword ptr [esp + 24], eax
+        popad
+        popfd
+        mov esi, dword ptr [ebp + 0x64]
+        jmp dword ptr [g_AbilityRedJumpStyleContinue]
+    }
+}
+
+static bool ShouldLogAbilityRedBakeWrite(
+    DWORD *lastSig,
+    DWORD *lastTick,
+    uintptr_t thisValue,
+    uintptr_t srcValue,
+    int rawDelta,
+    int priorValue,
+    int activeState)
+{
+    if (!lastSig || !lastTick)
+        return true;
+
+    const DWORD signature =
+        (DWORD)thisValue ^
+        ((DWORD)srcValue << 1) ^
+        (DWORD)(rawDelta * 131) ^
+        (DWORD)(priorValue * 17) ^
+        (DWORD)(activeState << 30);
+
+    const DWORD now = GetTickCount();
+    if (*lastSig == signature && now - *lastTick <= 1000)
+        return false;
+
+    *lastSig = signature;
+    *lastTick = now;
+    return true;
+}
+
+static void ObserveAbilityRedBakeWrite(
+    const char *label,
+    DWORD *lastSig,
+    DWORD *lastTick,
+    DWORD thisValue,
+    DWORD srcValue,
+    DWORD rawEax,
+    DWORD oldValue,
+    size_t destOffset,
+    size_t srcStartOffset,
+    size_t srcEndOffset)
+{
+    const int activeState = SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0;
+    const short rawShort = (short)(rawEax & 0xFFFF);
+    const int rawDelta = (int)rawShort;
+    const int priorValue = (int)oldValue;
+
+    if (!(activeState || rawDelta != 0 || destOffset == 0x198))
+        return;
+
+    if (!ShouldLogAbilityRedBakeWrite(
+            lastSig,
+            lastTick,
+            thisValue,
+            srcValue,
+            rawDelta,
+            priorValue,
+            activeState))
+    {
+        return;
+    }
+
+    int slotBefore = 0;
+    bool slotBeforeOk = false;
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisValue, destOffset, &slotBefore, &slotBeforeOk);
+
+    DWORD srcTail = 0;
+    bool srcTailOk = false;
+    if (srcValue && !SafeIsBadReadPtr(reinterpret_cast<void*>(srcValue + srcEndOffset), sizeof(DWORD)))
+    {
+        srcTail = *reinterpret_cast<DWORD*>(srcValue + srcEndOffset);
+        srcTailOk = true;
+    }
+
+    WriteLogFmt(
+        "[AbilityRedBake] %s this=0x%08X src=0x%08X dest=0x%03X srcField=[0x%02X..0x%02X] raw=%d prior=%d slotBefore=%d/%d predicted=%d tail=0x%08X/%d active=%d",
+        label ? label : "unknown",
+        thisValue,
+        srcValue,
+        (unsigned int)destOffset,
+        (unsigned int)srcStartOffset,
+        (unsigned int)srcEndOffset,
+        rawDelta,
+        priorValue,
+        slotBefore,
+        slotBeforeOk ? 1 : 0,
+        priorValue + rawDelta,
+        srcTail,
+        srcTailOk ? 1 : 0,
+        activeState);
+}
+
+static void __cdecl hkObserveAbilityRedBake857BB6(DWORD thisValue, DWORD srcValue, DWORD rawEax, DWORD oldValue)
+{
+    ObserveAbilityRedBakeWrite("857BB6", &g_AbilityRedBake857BB6LastSig, &g_AbilityRedBake857BB6LastTick,
+        thisValue, srcValue, rawEax, oldValue, 0x15C, 0x91, 0x95);
+}
+
+static void __cdecl hkObserveAbilityRedBake857C29(DWORD thisValue, DWORD srcValue, DWORD rawEax, DWORD oldValue)
+{
+    ObserveAbilityRedBakeWrite("857C29", &g_AbilityRedBake857C29LastSig, &g_AbilityRedBake857C29LastTick,
+        thisValue, srcValue, rawEax, oldValue, 0x198, 0xA1, 0xA5);
+}
+
+static void __cdecl hkObserveAbilityRedBake857C9C(DWORD thisValue, DWORD srcValue, DWORD rawEax, DWORD oldValue)
+{
+    ObserveAbilityRedBakeWrite("857C9C", &g_AbilityRedBake857C9CLastSig, &g_AbilityRedBake857C9CLastTick,
+        thisValue, srcValue, rawEax, oldValue, 0x1D4, 0xA9, 0xAD);
+}
+
+static void __cdecl hkObserveAbilityRedBake857D0F(DWORD thisValue, DWORD srcValue, DWORD rawEax, DWORD oldValue)
+{
+    ObserveAbilityRedBakeWrite("857D0F", &g_AbilityRedBake857D0FLastSig, &g_AbilityRedBake857D0FLastTick,
+        thisValue, srcValue, rawEax, oldValue, 0x210, 0xB1, 0xB5);
+}
+
+static void ObserveAbilityRedBake198Site(
+    const char *label,
+    DWORD *lastSig,
+    DWORD *lastTick,
+    DWORD thisValue,
+    DWORD auxPtr,
+    int auxValue,
+    int sumValue)
+{
+    const int activeState = SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0;
+
+    int prior198 = 0;
+    bool prior198Ok = false;
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisValue, 0x198, &prior198, &prior198Ok);
+
+    if (!(activeState || sumValue != prior198))
+        return;
+
+    if (!ShouldLogAbilityRedBakeWrite(
+            lastSig,
+            lastTick,
+            thisValue,
+            auxPtr,
+            sumValue - prior198,
+            prior198,
+            activeState))
+    {
+        return;
+    }
+
+    WriteLogFmt(
+        "[AbilityRedBake198] %s this=0x%08X prior198=%d/%d sum=%d delta=%d auxPtr=0x%08X auxValue=%d active=%d",
+        label ? label : "unknown",
+        thisValue,
+        prior198,
+        prior198Ok ? 1 : 0,
+        sumValue,
+        sumValue - prior198,
+        auxPtr,
+        auxValue,
+        activeState);
+}
+
+static void __cdecl hkObserveAbilityRedBake1988569C3(DWORD thisValue, DWORD ediValue, DWORD ebxValue)
+{
+    int auxValue = 0;
+    if (ediValue && !SafeIsBadReadPtr(reinterpret_cast<void*>(ediValue + 0x44), sizeof(DWORD)))
+        auxValue = (int)(*reinterpret_cast<DWORD*>(ediValue + 0x44));
+
+    ObserveAbilityRedBake198Site(
+        "8569C3",
+        &g_AbilityRedBake1988569C3LastSig,
+        &g_AbilityRedBake1988569C3LastTick,
+        thisValue,
+        ediValue ? (ediValue + 0x44) : 0,
+        auxValue,
+        (int)ebxValue);
+}
+
+static void __cdecl hkObserveAbilityRedBake198856D57(DWORD thisValue)
+{
+    ObserveAbilityRedBake198Site(
+        "856D57",
+        &g_AbilityRedBake198856D57LastSig,
+        &g_AbilityRedBake198856D57LastTick,
+        thisValue,
+        0,
+        0,
+        0);
+}
+
+static void __cdecl hkObserveAbilityRedBake19885725F(DWORD thisValue, DWORD ediValue, DWORD ebxValue)
+{
+    DWORD sourceNode = 0;
+    int auxValue = 0;
+    if (ediValue && !SafeIsBadReadPtr(reinterpret_cast<void*>(ediValue), sizeof(DWORD)))
+    {
+        sourceNode = *reinterpret_cast<DWORD*>(ediValue);
+        if (sourceNode && !SafeIsBadReadPtr(reinterpret_cast<void*>(sourceNode + 0x18), sizeof(short)))
+            auxValue = (int)(*(short*)(sourceNode + 0x18));
+    }
+
+    ObserveAbilityRedBake198Site(
+        "85725F",
+        &g_AbilityRedBake19885725FLastSig,
+        &g_AbilityRedBake19885725FLastTick,
+        thisValue,
+        sourceNode ? (sourceNode + 0x18) : ediValue,
+        auxValue,
+        (int)ebxValue);
+}
+
+static void __cdecl hkObserveAbilityRedBake198857C3B(DWORD thisValue, DWORD ediValue, DWORD ebxValue)
+{
+    int auxValue = 0;
+    if (ediValue && !SafeIsBadReadPtr(reinterpret_cast<void*>(ediValue + 0xA5), sizeof(DWORD)))
+        auxValue = (int)(*(DWORD*)(ediValue + 0xA5));
+
+    ObserveAbilityRedBake198Site(
+        "857C3B",
+        &g_AbilityRedBake198857C3BLastSig,
+        &g_AbilityRedBake198857C3BLastTick,
+        thisValue,
+        ediValue ? (ediValue + 0xA1) : 0,
+        auxValue,
+        (int)ebxValue);
+}
+
+static void __cdecl hkObserveAbilityRedBake198858AED(DWORD thisValue, DWORD ediValue)
+{
+    ObserveAbilityRedBake198Site(
+        "858AED",
+        &g_AbilityRedBake198858AEDLastSig,
+        &g_AbilityRedBake198858AEDLastTick,
+        thisValue,
+        0,
+        0,
+        (int)ediValue);
+}
+
+static void __cdecl hkObserveAbilityRedBake198831A50(DWORD thisValue, DWORD ediValue)
+{
+    ObserveAbilityRedBake198Site(
+        "831A50",
+        &g_AbilityRedBake198831A50LastSig,
+        &g_AbilityRedBake198831A50LastTick,
+        thisValue,
+        0,
+        0,
+        (int)ediValue);
+}
+
+static void __cdecl hkObserveAbilityRedBake19883AF02(DWORD thisValue, DWORD ediValue, DWORD ebxValue)
+{
+    int auxValue = 0;
+    if (ediValue && !SafeIsBadReadPtr(reinterpret_cast<void*>(ediValue + 0x7C5), sizeof(DWORD)))
+        auxValue = (int)(*(DWORD*)(ediValue + 0x7C5));
+
+    ObserveAbilityRedBake198Site(
+        "83AF02",
+        &g_AbilityRedBake19883AF02LastSig,
+        &g_AbilityRedBake19883AF02LastTick,
+        thisValue,
+        ediValue ? (ediValue + 0x7C5) : 0,
+        auxValue,
+        (int)ebxValue);
+}
+
+__declspec(naked) static void hkAbilityRedBake857BB6Naked()
+{
+    __asm {
+        pushfd
+        pushad
+        push ebp
+        push eax
+        push edi
+        push esi
+        call hkObserveAbilityRedBake857BB6
+        add esp, 16
+        popad
+        popfd
+        jmp [oAbilityRedBake857BB6Hook]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedBake857C29Naked()
+{
+    __asm {
+        pushfd
+        pushad
+        push ebp
+        push eax
+        push edi
+        push esi
+        call hkObserveAbilityRedBake857C29
+        add esp, 16
+        popad
+        popfd
+        jmp [oAbilityRedBake857C29Hook]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedBake857C9CNaked()
+{
+    __asm {
+        pushfd
+        pushad
+        push ebp
+        push eax
+        push edi
+        push esi
+        call hkObserveAbilityRedBake857C9C
+        add esp, 16
+        popad
+        popfd
+        jmp [oAbilityRedBake857C9CHook]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedBake857D0FNaked()
+{
+    __asm {
+        pushfd
+        pushad
+        push ebp
+        push eax
+        push edi
+        push esi
+        call hkObserveAbilityRedBake857D0F
+        add esp, 16
+        popad
+        popfd
+        jmp [oAbilityRedBake857D0FHook]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedBake1988569C3Naked()
+{
+    __asm {
+        pushfd
+        pushad
+        push ebx
+        push edi
+        push esi
+        call hkObserveAbilityRedBake1988569C3
+        add esp, 12
+        popad
+        popfd
+        jmp [oAbilityRedBake1988569C3Hook]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedBake198856D57Naked()
+{
+    __asm {
+        pushfd
+        pushad
+        push esi
+        call hkObserveAbilityRedBake198856D57
+        add esp, 4
+        popad
+        popfd
+        jmp [oAbilityRedBake198856D57Hook]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedBake19885725FNaked()
+{
+    __asm {
+        pushfd
+        pushad
+        push ebx
+        push edi
+        push esi
+        call hkObserveAbilityRedBake19885725F
+        add esp, 12
+        popad
+        popfd
+        jmp [oAbilityRedBake19885725FHook]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedBake198857C3BNaked()
+{
+    __asm {
+        pushfd
+        pushad
+        push ebx
+        push edi
+        push esi
+        call hkObserveAbilityRedBake198857C3B
+        add esp, 12
+        popad
+        popfd
+        jmp [oAbilityRedBake198857C3BHook]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedBake198858AEDNaked()
+{
+    __asm {
+        pushfd
+        pushad
+        push edi
+        push esi
+        call hkObserveAbilityRedBake198858AED
+        add esp, 8
+        popad
+        popfd
+        jmp [oAbilityRedBake198858AEDHook]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedBake198831A50Naked()
+{
+    __asm {
+        pushfd
+        pushad
+        push edi
+        push esi
+        call hkObserveAbilityRedBake198831A50
+        add esp, 8
+        popad
+        popfd
+        jmp [oAbilityRedBake198831A50Hook]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedBake19883AF02Naked()
+{
+    __asm {
+        pushfd
+        pushad
+        push ebx
+        push edi
+        push esi
+        call hkObserveAbilityRedBake19883AF02
+        add esp, 12
+        popad
+        popfd
+        jmp [oAbilityRedBake19883AF02Hook]
+    }
+}
+
+static int __fastcall hkAbilityRedMasterAggregateFunction(
+    void *thisPtr,
+    void *edxUnused,
+    DWORD arg1,
+    DWORD arg2,
+    DWORD arg3,
+    DWORD arg4,
+    DWORD arg5,
+    DWORD arg6,
+    DWORD arg7)
+{
+    (void)edxUnused;
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    DWORD before3[6] = {};
+    DWORD before4[6] = {};
+    DWORD before5[6] = {};
+    DWORD before6[6] = {};
+    DWORD before7[6] = {};
+    int before3A = 0, before3B = 0, before4A = 0, before4B = 0, before5A = 0, before5B = 0, before6A = 0, before6B = 0, before7A = 0, before7B = 0;
+    int after3A = 0, after3B = 0, after4A = 0, after4B = 0, after5A = 0, after5B = 0, after6A = 0, after6B = 0, after7A = 0, after7B = 0;
+    bool before3OkA = false, before3OkB = false, before4OkA = false, before4OkB = false, before5OkA = false, before5OkB = false, before6OkA = false, before6OkB = false, before7OkA = false, before7OkB = false;
+    bool after3OkA = false, after3OkB = false, after4OkA = false, after4OkB = false, after5OkA = false, after5OkB = false, after6OkA = false, after6OkB = false, after7OkA = false, after7OkB = false;
+    int before3Wdef = 0, before3Mdef = 0, before4Wdef = 0, before4Mdef = 0, before5Wdef = 0, before5Mdef = 0, before6Wdef = 0, before6Mdef = 0, before7Wdef = 0, before7Mdef = 0;
+    int after3Wdef = 0, after3Mdef = 0, after4Wdef = 0, after4Mdef = 0, after5Wdef = 0, after5Mdef = 0, after6Wdef = 0, after6Mdef = 0, after7Wdef = 0, after7Mdef = 0;
+    bool before3WdefOk = false, before3MdefOk = false, before4WdefOk = false, before4MdefOk = false, before5WdefOk = false, before5MdefOk = false, before6WdefOk = false, before6MdefOk = false, before7WdefOk = false, before7MdefOk = false;
+    bool after3WdefOk = false, after3MdefOk = false, after4WdefOk = false, after4MdefOk = false, after5WdefOk = false, after5MdefOk = false, after6WdefOk = false, after6MdefOk = false, after7WdefOk = false, after7MdefOk = false;
+    const size_t tripletOffsets[] = { 0x90, 0xE4, 0x114, 0x120, 0x150, 0x15C, 0x18C, 0x198, 0x1C8, 0x1D4, 0x204, 0x210, 0x240 };
+    int tripletBefore[(sizeof(tripletOffsets) / sizeof(tripletOffsets[0]))] = {};
+    int tripletAfter[(sizeof(tripletOffsets) / sizeof(tripletOffsets[0]))] = {};
+    bool tripletBeforeOk[(sizeof(tripletOffsets) / sizeof(tripletOffsets[0]))] = {};
+    bool tripletAfterOk[(sizeof(tripletOffsets) / sizeof(tripletOffsets[0]))] = {};
+    ReadAbilityRedMasterAggregateBuffer(arg3, before3, ARRAYSIZE(before3));
+    ReadAbilityRedMasterAggregateBuffer(arg4, before4, ARRAYSIZE(before4));
+    ReadAbilityRedMasterAggregateBuffer(arg5, before5, ARRAYSIZE(before5));
+    ReadAbilityRedMasterAggregateBuffer(arg6, before6, ARRAYSIZE(before6));
+    ReadAbilityRedMasterAggregateBuffer(arg7, before7, ARRAYSIZE(before7));
+    DecodeAbilityRedMasterTripletPair(arg3, before3, &before3A, &before3B, &before3OkA, &before3OkB);
+    DecodeAbilityRedMasterTripletPair(arg4, before4, &before4A, &before4B, &before4OkA, &before4OkB);
+    DecodeAbilityRedMasterTripletPair(arg5, before5, &before5A, &before5B, &before5OkA, &before5OkB);
+    DecodeAbilityRedMasterTripletPair(arg6, before6, &before6A, &before6B, &before6OkA, &before6OkB);
+    DecodeAbilityRedMasterTripletPair(arg7, before7, &before7A, &before7B, &before7OkA, &before7OkB);
+    DecodeAbilityRedMasterDefenseValues(arg3, &before3Wdef, &before3Mdef, &before3WdefOk, &before3MdefOk);
+    DecodeAbilityRedMasterDefenseValues(arg4, &before4Wdef, &before4Mdef, &before4WdefOk, &before4MdefOk);
+    DecodeAbilityRedMasterDefenseValues(arg5, &before5Wdef, &before5Mdef, &before5WdefOk, &before5MdefOk);
+    DecodeAbilityRedMasterDefenseValues(arg6, &before6Wdef, &before6Mdef, &before6WdefOk, &before6MdefOk);
+    DecodeAbilityRedMasterDefenseValues(arg7, &before7Wdef, &before7Mdef, &before7WdefOk, &before7MdefOk);
+    for (size_t i = 0; i < ARRAYSIZE(tripletOffsets); ++i)
+        DecodeAbilityRedTripletAtOffset(reinterpret_cast<uintptr_t>(thisPtr), tripletOffsets[i], &tripletBefore[i], &tripletBeforeOk[i]);
+
+    const int resultValue = oAbilityRedMasterAggregateFn
+        ? oAbilityRedMasterAggregateFn(thisPtr, edxUnused, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+        : 0;
+
+    DWORD after3[6] = {};
+    DWORD after4[6] = {};
+    DWORD after5[6] = {};
+    DWORD after6[6] = {};
+    DWORD after7[6] = {};
+    ReadAbilityRedMasterAggregateBuffer(arg3, after3, ARRAYSIZE(after3));
+    ReadAbilityRedMasterAggregateBuffer(arg4, after4, ARRAYSIZE(after4));
+    ReadAbilityRedMasterAggregateBuffer(arg5, after5, ARRAYSIZE(after5));
+    ReadAbilityRedMasterAggregateBuffer(arg6, after6, ARRAYSIZE(after6));
+    ReadAbilityRedMasterAggregateBuffer(arg7, after7, ARRAYSIZE(after7));
+    DecodeAbilityRedMasterTripletPair(arg3, after3, &after3A, &after3B, &after3OkA, &after3OkB);
+    DecodeAbilityRedMasterTripletPair(arg4, after4, &after4A, &after4B, &after4OkA, &after4OkB);
+    DecodeAbilityRedMasterTripletPair(arg5, after5, &after5A, &after5B, &after5OkA, &after5OkB);
+    DecodeAbilityRedMasterTripletPair(arg6, after6, &after6A, &after6B, &after6OkA, &after6OkB);
+    DecodeAbilityRedMasterTripletPair(arg7, after7, &after7A, &after7B, &after7OkA, &after7OkB);
+    DecodeAbilityRedMasterDefenseValues(arg3, &after3Wdef, &after3Mdef, &after3WdefOk, &after3MdefOk);
+    DecodeAbilityRedMasterDefenseValues(arg4, &after4Wdef, &after4Mdef, &after4WdefOk, &after4MdefOk);
+    DecodeAbilityRedMasterDefenseValues(arg5, &after5Wdef, &after5Mdef, &after5WdefOk, &after5MdefOk);
+    DecodeAbilityRedMasterDefenseValues(arg6, &after6Wdef, &after6Mdef, &after6WdefOk, &after6MdefOk);
+    DecodeAbilityRedMasterDefenseValues(arg7, &after7Wdef, &after7Mdef, &after7WdefOk, &after7MdefOk);
+    for (size_t i = 0; i < ARRAYSIZE(tripletOffsets); ++i)
+        DecodeAbilityRedTripletAtOffset(reinterpret_cast<uintptr_t>(thisPtr), tripletOffsets[i], &tripletAfter[i], &tripletAfterOk[i]);
+
+    if (ShouldLogAbilityRedMasterAggregate(callerRet))
+    {
+        WriteLogFmt(
+            "[AbilityRedMaster] 856C60 caller=0x%08X this=0x%08X args=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X] result=%d active=%d",
+            callerRet,
+            (DWORD)(uintptr_t)thisPtr,
+            arg1, arg2, arg3, arg4, arg5, arg6, arg7,
+            resultValue,
+            SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0);
+
+        WriteLogFmt(
+            "[AbilityRedMaster] 856C60 decA a3=%d/%d ok=%d/%d -> %d/%d ok=%d/%d a4=%d/%d ok=%d/%d -> %d/%d ok=%d/%d a5=%d/%d ok=%d/%d -> %d/%d ok=%d/%d",
+            before3A, before3B, before3OkA ? 1 : 0, before3OkB ? 1 : 0, after3A, after3B, after3OkA ? 1 : 0, after3OkB ? 1 : 0,
+            before4A, before4B, before4OkA ? 1 : 0, before4OkB ? 1 : 0, after4A, after4B, after4OkA ? 1 : 0, after4OkB ? 1 : 0,
+            before5A, before5B, before5OkA ? 1 : 0, before5OkB ? 1 : 0, after5A, after5B, after5OkA ? 1 : 0, after5OkB ? 1 : 0);
+
+        WriteLogFmt(
+            "[AbilityRedMaster] 856C60 decB a6=%d/%d ok=%d/%d -> %d/%d ok=%d/%d a7=%d/%d ok=%d/%d -> %d/%d ok=%d/%d",
+            before6A, before6B, before6OkA ? 1 : 0, before6OkB ? 1 : 0, after6A, after6B, after6OkA ? 1 : 0, after6OkB ? 1 : 0,
+            before7A, before7B, before7OkA ? 1 : 0, before7OkB ? 1 : 0, after7A, after7B, after7OkA ? 1 : 0, after7OkB ? 1 : 0);
+
+        WriteLogFmt(
+            "[AbilityRedMaster] 856C60 def a3=%d/%d ok=%d/%d -> %d/%d ok=%d/%d a4=%d/%d ok=%d/%d -> %d/%d ok=%d/%d",
+            before3Wdef, before3Mdef, before3WdefOk ? 1 : 0, before3MdefOk ? 1 : 0, after3Wdef, after3Mdef, after3WdefOk ? 1 : 0, after3MdefOk ? 1 : 0,
+            before4Wdef, before4Mdef, before4WdefOk ? 1 : 0, before4MdefOk ? 1 : 0, after4Wdef, after4Mdef, after4WdefOk ? 1 : 0, after4MdefOk ? 1 : 0);
+
+        WriteLogFmt(
+            "[AbilityRedMaster] 856C60 def2 a5=%d/%d ok=%d/%d -> %d/%d ok=%d/%d a6=%d/%d ok=%d/%d -> %d/%d ok=%d/%d a7=%d/%d ok=%d/%d -> %d/%d ok=%d/%d",
+            before5Wdef, before5Mdef, before5WdefOk ? 1 : 0, before5MdefOk ? 1 : 0, after5Wdef, after5Mdef, after5WdefOk ? 1 : 0, after5MdefOk ? 1 : 0,
+            before6Wdef, before6Mdef, before6WdefOk ? 1 : 0, before6MdefOk ? 1 : 0, after6Wdef, after6Mdef, after6WdefOk ? 1 : 0, after6MdefOk ? 1 : 0,
+            before7Wdef, before7Mdef, before7WdefOk ? 1 : 0, before7MdefOk ? 1 : 0, after7Wdef, after7Mdef, after7WdefOk ? 1 : 0, after7MdefOk ? 1 : 0);
+
+        WriteLogFmt(
+            "[AbilityRedMaster] 856C60 thisdecA 90=%d/%d->%d/%d E4=%d/%d->%d/%d 114=%d/%d->%d/%d 120=%d/%d->%d/%d",
+            tripletBefore[0], tripletBeforeOk[0] ? 1 : 0, tripletAfter[0], tripletAfterOk[0] ? 1 : 0,
+            tripletBefore[1], tripletBeforeOk[1] ? 1 : 0, tripletAfter[1], tripletAfterOk[1] ? 1 : 0,
+            tripletBefore[2], tripletBeforeOk[2] ? 1 : 0, tripletAfter[2], tripletAfterOk[2] ? 1 : 0,
+            tripletBefore[3], tripletBeforeOk[3] ? 1 : 0, tripletAfter[3], tripletAfterOk[3] ? 1 : 0);
+
+        WriteLogFmt(
+            "[AbilityRedMaster] 856C60 thisdecB 150=%d/%d->%d/%d 15C=%d/%d->%d/%d 18C=%d/%d->%d/%d 198=%d/%d->%d/%d",
+            tripletBefore[4], tripletBeforeOk[4] ? 1 : 0, tripletAfter[4], tripletAfterOk[4] ? 1 : 0,
+            tripletBefore[5], tripletBeforeOk[5] ? 1 : 0, tripletAfter[5], tripletAfterOk[5] ? 1 : 0,
+            tripletBefore[6], tripletBeforeOk[6] ? 1 : 0, tripletAfter[6], tripletAfterOk[6] ? 1 : 0,
+            tripletBefore[7], tripletBeforeOk[7] ? 1 : 0, tripletAfter[7], tripletAfterOk[7] ? 1 : 0);
+
+        WriteLogFmt(
+            "[AbilityRedMaster] 856C60 thisdecC 1C8=%d/%d->%d/%d 1D4=%d/%d->%d/%d 204=%d/%d->%d/%d 210=%d/%d->%d/%d 240=%d/%d->%d/%d",
+            tripletBefore[8], tripletBeforeOk[8] ? 1 : 0, tripletAfter[8], tripletAfterOk[8] ? 1 : 0,
+            tripletBefore[9], tripletBeforeOk[9] ? 1 : 0, tripletAfter[9], tripletAfterOk[9] ? 1 : 0,
+            tripletBefore[10], tripletBeforeOk[10] ? 1 : 0, tripletAfter[10], tripletAfterOk[10] ? 1 : 0,
+            tripletBefore[11], tripletBeforeOk[11] ? 1 : 0, tripletAfter[11], tripletAfterOk[11] ? 1 : 0,
+            tripletBefore[12], tripletBeforeOk[12] ? 1 : 0, tripletAfter[12], tripletAfterOk[12] ? 1 : 0);
+    }
+
+    return resultValue;
+}
+
+static int __fastcall hkAbilityRedFinalCalc84C470(
+    void *thisPtr,
+    void *edxUnused,
+    DWORD arg1,
+    DWORD arg2,
+    DWORD arg3,
+    DWORD arg4,
+    DWORD arg5,
+    DWORD arg6)
+{
+    (void)edxUnused;
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    const DWORD args[6] = { arg1, arg2, arg3, arg4, arg5, arg6 };
+    DWORD ptrMaskBefore = 0;
+    DWORD ptrBefore[6] = {};
+    for (int i = 0; i < 6; ++i)
+        ptrBefore[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskBefore);
+
+    int before198 = 0, before1C8 = 0, before1D4 = 0, before210 = 0;
+    bool before198Ok = false, before1C8Ok = false, before1D4Ok = false, before210Ok = false;
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x198, &before198, &before198Ok);
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x1C8, &before1C8, &before1C8Ok);
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x1D4, &before1D4, &before1D4Ok);
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x210, &before210, &before210Ok);
+
+    const int resultValue = oAbilityRedFinalCalc84C470Fn
+        ? oAbilityRedFinalCalc84C470Fn(thisPtr, edxUnused, arg1, arg2, arg3, arg4, arg5, arg6)
+        : 0;
+
+    DWORD ptrMaskAfter = 0;
+    DWORD ptrAfter[6] = {};
+    for (int i = 0; i < 6; ++i)
+        ptrAfter[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskAfter);
+
+    int after198 = 0, after1C8 = 0, after1D4 = 0, after210 = 0;
+    bool after198Ok = false, after1C8Ok = false, after1D4Ok = false, after210Ok = false;
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x198, &after198, &after198Ok);
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x1C8, &after1C8, &after1C8Ok);
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x1D4, &after1D4, &after1D4Ok);
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x210, &after210, &after210Ok);
+
+    const int activeState = SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0;
+    if (ShouldLogAbilityRedFinalCalculator(
+            &g_AbilityRedFinal84C470LastCaller,
+            &g_AbilityRedFinal84C470LastThis,
+            &g_AbilityRedFinal84C470LastTick,
+            &g_AbilityRedFinal84C470LastActive,
+            callerRet,
+            (uintptr_t)thisPtr,
+            activeState))
+    {
+        WriteLogFmt(
+            "[AbilityRedFinal] 84C470 caller=0x%08X this=0x%08X result=%d active=%d args=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X]",
+            callerRet,
+            (DWORD)(uintptr_t)thisPtr,
+            resultValue,
+            activeState,
+            arg1, arg2, arg3, arg4, arg5, arg6);
+        WriteLogFmt(
+            "[AbilityRedFinal] 84C470 ptrB(mask=0x%02X)=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X] ptrA(mask=0x%02X)=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X]",
+            ptrMaskBefore,
+            ptrBefore[0], ptrBefore[1], ptrBefore[2], ptrBefore[3], ptrBefore[4], ptrBefore[5],
+            ptrMaskAfter,
+            ptrAfter[0], ptrAfter[1], ptrAfter[2], ptrAfter[3], ptrAfter[4], ptrAfter[5]);
+        WriteLogFmt(
+            "[AbilityRedFinal] 84C470 slots 198=%d/%d->%d/%d 1C8=%d/%d->%d/%d 1D4=%d/%d->%d/%d 210=%d/%d->%d/%d",
+            before198, before198Ok ? 1 : 0, after198, after198Ok ? 1 : 0,
+            before1C8, before1C8Ok ? 1 : 0, after1C8, after1C8Ok ? 1 : 0,
+            before1D4, before1D4Ok ? 1 : 0, after1D4, after1D4Ok ? 1 : 0,
+            before210, before210Ok ? 1 : 0, after210, after210Ok ? 1 : 0);
+    }
+
+    return resultValue;
+}
+
+static int __fastcall hkAbilityRedFinalCalc84CA90(
+    void *thisPtr,
+    void *edxUnused,
+    DWORD arg1,
+    DWORD arg2,
+    DWORD arg3,
+    DWORD arg4,
+    DWORD arg5)
+{
+    (void)edxUnused;
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    const DWORD args[5] = { arg1, arg2, arg3, arg4, arg5 };
+    DWORD ptrMaskBefore = 0;
+    DWORD ptrBefore[5] = {};
+    for (int i = 0; i < 5; ++i)
+        ptrBefore[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskBefore);
+
+    int before198 = 0, before1D4 = 0, before204 = 0;
+    bool before198Ok = false, before1D4Ok = false, before204Ok = false;
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x198, &before198, &before198Ok);
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x1D4, &before1D4, &before1D4Ok);
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x204, &before204, &before204Ok);
+
+    const int resultValue = oAbilityRedFinalCalc84CA90Fn
+        ? oAbilityRedFinalCalc84CA90Fn(thisPtr, edxUnused, arg1, arg2, arg3, arg4, arg5)
+        : 0;
+
+    DWORD ptrMaskAfter = 0;
+    DWORD ptrAfter[5] = {};
+    for (int i = 0; i < 5; ++i)
+        ptrAfter[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskAfter);
+
+    int after198 = 0, after1D4 = 0, after204 = 0;
+    bool after198Ok = false, after1D4Ok = false, after204Ok = false;
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x198, &after198, &after198Ok);
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x1D4, &after1D4, &after1D4Ok);
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x204, &after204, &after204Ok);
+
+    const int activeState = SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0;
+    if (ShouldLogAbilityRedFinalCalculator(
+            &g_AbilityRedFinal84CA90LastCaller,
+            &g_AbilityRedFinal84CA90LastThis,
+            &g_AbilityRedFinal84CA90LastTick,
+            &g_AbilityRedFinal84CA90LastActive,
+            callerRet,
+            (uintptr_t)thisPtr,
+            activeState))
+    {
+        WriteLogFmt(
+            "[AbilityRedFinal] 84CA90 caller=0x%08X this=0x%08X result=%d active=%d args=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X]",
+            callerRet,
+            (DWORD)(uintptr_t)thisPtr,
+            resultValue,
+            activeState,
+            arg1, arg2, arg3, arg4, arg5);
+        WriteLogFmt(
+            "[AbilityRedFinal] 84CA90 ptrB(mask=0x%02X)=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X] ptrA(mask=0x%02X)=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X]",
+            ptrMaskBefore,
+            ptrBefore[0], ptrBefore[1], ptrBefore[2], ptrBefore[3], ptrBefore[4],
+            ptrMaskAfter,
+            ptrAfter[0], ptrAfter[1], ptrAfter[2], ptrAfter[3], ptrAfter[4]);
+        WriteLogFmt(
+            "[AbilityRedFinal] 84CA90 slots 198=%d/%d->%d/%d 1D4=%d/%d->%d/%d 204=%d/%d->%d/%d",
+            before198, before198Ok ? 1 : 0, after198, after198Ok ? 1 : 0,
+            before1D4, before1D4Ok ? 1 : 0, after1D4, after1D4Ok ? 1 : 0,
+            before204, before204Ok ? 1 : 0, after204, after204Ok ? 1 : 0);
+    }
+
+    return resultValue;
+}
+
+static int __fastcall hkAbilityRedFinalCalc84CBD0(
+    void *thisPtr,
+    void *edxUnused,
+    DWORD arg1,
+    DWORD arg2,
+    DWORD arg3,
+    DWORD arg4,
+    DWORD arg5)
+{
+    (void)edxUnused;
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    const DWORD args[5] = { arg1, arg2, arg3, arg4, arg5 };
+    DWORD ptrMaskBefore = 0;
+    DWORD ptrBefore[5] = {};
+    for (int i = 0; i < 5; ++i)
+        ptrBefore[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskBefore);
+
+    int before198 = 0, before210 = 0, before240 = 0;
+    bool before198Ok = false, before210Ok = false, before240Ok = false;
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x198, &before198, &before198Ok);
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x210, &before210, &before210Ok);
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x240, &before240, &before240Ok);
+
+    const int resultValue = oAbilityRedFinalCalc84CBD0Fn
+        ? oAbilityRedFinalCalc84CBD0Fn(thisPtr, edxUnused, arg1, arg2, arg3, arg4, arg5)
+        : 0;
+
+    DWORD ptrMaskAfter = 0;
+    DWORD ptrAfter[5] = {};
+    for (int i = 0; i < 5; ++i)
+        ptrAfter[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskAfter);
+
+    int after198 = 0, after210 = 0, after240 = 0;
+    bool after198Ok = false, after210Ok = false, after240Ok = false;
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x198, &after198, &after198Ok);
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x210, &after210, &after210Ok);
+    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x240, &after240, &after240Ok);
+
+    const int activeState = SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0;
+    if (ShouldLogAbilityRedFinalCalculator(
+            &g_AbilityRedFinal84CBD0LastCaller,
+            &g_AbilityRedFinal84CBD0LastThis,
+            &g_AbilityRedFinal84CBD0LastTick,
+            &g_AbilityRedFinal84CBD0LastActive,
+            callerRet,
+            (uintptr_t)thisPtr,
+            activeState))
+    {
+        WriteLogFmt(
+            "[AbilityRedFinal] 84CBD0 caller=0x%08X this=0x%08X result=%d active=%d args=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X]",
+            callerRet,
+            (DWORD)(uintptr_t)thisPtr,
+            resultValue,
+            activeState,
+            arg1, arg2, arg3, arg4, arg5);
+        WriteLogFmt(
+            "[AbilityRedFinal] 84CBD0 ptrB(mask=0x%02X)=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X] ptrA(mask=0x%02X)=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X]",
+            ptrMaskBefore,
+            ptrBefore[0], ptrBefore[1], ptrBefore[2], ptrBefore[3], ptrBefore[4],
+            ptrMaskAfter,
+            ptrAfter[0], ptrAfter[1], ptrAfter[2], ptrAfter[3], ptrAfter[4]);
+        WriteLogFmt(
+            "[AbilityRedFinal] 84CBD0 slots 198=%d/%d->%d/%d 210=%d/%d->%d/%d 240=%d/%d->%d/%d",
+            before198, before198Ok ? 1 : 0, after198, after198Ok ? 1 : 0,
+            before210, before210Ok ? 1 : 0, after210, after210Ok ? 1 : 0,
+            before240, before240Ok ? 1 : 0, after240, after240Ok ? 1 : 0);
+    }
+
+    return resultValue;
+}
+
+static void __cdecl hkObserveAbilityRedDisplayCallsite(
+    DWORD esiValue,
+    DWORD ecxValue,
+    DWORD ebpValue,
+    DWORD critPtr,
+    DWORD option31Ptr,
+    DWORD damagePtr,
+    DWORD bossDamagePtr,
+    DWORD ignoreDefensePtr,
+    DWORD retAddr)
+{
+    const DWORD now = GetTickCount();
+    if (now - g_AbilityRedDisplayCallsiteLastTick <= 1000)
+        return;
+    g_AbilityRedDisplayCallsiteLastTick = now;
+
+    DWORD critValue = 0;
+    DWORD option31Value = 0;
+    DWORD damageValue = 0;
+    DWORD bossDamageValue = 0;
+    DWORD ignoreDefenseValue = 0;
+
+    if (critPtr && !SafeIsBadReadPtr(reinterpret_cast<void*>(critPtr), 4))
+        critValue = *reinterpret_cast<DWORD*>(critPtr);
+    if (option31Ptr && !SafeIsBadReadPtr(reinterpret_cast<void*>(option31Ptr), 4))
+        option31Value = *reinterpret_cast<DWORD*>(option31Ptr);
+    if (damagePtr && !SafeIsBadReadPtr(reinterpret_cast<void*>(damagePtr), 4))
+        damageValue = *reinterpret_cast<DWORD*>(damagePtr);
+    if (bossDamagePtr && !SafeIsBadReadPtr(reinterpret_cast<void*>(bossDamagePtr), 4))
+        bossDamageValue = *reinterpret_cast<DWORD*>(bossDamagePtr);
+    if (ignoreDefensePtr && !SafeIsBadReadPtr(reinterpret_cast<void*>(ignoreDefensePtr), 4))
+        ignoreDefenseValue = *reinterpret_cast<DWORD*>(ignoreDefensePtr);
+
+    WriteLogFmt(
+        "[AbilityRedDisplayCall] AE6C21 esi=0x%08X ecx=0x%08X ebp=0x%08X ptrs=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X] vals=[%u,%u,%u,%u,%u] ret=0x%08X",
+        esiValue,
+        ecxValue,
+        ebpValue,
+        critPtr,
+        option31Ptr,
+        damagePtr,
+        bossDamagePtr,
+        ignoreDefensePtr,
+        critValue,
+        option31Value,
+        damageValue,
+        bossDamageValue,
+        ignoreDefenseValue,
+        retAddr);
+}
+
+__declspec(naked) static void hkAbilityRedDisplayCallsiteNaked()
+{
+    __asm {
+        pushfd
+        pushad
+        push dword ptr [esp + 0x24] // retAddr
+        push dword ptr [esp + 0x68] // ignoreDefensePtr
+        push dword ptr [esp + 0x68] // bossDamagePtr
+        push dword ptr [esp + 0x68] // damagePtr
+        push dword ptr [esp + 0x68] // option31Ptr
+        push dword ptr [esp + 0x68] // critPtr
+        push dword ptr [esp + 0x20] // ebp
+        push dword ptr [esp + 0x34] // ecx
+        push dword ptr [esp + 0x24] // esi
+        call hkObserveAbilityRedDisplayCallsite
+        add esp, 36
+        popad
+        popfd
+        jmp dword ptr [g_AbilityRedDisplayCallsiteOriginalTarget]
+    }
+}
+
+static void __cdecl hkObserveAbilityRedLevelReadFrame(DWORD *frame)
+{
+    if (!frame)
+        return;
+
+    const DWORD ediValue = frame[0];
+    const DWORD esiValue = frame[1];
+    const DWORD ebpValue = frame[2];
+    const DWORD pushfdEsp = frame[3];
+    const DWORD ebxValue = frame[4];
+    const DWORD edxValue = frame[5];
+    const DWORD ecxValue = frame[6];
+    const DWORD eaxValue = frame[7];
+    const DWORD originalEsp = pushfdEsp + 4;
+
+    const DWORD now = GetTickCount();
+    if (now - g_AbilityRedLevelReadLastTick <= 1000)
+        return;
+    g_AbilityRedLevelReadLastTick = now;
+
+    DWORD stack18 = 0;
+    DWORD stack1C = 0;
+    DWORD stack20 = 0;
+    DWORD stack24 = 0;
+    DWORD stack24v0 = 0;
+    DWORD stack24v4 = 0;
+    DWORD stack24v8 = 0;
+    DWORD stack24vC = 0;
+    if (originalEsp && !SafeIsBadReadPtr(reinterpret_cast<void*>(originalEsp + 0x18), 16))
+    {
+        stack18 = *reinterpret_cast<DWORD*>(originalEsp + 0x18);
+        stack1C = *reinterpret_cast<DWORD*>(originalEsp + 0x1C);
+        stack20 = *reinterpret_cast<DWORD*>(originalEsp + 0x20);
+        stack24 = *reinterpret_cast<DWORD*>(originalEsp + 0x24);
+    }
+    if (stack24 && !SafeIsBadReadPtr(reinterpret_cast<void*>(stack24), 16))
+    {
+        stack24v0 = *reinterpret_cast<DWORD*>(stack24 + 0x0);
+        stack24v4 = *reinterpret_cast<DWORD*>(stack24 + 0x4);
+        stack24v8 = *reinterpret_cast<DWORD*>(stack24 + 0x8);
+        stack24vC = *reinterpret_cast<DWORD*>(stack24 + 0xC);
+    }
+
+    WriteLogFmt(
+        "[AbilityRedLevelRead] AE43D5 esp=0x%08X regs=[eax=0x%08X ecx=0x%08X edx=0x%08X ebx=0x%08X ebp=0x%08X esi=0x%08X edi=0x%08X] stack=[+18=0x%08X +1C=0x%08X +20=0x%08X +24=0x%08X] ptr24=[0x%08X,0x%08X,0x%08X,0x%08X]",
+        originalEsp,
+        eaxValue,
+        ecxValue,
+        edxValue,
+        ebxValue,
+        ebpValue,
+        esiValue,
+        ediValue,
+        stack18,
+        stack1C,
+        stack20,
+        stack24,
+        stack24v0,
+        stack24v4,
+        stack24v8,
+        stack24vC);
+
+    LogAbilityRedDecodedSnapshot("AE43D5");
+}
+
+__declspec(naked) static void hkAbilityRedLevelReadNaked()
+{
+    __asm {
+        pushfd
+        pushad
+        mov eax, esp
+        push eax
+        call hkObserveAbilityRedLevelReadFrame
+        add esp, 4
+        popad
+        popfd
+        jmp [oAbilityRedLevelReadHook]
+    }
+}
+
+static void __cdecl hkObserveAbilityRedHashLookupFrame(DWORD *frame)
+{
+    if (!frame)
+        return;
+
+    const DWORD ecxValue = frame[6];
+    const DWORD pushfdEsp = frame[3];
+    const DWORD originalEsp = pushfdEsp + 4;
+    DWORD returnAddr = 0;
+    DWORD keyPtr = 0;
+    DWORD outValuePtr = 0;
+    if (originalEsp && !SafeIsBadReadPtr(reinterpret_cast<void*>(originalEsp), 12))
+    {
+        returnAddr = *reinterpret_cast<DWORD*>(originalEsp + 0x0);
+        keyPtr = *reinterpret_cast<DWORD*>(originalEsp + 0x4);
+        outValuePtr = *reinterpret_cast<DWORD*>(originalEsp + 0x8);
+    }
+
+    DWORD keyValue = 0;
+    DWORD outBefore = 0;
+    DWORD bucketBase = 0;
+    DWORD bucketCount = 0;
+    DWORD entryCount = 0;
+    if (keyPtr && !SafeIsBadReadPtr(reinterpret_cast<void*>(keyPtr), sizeof(DWORD)))
+        keyValue = *reinterpret_cast<DWORD*>(keyPtr);
+    if (outValuePtr && !SafeIsBadReadPtr(reinterpret_cast<void*>(outValuePtr), sizeof(DWORD)))
+        outBefore = *reinterpret_cast<DWORD*>(outValuePtr);
+
+    if (!ShouldLogAbilityRedHashLookup(returnAddr, (uintptr_t)ecxValue, keyValue))
+        return;
+
+    ReadAbilityRedHashContainerMeta((uintptr_t)ecxValue, &bucketBase, &bucketCount, &entryCount);
+    WriteLogFmt(
+        "[AbilityRedHashLookup] caller=0x%08X this=0x%08X keyPtr=0x%08X key=%u outPtr=0x%08X outBefore=%u buckets=0x%08X bucketCount=%u entryCount=%u active=%d",
+        returnAddr,
+        ecxValue,
+        keyPtr,
+        keyValue,
+        outValuePtr,
+        outBefore,
+        bucketBase,
+        bucketCount,
+        entryCount,
+        SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0);
+}
+
+__declspec(naked) static void hkAbilityRedHashLookupNaked()
+{
+    __asm {
+        pushfd
+        pushad
+        mov eax, esp
+        push eax
+        call hkObserveAbilityRedHashLookupFrame
+        add esp, 4
+        popad
+        popfd
+        jmp [oAbilityRedHashLookupHook]
+    }
+}
+
+static void __cdecl hkObserveAbilityRedHashInsertFrame(DWORD *frame)
+{
+    if (!frame)
+        return;
+
+    const DWORD ecxValue = frame[6];
+    const DWORD pushfdEsp = frame[3];
+    const DWORD originalEsp = pushfdEsp + 4;
+    DWORD returnAddr = 0;
+    DWORD keyPtr = 0;
+    DWORD valuePtr = 0;
+    if (originalEsp && !SafeIsBadReadPtr(reinterpret_cast<void*>(originalEsp), 12))
+    {
+        returnAddr = *reinterpret_cast<DWORD*>(originalEsp + 0x0);
+        keyPtr = *reinterpret_cast<DWORD*>(originalEsp + 0x4);
+        valuePtr = *reinterpret_cast<DWORD*>(originalEsp + 0x8);
+    }
+
+    DWORD keyValue = 0;
+    DWORD valueValue = 0;
+    DWORD bucketBase = 0;
+    DWORD bucketCount = 0;
+    DWORD entryCount = 0;
+    if (keyPtr && !SafeIsBadReadPtr(reinterpret_cast<void*>(keyPtr), sizeof(DWORD)))
+        keyValue = *reinterpret_cast<DWORD*>(keyPtr);
+    if (valuePtr && !SafeIsBadReadPtr(reinterpret_cast<void*>(valuePtr), sizeof(DWORD)))
+        valueValue = *reinterpret_cast<DWORD*>(valuePtr);
+
+    if (!ShouldLogAbilityRedHashInsert(returnAddr, (uintptr_t)ecxValue, keyValue, valueValue))
+        return;
+
+    ReadAbilityRedHashContainerMeta((uintptr_t)ecxValue, &bucketBase, &bucketCount, &entryCount);
+    WriteLogFmt(
+        "[AbilityRedHashInsert] caller=0x%08X this=0x%08X keyPtr=0x%08X valuePtr=0x%08X key=%u value=%u buckets=0x%08X bucketCount=%u entryCount=%u active=%d",
+        returnAddr,
+        ecxValue,
+        keyPtr,
+        valuePtr,
+        keyValue,
+        valueValue,
+        bucketBase,
+        bucketCount,
+        entryCount,
+        SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0);
+}
+
+__declspec(naked) static void hkAbilityRedHashInsertNaked()
+{
+    __asm {
+        pushfd
+        pushad
+        mov eax, esp
+        push eax
+        call hkObserveAbilityRedHashInsertFrame
+        add esp, 4
+        popad
+        popfd
+        jmp [oAbilityRedHashInsertHook]
+    }
+}
+
+static void __cdecl hkObserveAbilityRedSkillWrite(
+    const char *tag,
+    DWORD destPtr,
+    DWORD sourcePtr,
+    DWORD sourceValue,
+    DWORD carrierA,
+    DWORD carrierB)
+{
+    const DWORD now = GetTickCount();
+    if (now - g_AbilityRedSkillWriteLastTick <= 1000)
+        return;
+    g_AbilityRedSkillWriteLastTick = now;
+
+    DWORD destValue = 0;
+    DWORD destVtable = 0;
+    DWORD dest04 = 0;
+    DWORD dest08 = 0;
+    DWORD dest0C = 0;
+    DWORD sourceBase = sourcePtr >= 0x0C ? (sourcePtr - 0x0C) : 0;
+    DWORD sourceBase0 = 0;
+    DWORD sourceBase4 = 0;
+    DWORD sourceBase8 = 0;
+    DWORD sourceBaseC = 0;
+    if (destPtr && !SafeIsBadReadPtr(reinterpret_cast<void*>(destPtr), 4))
+        destValue = *reinterpret_cast<DWORD*>(destPtr);
+    if (destPtr && !SafeIsBadReadPtr(reinterpret_cast<void*>(destPtr), 16))
+    {
+        destVtable = *reinterpret_cast<DWORD*>(destPtr + 0x0);
+        dest04 = *reinterpret_cast<DWORD*>(destPtr + 0x4);
+        dest08 = *reinterpret_cast<DWORD*>(destPtr + 0x8);
+        dest0C = *reinterpret_cast<DWORD*>(destPtr + 0xC);
+    }
+    if (sourceBase && !SafeIsBadReadPtr(reinterpret_cast<void*>(sourceBase), 16))
+    {
+        sourceBase0 = *reinterpret_cast<DWORD*>(sourceBase + 0x0);
+        sourceBase4 = *reinterpret_cast<DWORD*>(sourceBase + 0x4);
+        sourceBase8 = *reinterpret_cast<DWORD*>(sourceBase + 0x8);
+        sourceBaseC = *reinterpret_cast<DWORD*>(sourceBase + 0xC);
+    }
+
+    WriteLogFmt(
+        "[AbilityRedSkillWrite] %s dest=0x%08X destVal=0x%08X destFields=[0x%08X,0x%08X,0x%08X,0x%08X] src=0x%08X srcVal=0x%08X srcBase=0x%08X srcFields=[0x%08X,0x%08X,0x%08X,0x%08X] carry=[0x%08X,0x%08X] active=%d",
+        tag ? tag : "unknown",
+        destPtr,
+        destValue,
+        destVtable,
+        dest04,
+        dest08,
+        dest0C,
+        sourcePtr,
+        sourceValue,
+        sourceBase,
+        sourceBase0,
+        sourceBase4,
+        sourceBase8,
+        sourceBaseC,
+        carrierA,
+        carrierB,
+        SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0);
+}
+
+static void __cdecl hkObserveAbilityRedSkillWrite52FE14Frame(DWORD *frame)
+{
+    if (!frame)
+        return;
+
+    const DWORD ecxValue = frame[6];
+    const DWORD eaxValue = frame[7];
+    DWORD sourceValue = 0;
+    if (ecxValue && !SafeIsBadReadPtr(reinterpret_cast<void*>(ecxValue), 4))
+        sourceValue = *reinterpret_cast<DWORD*>(ecxValue);
+    hkObserveAbilityRedSkillWrite("52FE14", eaxValue + 0x0C, ecxValue, sourceValue, eaxValue, ecxValue);
+}
+
+static void __cdecl hkObserveAbilityRedSkillWrite6226CEFrame(DWORD *frame)
+{
+    if (!frame)
+        return;
+
+    const DWORD esiValue = frame[1];
+    const DWORD eaxValue = frame[7];
+    DWORD sourceValue = 0;
+    if (esiValue && !SafeIsBadReadPtr(reinterpret_cast<void*>(esiValue + 0x0C), 4))
+        sourceValue = *reinterpret_cast<DWORD*>(esiValue + 0x0C);
+    hkObserveAbilityRedSkillWrite("6226CE", eaxValue + 0x0C, esiValue + 0x0C, sourceValue, eaxValue, esiValue);
+}
+
+static void __cdecl hkObserveAbilityRedSkillWrite49CA01Frame(DWORD *frame)
+{
+    if (!frame)
+        return;
+
+    const DWORD edxValue = frame[5];
+    const DWORD eaxValue = frame[7];
+    DWORD sourceValue = 0;
+    if (edxValue && !SafeIsBadReadPtr(reinterpret_cast<void*>(edxValue + 0x0C), 4))
+        sourceValue = *reinterpret_cast<DWORD*>(edxValue + 0x0C);
+    hkObserveAbilityRedSkillWrite("49CA01", eaxValue, edxValue + 0x0C, sourceValue, eaxValue, edxValue);
+}
+
+static void __cdecl hkPatchAbilityRedSkillWrite49CA01Frame(DWORD *frame)
+{
+    if (!frame)
+        return;
+    if (!SkillOverlayBridgeHasLocalIndependentPotentialBonuses())
+        return;
+
+    const int mdefDelta = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x44);
+    if (mdefDelta <= 0)
+        return;
+
+    const DWORD pushfdEsp = frame[3];
+    const DWORD originalEsp = pushfdEsp + 4;
+    DWORD callerRet = 0;
+    if (originalEsp && !SafeIsBadReadPtr(reinterpret_cast<void*>(originalEsp + 0x08), sizeof(DWORD)))
+        callerRet = *reinterpret_cast<DWORD*>(originalEsp + 0x08);
+
+    const DWORD edxValue = frame[5];
+    if (!edxValue || SafeIsBadWritePtr(reinterpret_cast<void*>(edxValue + 0x0C), sizeof(DWORD)))
+        return;
+    if (SafeIsBadReadPtr(reinterpret_cast<void*>(edxValue + 0x08), sizeof(DWORD)))
+        return;
+
+    DWORD *const sourceBase = reinterpret_cast<DWORD*>(edxValue);
+    const DWORD nodeKey = sourceBase[2];
+    const DWORD currentValue = sourceBase[3];
+    if (nodeKey == 0 || nodeKey == currentValue)
+        return;
+
+    static DWORD s_lastAbilityRed49PatchLogTick = 0;
+    const DWORD now = GetTickCount();
+    if (now - s_lastAbilityRed49PatchLogTick > 1000)
+    {
+        s_lastAbilityRed49PatchLogTick = now;
+        WriteLogFmt("[AbilityRedSkillWrite] 49CA01 observe nodeKey caller=0x%08X srcBase=0x%08X key=0x%08X value=0x%08X mdefDelta=%d",
+            callerRet,
+            edxValue,
+            nodeKey,
+            currentValue,
+            mdefDelta);
+    }
+}
+
+__declspec(naked) static void hkAbilityRedSkillWrite52FE14Naked()
+{
+    __asm {
+        pushfd
+        pushad
+        mov eax, esp
+        push eax
+        call hkObserveAbilityRedSkillWrite52FE14Frame
+        add esp, 4
+        popad
+        popfd
+        jmp [oAbilityRedSkillWrite52FE14Hook]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedSkillWrite6226CENaked()
+{
+    __asm {
+        pushfd
+        pushad
+        mov eax, esp
+        push eax
+        call hkObserveAbilityRedSkillWrite6226CEFrame
+        add esp, 4
+        popad
+        popfd
+        jmp [oAbilityRedSkillWrite6226CEHook]
+    }
+}
+
+__declspec(naked) static void hkAbilityRedSkillWrite49CA01Naked()
+{
+    __asm {
+        pushfd
+        pushad
+        mov eax, esp
+        push eax
+        call hkObserveAbilityRedSkillWrite49CA01Frame
+        add esp, 4
+        mov eax, esp
+        push eax
+        call hkPatchAbilityRedSkillWrite49CA01Frame
+        add esp, 4
+        popad
+        popfd
+        jmp [oAbilityRedSkillWrite49CA01Hook]
+    }
+}
+
+static BYTE* __stdcall hkPotentialTextFormat(int* src, BYTE* statsPtr)
+{
+    BYTE* displayPtr = statsPtr;
+    if (statsPtr && SkillOverlayBridgeHasLocalIndependentPotentialBonuses())
+    {
+        uintptr_t prepared = SkillOverlayBridgePrepareLocalIndependentPotentialDisplayBuffer((uintptr_t)statsPtr);
+        if (prepared && !SafeIsBadReadPtr(reinterpret_cast<void*>(prepared), 0xD8))
+        {
+            displayPtr = reinterpret_cast<BYTE*>(prepared);
+
+            static DWORD s_lastPotentialDisplayHookLogTick = 0;
+            const DWORD now = GetTickCount();
+            if (now - s_lastPotentialDisplayHookLogTick > 1000)
+            {
+                s_lastPotentialDisplayHookLogTick = now;
+                WriteLogFmt("[PotentialTextHook] A4CA60 src=0x%08X stats=0x%08X prepared=0x%08X",
+                    (DWORD)(uintptr_t)src,
+                    (DWORD)(uintptr_t)statsPtr,
+                    (DWORD)prepared);
+            }
+        }
+    }
+
+    return oPotentialTextFormat ? oPotentialTextFormat(src, displayPtr) : nullptr;
+}
+
+__declspec(naked) static void hkLocalIndependentPotentialSkillLevelDisplayNaked()
+{
+    __asm {
+        pushad
+        push dword ptr [esp + 0x4C]
+        call hkApplyLocalIndependentPotentialSkillLevelDisplay
+        add esp, 4
+        popad
+        jmp [oLocalIndependentPotentialSkillLevelDisplay]
+    }
+}
+
+__declspec(naked) static void hkLocalIndependentPotentialDamageDisplayNaked()
+{
+    __asm {
+        pushad
+        mov eax, [esp + 0x5C]
+        mov ecx, [esp + 0x58]
+        mov edx, [esp + 0x54]
+        mov ebx, [esp + 0x50]
+        mov esi, [esp + 0x4C]
+        push eax
+        push ecx
+        push edx
+        push ebx
+        push esi
+        call hkApplyLocalIndependentPotentialDamageDisplay
+        add esp, 20
+        popad
+        jmp [oLocalIndependentPotentialDamageDisplay]
+    }
+}
+
+static int __stdcall hkLocalIndependentPotentialSkillLevelDisplayFunction(int a1, int a2, DWORD *a3)
+{
+    const int result = oLocalIndependentPotentialSkillLevelDisplayFn
+        ? oLocalIndependentPotentialSkillLevelDisplayFn(a1, a2, a3)
+        : 0;
+    static DWORD s_lastSkillLevelCallLogTick = 0;
+    const DWORD now = GetTickCount();
+    const int delta88 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x88);
+    if (now - s_lastSkillLevelCallLogTick > 1000)
+    {
+        s_lastSkillLevelCallLogTick = now;
+        WriteLogFmt("[IndependentBuffLocalDisplayCall] AE0A70 a1=0x%08X a2=%d out=0x%08X delta88=%d active=%d",
+            (DWORD)a1,
+            a2,
+            (DWORD)(uintptr_t)a3,
+            delta88,
+            SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0);
+    }
+    LogAbilityRedDecodedSnapshot("AE0A70");
+    hkApplyLocalIndependentPotentialSkillLevelDisplay(reinterpret_cast<uintptr_t>(a3));
+    return result;
+}
+
+static LONG __cdecl hkLocalIndependentPotentialPercentQuadDisplayFunction(
+    int a1,
+    int a2,
+    DWORD *a3,
+    DWORD *a4,
+    DWORD *a5,
+    DWORD *a6)
+{
+    const LONG result = oLocalIndependentPotentialPercentQuadDisplayFn
+        ? oLocalIndependentPotentialPercentQuadDisplayFn(a1, a2, a3, a4, a5, a6)
+        : 0;
+    static DWORD s_lastPercentQuadCallLogTick = 0;
+    const DWORD now = GetTickCount();
+    const int d48 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x48);
+    const int d4C = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x4C);
+    const int d50 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x50);
+    const int d54 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x54);
+    if (now - s_lastPercentQuadCallLogTick > 1000)
+    {
+        s_lastPercentQuadCallLogTick = now;
+        WriteLogFmt("[IndependentBuffLocalDisplayCall] 8538C0 a1=0x%08X a2=%d outs=[0x%08X,0x%08X,0x%08X,0x%08X] deltas=[%d,%d,%d,%d] active=%d",
+            (DWORD)a1,
+            a2,
+            (DWORD)(uintptr_t)a3,
+            (DWORD)(uintptr_t)a4,
+            (DWORD)(uintptr_t)a5,
+            (DWORD)(uintptr_t)a6,
+            d48,
+            d4C,
+            d50,
+            d54,
+            SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0);
+    }
+    LogAbilityRedDecodedSnapshot("8538C0");
+    hkApplyLocalIndependentPotentialPercentQuadDisplay(
+        reinterpret_cast<uintptr_t>(a3),
+        reinterpret_cast<uintptr_t>(a4),
+        reinterpret_cast<uintptr_t>(a5),
+        reinterpret_cast<uintptr_t>(a6));
+    return result;
+}
+
+static LONG __fastcall hkLocalIndependentPotentialPercentFullDisplayFunction(
+    DWORD *thisPtr,
+    void * /*edxUnused*/,
+    int pExceptionObject,
+    int a3,
+    DWORD *a4)
+{
+    const LONG result = oLocalIndependentPotentialPercentFullDisplayFn
+        ? oLocalIndependentPotentialPercentFullDisplayFn(thisPtr, pExceptionObject, a3, a4)
+        : 0;
+    static DWORD s_lastPercentFullCallLogTick = 0;
+    const DWORD now = GetTickCount();
+    const int d48 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x48);
+    const int d4C = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x4C);
+    const int d50 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x50);
+    const int d54 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x54);
+    const int d58 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x58);
+    const int d5C = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x5C);
+    if (now - s_lastPercentFullCallLogTick > 1000)
+    {
+        s_lastPercentFullCallLogTick = now;
+        WriteLogFmt("[IndependentBuffLocalDisplayCall] 853E10 this=0x%08X exc=0x%08X a3=%d out=0x%08X deltas=[%d,%d,%d,%d,%d,%d] active=%d",
+            (DWORD)(uintptr_t)thisPtr,
+            (DWORD)pExceptionObject,
+            a3,
+            (DWORD)(uintptr_t)a4,
+            d48,
+            d4C,
+            d50,
+            d54,
+            d58,
+            d5C,
+            SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0);
+    }
+    LogAbilityRedDecodedSnapshot("853E10");
+    hkApplyLocalIndependentPotentialPercentFullDisplay(reinterpret_cast<uintptr_t>(a4));
+    return result;
+}
+
+static LONG __fastcall hkLocalIndependentPotentialFlatBasicDisplayFunction(
+    DWORD *thisPtr,
+    void * /*edxUnused*/,
+    int pExceptionObject,
+    int a3)
+{
+    const LONG result = oLocalIndependentPotentialFlatBasicDisplayFn
+        ? oLocalIndependentPotentialFlatBasicDisplayFn(thisPtr, pExceptionObject, a3)
+        : 0;
+    static DWORD s_lastFlatBasicCallLogTick = 0;
+    const DWORD now = GetTickCount();
+    const int d08 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x08);
+    const int d0C = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x0C);
+    const int d10 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x10);
+    const int d14 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x14);
+    const int d20 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x20);
+    const int d24 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x24);
+    if (now - s_lastFlatBasicCallLogTick > 1000)
+    {
+        s_lastFlatBasicCallLogTick = now;
+        WriteLogFmt("[IndependentBuffLocalDisplayCall] 853B00 this=0x%08X exc=0x%08X a3=%d deltas=[%d,%d,%d,%d,%d,%d] active=%d",
+            (DWORD)(uintptr_t)thisPtr,
+            (DWORD)pExceptionObject,
+            a3,
+            d08,
+            d0C,
+            d10,
+            d14,
+            d20,
+            d24,
+            SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0);
+    }
+    LogAbilityRedDecodedSnapshot("853B00");
+    hkApplyLocalIndependentPotentialFlatBasicDisplay(reinterpret_cast<uintptr_t>(thisPtr));
+    return result;
+}
+
+static LONG __fastcall hkLocalIndependentPotentialFlatExtendedDisplayFunction(
+    DWORD *thisPtr,
+    void * /*edxUnused*/,
+    int pExceptionObject,
+    int a3)
+{
+    const LONG result = oLocalIndependentPotentialFlatExtendedDisplayFn
+        ? oLocalIndependentPotentialFlatExtendedDisplayFn(thisPtr, pExceptionObject, a3)
+        : 0;
+    static DWORD s_lastFlatExtendedCallLogTick = 0;
+    const DWORD now = GetTickCount();
+    const int d28 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x28);
+    const int d2C = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x2C);
+    const int d30 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x30);
+    const int d34 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x34);
+    const int d38 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x38);
+    const int d3C = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x3C);
+    const int d40 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x40);
+    const int d44 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x44);
+    const int dC8 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0xC8);
+    const int dCC = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0xCC);
+    const int dD0 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0xD0);
+    const int dD4 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0xD4);
+    if (now - s_lastFlatExtendedCallLogTick > 1000)
+    {
+        s_lastFlatExtendedCallLogTick = now;
+        WriteLogFmt("[IndependentBuffLocalDisplayCall] 856830 this=0x%08X exc=0x%08X a3=%d deltas=[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d] active=%d",
+            (DWORD)(uintptr_t)thisPtr,
+            (DWORD)pExceptionObject,
+            a3,
+            d28, d2C, d30, d34, d38, d3C, d40, d44, dC8, dCC, dD0, dD4,
+            SkillOverlayBridgeHasLocalIndependentPotentialBonuses() ? 1 : 0);
+    }
+    LogAbilityRedDecodedSnapshot("856830");
+    hkApplyLocalIndependentPotentialFlatExtendedDisplay(reinterpret_cast<uintptr_t>(thisPtr));
+    return result;
+}
+
+static void ApplyVirtualStatusBarBuffShift(uintptr_t statusBar, StatusBarObservedBuffSlot* slots, const char* reason)
+{
+    if (!statusBar || !slots)
+        return;
+
+    std::vector<IndependentBuffOverlayEntry> entries;
+    SkillOverlayBridgeGetIndependentBuffOverlayEntries(entries);
+    const int virtualCount = (int)entries.size();
+    if (virtualCount <= 0 || virtualCount >= 6)
+        return;
+
+    struct VisibleSlotRef
+    {
+        int slotIndex = 0;
+        int x = 0;
+        int y = 0;
+        int renderX = 0;
+        int renderY = 0;
+        int w = 0;
+        int h = 0;
+        uintptr_t child = 0;
+    };
+
+    std::vector<VisibleSlotRef> visibleSlots;
+    visibleSlots.reserve(6);
+    for (int i = 0; i < 6; ++i)
+    {
+        if (!slots[i].child || slots[i].w <= 0 || slots[i].h <= 0)
+            continue;
+
+        VisibleSlotRef slot = {};
+        slot.slotIndex = i;
+        slot.x = slots[i].x;
+        slot.y = slots[i].y;
+        slot.renderX = slots[i].renderX;
+        slot.renderY = slots[i].renderY;
+        slot.w = slots[i].w;
+        slot.h = slots[i].h;
+        slot.child = slots[i].child;
+        visibleSlots.push_back(slot);
+    }
+
+    if (visibleSlots.empty() || (int)visibleSlots.size() + virtualCount > 6)
+        return;
+
+    std::sort(visibleSlots.begin(), visibleSlots.end(),
+        [](const VisibleSlotRef& left, const VisibleSlotRef& right)
+        {
+            return left.slotIndex < right.slotIndex;
+        });
+
+    int stepX = 0;
+    int stepRenderX = 0;
+    for (size_t i = 1; i < visibleSlots.size(); ++i)
+    {
+        const int deltaIndex = visibleSlots[i].slotIndex - visibleSlots[i - 1].slotIndex;
+        const int deltaX = visibleSlots[i].x - visibleSlots[i - 1].x;
+        const int deltaRenderX = visibleSlots[i].renderX - visibleSlots[i - 1].renderX;
+        if (deltaIndex > 0 && deltaX > 0)
+        {
+            const int candidateX = deltaX / deltaIndex;
+            if (candidateX > 0 && (stepX == 0 || candidateX < stepX))
+                stepX = candidateX;
+        }
+        if (deltaIndex > 0 && deltaRenderX > 0)
+        {
+            const int candidateRenderX = deltaRenderX / deltaIndex;
+            if (candidateRenderX > 0 && (stepRenderX == 0 || candidateRenderX < stepRenderX))
+                stepRenderX = candidateRenderX;
+        }
+    }
+
+    if (stepX <= 0)
+        stepX = visibleSlots[0].w + 2;
+    if (stepX <= 0)
+        return;
+
+    if (stepRenderX <= 0)
+        stepRenderX = stepX;
+
+    const int baseX = visibleSlots[0].x - visibleSlots[0].slotIndex * stepX;
+    const int baseRenderX = visibleSlots[0].renderX - visibleSlots[0].slotIndex * stepRenderX;
+    const int baseY = visibleSlots[0].y;
+    const int baseRenderY = visibleSlots[0].renderY;
+
+    for (int order = (int)visibleSlots.size() - 1; order >= 0; --order)
+    {
+        const VisibleSlotRef& slot = visibleSlots[(size_t)order];
+        const uintptr_t child = slot.child;
+        if (!child || SafeIsBadReadPtr((void*)child, 0x4C))
+            continue;
+
+        const int targetIndex = order + virtualCount;
+        const int targetX = baseX + targetIndex * stepX;
+        const int targetRenderX = baseRenderX + targetIndex * stepRenderX;
+        if (slot.x == targetX && slot.renderX == targetRenderX)
+            continue;
+
+        CWnd_SetComPos(child, targetX, baseY);
+        CWnd_SetRenderPos(child, targetRenderX, baseRenderY);
+        WriteLogFmt("[StatusBarBuffSlotShift] reason=%s child=0x%08X fromSlot=%d toSlot=%d x=%d->%d renderX=%d->%d virtualCount=%d",
+            reason ? reason : "unknown",
+            (DWORD)child,
+            slot.slotIndex,
+            targetIndex,
+            slot.x,
+            targetX,
+            slot.renderX,
+            targetRenderX,
+            virtualCount);
+
+        slots[slot.slotIndex].x = targetX;
+        slots[slot.slotIndex].renderX = targetRenderX;
+        slots[slot.slotIndex].y = baseY;
+        slots[slot.slotIndex].renderY = baseRenderY;
+    }
+}
+
+static void ObserveStatusBarBuffSlots(uintptr_t statusBar, const char* reason)
+{
+    if (!statusBar || SafeIsBadReadPtr((void*)statusBar, 0xB30 + 4))
+        return;
+
+    SkillOverlayBridgeSetObservedStatusBarPtr(statusBar);
+
+    StatusBarObservedBuffSlot current[9] = {};
+    for (int i = 0; i < 9; ++i)
+    {
+        const uintptr_t slotAddr = statusBar + (i < 6 ? (0xAE8 + i * 8) : (0xB18 + (i - 6) * 8));
+        if (SafeIsBadReadPtr((void*)slotAddr, 4))
+            continue;
+
+        const uintptr_t wrapper = *(uintptr_t*)slotAddr;
+        current[i].wrapper = wrapper;
+        if (!wrapper || SafeIsBadReadPtr((void*)wrapper, 8))
+            continue;
+
+        const uintptr_t child = wrapper + 4;
+        current[i].child = child;
+        if (!child || SafeIsBadReadPtr((void*)child, 0x4C))
+            continue;
+
+        current[i].x = CWnd_GetX(child);
+        current[i].y = CWnd_GetY(child);
+        current[i].w = CWnd_GetWidth(child);
+        current[i].h = CWnd_GetHeight(child);
+        current[i].renderX = CWnd_GetRenderX(child);
+        current[i].renderY = CWnd_GetRenderY(child);
+    }
+
+    int activeVisibleCount = 0;
+    int firstVisibleX = -1;
+    for (int i = 0; i < 9; ++i)
+    {
+        const bool slotLooksVisible =
+            current[i].child &&
+            current[i].w >= 16 &&
+            current[i].h >= 16 &&
+            (current[i].x != 0 || current[i].y != 0 || current[i].renderX != 0 || current[i].renderY != 0);
+        if (slotLooksVisible)
+        {
+            ++activeVisibleCount;
+            if (firstVisibleX < 0 || current[i].x < firstVisibleX)
+                firstVisibleX = current[i].x;
+        }
+    }
+    if (activeVisibleCount > 0)
+        SkillOverlayBridgeSetObservedNativeVisibleBuffVisualCount(activeVisibleCount);
+    else
+        SkillOverlayBridgeSetObservedNativeVisibleBuffVisualCount(-1);
+    if (activeVisibleCount > 0 && firstVisibleX >= 0)
+        SkillOverlayBridgeSetObservedNativeVisibleBuffAnchorX(firstVisibleX);
+    else
+        SkillOverlayBridgeSetObservedNativeVisibleBuffAnchorX(-1);
+
+    static DWORD s_lastStatusBarBuffSummaryLogTick = 0;
+    const DWORD nowTick = GetTickCount();
+    if (nowTick - s_lastStatusBarBuffSummaryLogTick > 1000)
+    {
+        s_lastStatusBarBuffSummaryLogTick = nowTick;
+        unsigned int wrapperMask = 0;
+        unsigned int childMask = 0;
+        unsigned int visibleMask = 0;
+        for (int i = 0; i < 6; ++i)
+        {
+            if (current[i].wrapper)
+                wrapperMask |= (1u << i);
+            if (current[i].child)
+                childMask |= (1u << i);
+            if (current[i].child &&
+                current[i].w >= 16 &&
+                current[i].h >= 16 &&
+                (current[i].x != 0 || current[i].y != 0 || current[i].renderX != 0 || current[i].renderY != 0))
+                visibleMask |= (1u << i);
+        }
+        WriteLogFmt("[StatusBarBuffSlotSummary] reason=%s statusBar=0x%08X topWr=0x%02X topChild=0x%02X topVisible=0x%02X activeVisible=%d firstVisibleX=%d B30=0x%08X",
+            reason ? reason : "unknown",
+            (DWORD)statusBar,
+            wrapperMask,
+            childMask,
+            visibleMask,
+            activeVisibleCount,
+            firstVisibleX,
+            *(DWORD*)(statusBar + 0xB30));
+    }
+
+    bool changed = false;
+    for (int i = 0; i < 9; ++i)
+    {
+        const StatusBarObservedBuffSlot& prev = g_StatusBarObservedBuffSlots[i];
+        const StatusBarObservedBuffSlot& now = current[i];
+        if (prev.wrapper != now.wrapper ||
+            prev.child != now.child ||
+            prev.x != now.x || prev.y != now.y ||
+            prev.w != now.w || prev.h != now.h ||
+            prev.renderX != now.renderX || prev.renderY != now.renderY)
+        {
+            changed = true;
+            WriteLogFmt("[StatusBarBuffSlot] reason=%s slot=%d wrapper=0x%08X child=0x%08X rect=(%d,%d,%d,%d) render=(%d,%d)",
+                reason ? reason : "unknown",
+                i,
+                (DWORD)now.wrapper,
+                (DWORD)now.child,
+                now.x,
+                now.y,
+                now.w,
+                now.h,
+                now.renderX,
+                now.renderY);
+        }
+    }
+
+    if (changed)
+    {
+        for (int i = 0; i < 9; ++i)
+            g_StatusBarObservedBuffSlots[i] = current[i];
+    }
+
+    // Keep native buff icons in their original slots. Overlay icons render in a
+    // separate block on the left, so shifting native children here only scrambles
+    // the observed order during status-bar refreshes.
+}
+
+static void LogStatusBarHookSeen(const char* reason, uintptr_t thisPtr)
+{
+    static DWORD s_lastStatusBarHookSeenLogTick = 0;
+    const DWORD nowTick = GetTickCount();
+    if (nowTick - s_lastStatusBarHookSeenLogTick < 1000)
+        return;
+    s_lastStatusBarHookSeenLogTick = nowTick;
+    WriteLogFmt("[StatusBarHookSeen] reason=%s this=0x%08X readable=%d",
+        reason ? reason : "unknown",
+        (DWORD)thisPtr,
+        (!thisPtr || SafeIsBadReadPtr((void*)thisPtr, 0xB30 + 4)) ? 0 : 1);
+}
+
+static void __cdecl hkStatusBarRefreshSlotsPrimaryHandler(uintptr_t thisPtr)
+{
+    LogStatusBarHookSeen("9F4F00", thisPtr);
+    SkillOverlayBridgeSetObservedStatusBarPtr(thisPtr);
+    if (oStatusBarRefreshSlotsPrimary)
+        oStatusBarRefreshSlotsPrimary(thisPtr);
+    ObserveStatusBarBuffSlots(thisPtr, "9F4F00");
+}
+
+static void __cdecl hkStatusBarRefreshSlotsSecondaryHandler(uintptr_t thisPtr)
+{
+    LogStatusBarHookSeen("9F4C30", thisPtr);
+    SkillOverlayBridgeSetObservedStatusBarPtr(thisPtr);
+    if (oStatusBarRefreshSlotsSecondary)
+        oStatusBarRefreshSlotsSecondary(thisPtr);
+    ObserveStatusBarBuffSlots(thisPtr, "9F4C30");
+}
+
+static void __cdecl hkStatusBarRefreshInternalHandler(uintptr_t thisPtr)
+{
+    LogStatusBarHookSeen("9F5FE0", thisPtr);
+    SkillOverlayBridgeSetObservedStatusBarPtr(thisPtr);
+    if (oStatusBarRefreshInternal)
+        oStatusBarRefreshInternal(thisPtr);
+    ObserveStatusBarBuffSlots(thisPtr, "9F5FE0");
+}
+
+static void __cdecl hkStatusBarCleanupTransientHandler(uintptr_t thisPtr)
+{
+    LogStatusBarHookSeen("9FCAE0", thisPtr);
+    SkillOverlayBridgeSetObservedStatusBarPtr(thisPtr);
+    if (oStatusBarCleanupTransient)
+        oStatusBarCleanupTransient(thisPtr);
+    ObserveStatusBarBuffSlots(thisPtr, "9FCAE0");
+}
+
+static void LogStatusBarTransientState(uintptr_t thisPtr, const char* reason, int extra)
+{
+    if (!thisPtr || SafeIsBadReadPtr((void*)thisPtr, 0xB70))
+        return;
+
+    const DWORD slotAD8 = *(DWORD*)(thisPtr + 0xAD8);
+    const DWORD ptrB2C0 = *(DWORD*)(thisPtr + 0xB2C);
+    const DWORD ptrB2C4 = *(DWORD*)(thisPtr + 0xB30);
+    const DWORD ptrB20 = *(DWORD*)(thisPtr + 0xB20);
+    const DWORD ptrB24 = *(DWORD*)(thisPtr + 0xB24);
+    const DWORD ptrB28 = *(DWORD*)(thisPtr + 0xB28);
+    const DWORD ptrB5C = *(DWORD*)(thisPtr + 0xB5C);
+
+    int childX = 0, childY = 0, childW = 0, childH = 0, childRenderX = 0, childRenderY = 0;
+    if (ptrB2C4 && !SafeIsBadReadPtr((void*)ptrB2C4, 0x4C))
+    {
+        childX = CWnd_GetX(ptrB2C4);
+        childY = CWnd_GetY(ptrB2C4);
+        childW = CWnd_GetWidth(ptrB2C4);
+        childH = CWnd_GetHeight(ptrB2C4);
+        childRenderX = CWnd_GetRenderX(ptrB2C4);
+        childRenderY = CWnd_GetRenderY(ptrB2C4);
+    }
+
+    WriteLogFmt(
+        "[StatusBarTransient] %s this=0x%08X extra=%d AD8=%u B20=0x%08X B24=0x%08X B28=0x%08X B2C=0x%08X B30=0x%08X B5C=0x%08X childRect=(%d,%d,%d,%d) render=(%d,%d)",
+        reason ? reason : "unknown",
+        (DWORD)thisPtr,
+        extra,
+        slotAD8,
+        ptrB20,
+        ptrB24,
+        ptrB28,
+        ptrB2C0,
+        ptrB2C4,
+        ptrB5C,
+        childX,
+        childY,
+        childW,
+        childH,
+        childRenderX,
+        childRenderY);
+}
+
+static int __cdecl hkStatusBarTransientRefreshHandler(uintptr_t thisPtr, int a2)
+{
+    LogStatusBarHookSeen("9FC110", thisPtr);
+    SkillOverlayBridgeSetObservedStatusBarPtr(thisPtr);
+    const int result = oStatusBarTransientRefresh ? oStatusBarTransientRefresh(thisPtr, a2) : 0;
+    LogStatusBarTransientState(thisPtr, "9FC110", result);
+    ObserveStatusBarBuffSlots(thisPtr, "9FC110");
+    return result;
+}
+
+static void __cdecl hkStatusBarTransientDispatchHandler(uintptr_t thisPtr, int a2)
+{
+    LogStatusBarHookSeen("9FCC10", thisPtr);
+    SkillOverlayBridgeSetObservedStatusBarPtr(thisPtr);
+    if (oStatusBarTransientDispatch)
+        oStatusBarTransientDispatch(thisPtr, a2);
+    LogStatusBarTransientState(thisPtr, "9FCC10", a2);
+    ObserveStatusBarBuffSlots(thisPtr, "9FCC10");
+}
+
+static LONG* __cdecl hkStatusBarTransientToggleHandler(int a1)
+{
+    LONG* result = oStatusBarTransientToggle ? oStatusBarTransientToggle(a1) : nullptr;
+    DWORD statusBar = 0;
+    if (!SafeIsBadReadPtr((void*)ADDR_StatusBar, 4))
+        statusBar = *(DWORD*)ADDR_StatusBar;
+    if (statusBar)
+    {
+        LogStatusBarHookSeen("9FCBD0", statusBar);
+        SkillOverlayBridgeSetObservedStatusBarPtr(statusBar);
+        LogStatusBarTransientState(statusBar, "9FCBD0", a1);
+        ObserveStatusBarBuffSlots(statusBar, "9FCBD0");
+    }
+    return result;
+}
+
+__declspec(naked) static void hkStatusBarRefreshSlotsPrimaryNaked()
+{
+    __asm {
+        push ecx
+        call hkStatusBarRefreshSlotsPrimaryHandler
+        add esp, 4
+        ret
+    }
+}
+
+__declspec(naked) static void hkStatusBarRefreshSlotsSecondaryNaked()
+{
+    __asm {
+        push ecx
+        call hkStatusBarRefreshSlotsSecondaryHandler
+        add esp, 4
+        ret
+    }
+}
+
+__declspec(naked) static void hkStatusBarRefreshInternalNaked()
+{
+    __asm {
+        push ecx
+        call hkStatusBarRefreshInternalHandler
+        add esp, 4
+        ret
+    }
+}
+
+__declspec(naked) static void hkStatusBarCleanupTransientNaked()
+{
+    __asm {
+        push ecx
+        call hkStatusBarCleanupTransientHandler
+        add esp, 4
+        ret
+    }
+}
+
+__declspec(naked) static void hkStatusBarTransientRefreshNaked()
+{
+    __asm {
+        mov eax, [esp + 4]
+        push eax
+        push ecx
+        call hkStatusBarTransientRefreshHandler
+        add esp, 8
+        ret 4
+    }
+}
+
+__declspec(naked) static void hkStatusBarTransientDispatchNaked()
+{
+    __asm {
+        mov eax, [esp + 4]
+        push eax
+        push ecx
+        call hkStatusBarTransientDispatchHandler
+        add esp, 8
+        ret 4
+    }
+}
+
+__declspec(naked) static void hkStatusBarTransientToggleNaked()
+{
+    __asm {
+        mov eax, [esp + 4]
+        push eax
+        call hkStatusBarTransientToggleHandler
+        add esp, 4
+        ret 4
+    }
+}
+
+static bool PatchBytesIfExpected(DWORD address, const BYTE *expected, const BYTE *patch, size_t length, const char *label)
+{
+    if (!address || !expected || !patch || !length)
+        return false;
+
+    BYTE *target = (BYTE *)(uintptr_t)address;
+    for (size_t i = 0; i < length; ++i)
+    {
+        if (target[i] != expected[i])
+        {
+            WriteLogFmt("[RuntimePatch] skip %s at 0x%08X: byte[%u]=0x%02X expected=0x%02X",
+                        label ? label : "unknown",
+                        address,
+                        (unsigned int)i,
+                        (unsigned int)target[i],
+                        (unsigned int)expected[i]);
+            return false;
+        }
+    }
+
+    DWORD oldProtect = 0;
+    if (!VirtualProtect(target, length, PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        WriteLogFmt("[RuntimePatch] FAIL %s at 0x%08X: VirtualProtect", label ? label : "unknown", address);
+        return false;
+    }
+
+    for (size_t i = 0; i < length; ++i)
+        target[i] = patch[i];
+
+    VirtualProtect(target, length, oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), target, length);
+    WriteLogFmt("[RuntimePatch] OK %s at 0x%08X len=%u",
+                label ? label : "unknown",
+                address,
+                (unsigned int)length);
+    return true;
+}
+
+static bool PatchNopsIfExpected(DWORD address, const BYTE *expected, size_t length, const char *label)
+{
+    BYTE nops[16] = {};
+    if (length > sizeof(nops))
+        return false;
+
+    for (size_t i = 0; i < length; ++i)
+        nops[i] = 0x90;
+
+    return PatchBytesIfExpected(address, expected, nops, length, label);
+}
+
+static bool ApplyMountMovementCapPatches()
+{
+    bool ok = false;
+
+    // Keep the lower bound (100) intact, but remove the final upper clamp.
+    static const BYTE kSpeedUpperClamp[] = {0x3B, 0xD7, 0x7C, 0x02, 0x8B, 0xD7};
+    if (PatchNopsIfExpected(ADDR_858D30, kSpeedUpperClamp, sizeof(kSpeedUpperClamp), "movement speed upper cap"))
+        ok = true;
+
+    static const BYTE kJumpUpperCompare[] = {0x83, 0xF8, 0x7B};
+    if (PatchNopsIfExpected(ADDR_858D49, kJumpUpperCompare, sizeof(kJumpUpperCompare), "movement jump cap cmp"))
+        ok = true;
+
+    static const BYTE kJumpUpperClamp[] = {0x7C, 0x05, 0xBA, 0x7B, 0x00, 0x00, 0x00};
+    if (PatchNopsIfExpected(ADDR_858D4E, kJumpUpperClamp, sizeof(kJumpUpperClamp), "movement jump upper cap"))
+        ok = true;
+
+    return ok;
+}
+
+static void __cdecl hkSendPacketInspect(void **packetDataSlot, int *packetLenSlot, uintptr_t callerRetAddr)
+{
+    SkillOverlayBridgeInspectOutgoingPacketMutable(packetDataSlot, packetLenSlot, callerRetAddr);
 }
 
 __declspec(naked) static void hkSendPacketNaked()
@@ -1855,10 +5882,10 @@ __declspec(naked) static void hkSendPacketNaked()
     __asm {
         pushad
         mov edx, [esp + 32]
-        mov eax, [esp + 40]
-        mov ecx, [esp + 36]
         push edx
+        lea eax, [esp + 44]
         push eax
+        lea ecx, [esp + 44]
         push ecx
         call hkSendPacketInspect
         add esp, 12
@@ -1917,6 +5944,112 @@ static bool MatchesRecvPacketDirectPrologue(const BYTE *code)
            code[6] == 0x83 && code[7] == 0xF9 && code[8] == 0x0A;
 }
 
+static void __cdecl hkLocalIndependentPotentialFlatStatsPrepare(uintptr_t sourcePtr)
+{
+    // 853B49 / 853E5A / 856879 feed the main ability display objects.
+    // If we substitute a boosted buffer here, the client bakes the delta into
+    // the primary shown value instead of keeping it as a red bonus delta.
+    g_LocalIndependentPotentialPreparedPtr = sourcePtr;
+}
+
+__declspec(naked) static void hkLocalIndependentPotentialFlatStatsNaked()
+{
+    __asm {
+        test eax, eax
+        je no_source
+        mov edi, [esp + 0x2C]
+        imul edi, edi, 0xF0
+        add edi, [eax + 0x18]
+        jmp push_prepare
+no_source:
+        xor edi, edi
+push_prepare:
+        pushad
+        push edi
+        call hkLocalIndependentPotentialFlatStatsPrepare
+        add esp, 4
+        popad
+        mov edi, dword ptr [g_LocalIndependentPotentialPreparedPtr]
+        test edi, edi
+        jne continue_nonzero
+        jmp dword ptr [g_LocalIndependentPotentialContinueZero]
+continue_nonzero:
+        jmp dword ptr [g_LocalIndependentPotentialContinueNonZero]
+    }
+}
+
+__declspec(naked) static void hkLocalIndependentPotentialPrimaryFlatStatsNaked()
+{
+    __asm {
+        test eax, eax
+        je no_source
+        mov edi, [esp + 0x2C]
+        mov edx, [esi + 0x28]
+        imul edi, edi, 0xF0
+        add edi, [eax + 0x18]
+        jmp push_prepare
+no_source:
+        xor edi, edi
+push_prepare:
+        pushad
+        push edi
+        call hkLocalIndependentPotentialFlatStatsPrepare
+        add esp, 4
+        popad
+        mov edi, dword ptr [g_LocalIndependentPotentialPreparedPtr]
+        test edi, edi
+        jne prepared_nonzero
+        test eax, eax
+        jne original_nonzero
+        jmp dword ptr [g_LocalIndependentPotentialPrimaryContinueZero]
+original_nonzero:
+        mov edi, [esp + 0x2C]
+        mov edx, [esi + 0x28]
+        imul edi, edi, 0xF0
+        add edi, [eax + 0x18]
+        jmp dword ptr [g_LocalIndependentPotentialPrimaryContinueNonZero]
+prepared_nonzero:
+        mov edx, [esi + 0x28]
+        jmp dword ptr [g_LocalIndependentPotentialPrimaryContinueNonZero]
+    }
+}
+
+__declspec(naked) static void hkLocalIndependentPotentialPrimaryPercentStatsNaked()
+{
+    __asm {
+        test ebp, ebp
+        je no_source
+        mov esi, [esp + 0x30]
+        mov ecx, [esp + 0x34]
+        imul esi, esi, 0xF0
+        add esi, [ebp + 0x18]
+        jmp push_prepare
+no_source:
+        xor esi, esi
+push_prepare:
+        pushad
+        push esi
+        call hkLocalIndependentPotentialFlatStatsPrepare
+        add esp, 4
+        popad
+        mov esi, dword ptr [g_LocalIndependentPotentialPreparedPtr]
+        test esi, esi
+        jne prepared_nonzero
+        test ebp, ebp
+        jne original_nonzero
+        jmp dword ptr [g_LocalIndependentPotentialPrimaryPercentContinueZero]
+original_nonzero:
+        mov esi, [esp + 0x30]
+        mov ecx, [esp + 0x34]
+        imul esi, esi, 0xF0
+        add esi, [ebp + 0x18]
+        jmp dword ptr [g_LocalIndependentPotentialPrimaryPercentContinueNonZero]
+prepared_nonzero:
+        mov ecx, [esp + 0x34]
+        jmp dword ptr [g_LocalIndependentPotentialPrimaryPercentContinueNonZero]
+    }
+}
+
 static BYTE *TryFollowAbsoluteRegisterJumpStub(BYTE *code)
 {
     if (!code)
@@ -1935,6 +6068,147 @@ static BYTE *TryFollowAbsoluteRegisterJumpStub(BYTE *code)
         return nullptr;
 
     return FollowJmpChain((void *)(uintptr_t)target);
+}
+
+static uintptr_t TryExtractPotentialIncreaseAddressFromRecvStub(BYTE* stubTarget)
+{
+    if (!stubTarget)
+        return 0;
+
+    for (size_t i = 0; i + 10 < 0x200; ++i)
+    {
+        BYTE* p = stubTarget + i;
+        if (p[0] == 0x6B && p[1] == 0xC0 && p[2] == 0x04 &&
+            p[3] == 0x05 && p[8] == 0x89 && p[9] == 0x08)
+        {
+            return *(DWORD*)(p + 4);
+        }
+    }
+
+    return 0;
+}
+
+static bool PatchExternalPotentialIncreaseStub(BYTE* stubTarget)
+{
+    if (!stubTarget || !g_ExternalPotentialIncreaseAddressRuntime)
+        return false;
+
+    BYTE* writeSite = nullptr;
+    BYTE* clearSite = nullptr;
+
+    for (size_t i = 0; i + 5 < 0x200; ++i)
+    {
+        BYTE* p = stubTarget + i;
+        if (!writeSite &&
+            p[0] == 0x89 && p[1] == 0x08 &&
+            p[2] == 0x90 &&
+            p[3] == 0xEB)
+        {
+            writeSite = p;
+        }
+
+        if (!clearSite &&
+            p[0] == 0xBF &&
+            *(DWORD*)(p + 1) == (DWORD)g_ExternalPotentialIncreaseAddressRuntime &&
+            p[5] == 0x31 && p[6] == 0xC0 &&
+            p[7] == 0xB9 && *(DWORD*)(p + 8) == 0x128 &&
+            p[12] == 0xC1 && p[13] == 0xE9 && p[14] == 0x02 &&
+            p[15] == 0xF3 && p[16] == 0xAB)
+        {
+            clearSite = p;
+        }
+
+        if (writeSite && clearSite)
+            break;
+    }
+
+    if (!writeSite)
+    {
+        WriteLog("[PacketHook] external potential write site not found");
+        return false;
+    }
+
+    if (!clearSite)
+    {
+        WriteLog("[PacketHook] external potential clear site not found");
+        return false;
+    }
+
+    g_ExternalPotentialWriteContinue = (DWORD)(uintptr_t)(writeSite + 5);
+    g_ExternalPotentialWriteLoopTarget = (DWORD)(uintptr_t)(writeSite + 5 + (signed char)writeSite[4]);
+    g_ExternalPotentialClearContinue = (DWORD)(uintptr_t)(clearSite + 17);
+
+    DWORD oldProtect = 0;
+    if (!VirtualProtect(writeSite, 5, PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        WriteLog("[PacketHook] external potential write patch protect failed");
+        return false;
+    }
+    writeSite[0] = 0xE9;
+    *(int*)(writeSite + 1) = (int)((uintptr_t)hkExternalPotentialWriteNaked - (uintptr_t)writeSite - 5);
+    VirtualProtect(writeSite, 5, oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), writeSite, 5);
+    oExternalPotentialWritePatch = writeSite;
+
+    if (!VirtualProtect(clearSite, 17, PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        WriteLog("[PacketHook] external potential clear patch protect failed");
+        return false;
+    }
+    clearSite[0] = 0xE9;
+    *(int*)(clearSite + 1) = (int)((uintptr_t)hkExternalPotentialClearNaked - (uintptr_t)clearSite - 5);
+    for (int i = 5; i < 17; ++i)
+        clearSite[i] = 0x90;
+    VirtualProtect(clearSite, 17, oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), clearSite, 17);
+    oExternalPotentialClearPatch = clearSite;
+
+    WriteLogFmt("[PacketHook] external potential stub patched write=0x%08X loop=0x%08X clear=0x%08X continue=0x%08X",
+        (DWORD)(uintptr_t)writeSite,
+        g_ExternalPotentialWriteLoopTarget,
+        (DWORD)(uintptr_t)clearSite,
+        g_ExternalPotentialClearContinue);
+    return true;
+}
+
+static void __cdecl hkExternalPotentialWriteApplied(uintptr_t writeAddress, int baseValue)
+{
+    SkillOverlayBridgeApplyPotentialBaseValue(writeAddress, baseValue);
+}
+
+static void __cdecl hkExternalPotentialClearApplied()
+{
+    SkillOverlayBridgeClearPotentialBaseValues();
+}
+
+__declspec(naked) static void hkExternalPotentialWriteNaked()
+{
+    __asm {
+        mov dword ptr [eax], ecx
+        pushad
+        push ecx
+        push eax
+        call hkExternalPotentialWriteApplied
+        add esp, 8
+        popad
+        jmp dword ptr [g_ExternalPotentialWriteLoopTarget]
+    }
+}
+
+__declspec(naked) static void hkExternalPotentialClearNaked()
+{
+    __asm {
+        mov edi, dword ptr [g_ExternalPotentialIncreaseAddressRuntime]
+        xor eax, eax
+        mov ecx, 0x128
+        shr ecx, 2
+        rep stosd
+        pushad
+        call hkExternalPotentialClearApplied
+        add esp, 0
+        popad
+        jmp dword ptr [g_ExternalPotentialClearContinue]
+    }
 }
 
 static void __cdecl hkSkillReleaseClassifierDispatch(int skillId)
@@ -3131,8 +7405,9 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9 *pDevice,
 
     if (ENABLE_IMGUI_OVERLAY_PANEL)
     {
-        const bool overlayUiReady = g_Ready && g_SkillWndThis && g_NativeBtnCreated;
-        if (overlayUiReady && !SuperImGuiOverlayIsInitialized() && g_GameHwnd && pDevice)
+        const bool hasIndependentBuffOverlay = SkillOverlayBridgeHasIndependentBuffOverlayEntries();
+        const bool overlayRuntimeReady = (g_Ready || hasIndependentBuffOverlay) && g_GameHwnd && pDevice;
+        if (overlayRuntimeReady && !SuperImGuiOverlayIsInitialized() && g_GameHwnd && pDevice)
         {
             if (!SuperImGuiOverlayEnsureInitialized(g_GameHwnd, pDevice, 1.0f, IMGUI_PANEL_ASSET_PATH))
             {
@@ -3156,7 +7431,7 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9 *pDevice,
             SuperImGuiOverlaySetSuperButtonRect(hasSuperBtnRect ? &superBtnRect : nullptr);
         }
 
-        if (overlayUiReady && SuperImGuiOverlayIsInitialized())
+        if (overlayRuntimeReady && SuperImGuiOverlayIsInitialized())
         {
             if (g_SuperExpanded)
                 UpdateSuperCWnd();
@@ -3179,8 +7454,9 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9 *pDevice,
             RefreshGameCursorImmediately();
         }
         g_LastOverlaySuppressMouse = suppressMouse;
-
-        return fnOrigPresent ? fnOrigPresent(pDevice, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion) : D3D_OK;
+        HRESULT presentHr = fnOrigPresent ? fnOrigPresent(pDevice, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion) : D3D_OK;
+        SkillOverlayBridgeBeginFrameObservation();
+        return presentHr;
     }
 
     // 每帧刷新扩展层锚点（真正绘制在 sub_9DEE30 里做）
@@ -3240,7 +7516,9 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9 *pDevice,
         s_prevLBtnDown = isDown;
     }
 
-    return fnOrigPresent ? fnOrigPresent(pDevice, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion) : D3D_OK;
+    HRESULT presentHr = fnOrigPresent ? fnOrigPresent(pDevice, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion) : D3D_OK;
+    SkillOverlayBridgeBeginFrameObservation();
+    return presentHr;
 }
 
 // ============================================================================
@@ -3556,7 +7834,11 @@ static HRESULT __stdcall hkD3D8Present(void *pDevice8,
         d3d8Stage = "overlay_present";
         if (ENABLE_IMGUI_OVERLAY_PANEL)
         {
-            const bool overlayActivationReady = g_Ready && g_SkillWndThis && g_NativeBtnCreated;
+            const bool hasIndependentBuffOverlay = SkillOverlayBridgeHasIndependentBuffOverlayEntries();
+            const bool overlayActivationReady =
+                (g_Ready || hasIndependentBuffOverlay) &&
+                g_D3D8GameHwnd &&
+                pDevice8;
 
             d3d8Stage = "ensure_d3d8_textures";
             if (g_Ready && g_NativeBtnCreated)
@@ -3639,6 +7921,7 @@ static HRESULT __stdcall hkD3D8Present(void *pDevice8,
                     GetExceptionCode());
         hr = D3D_OK;
     }
+    SkillOverlayBridgeBeginFrameObservation();
     return hr;
 }
 
@@ -3960,6 +8243,15 @@ static bool SetupPacketHook()
             WriteLogFmt("[PacketHook] recv external stub detected entry=0x%08X -> target=0x%08X",
                         (DWORD)(uintptr_t)pRecvEntry,
                         (DWORD)(uintptr_t)pRecvTarget);
+            const uintptr_t potentialIncreaseAddress = TryExtractPotentialIncreaseAddressFromRecvStub(pRecvStubTarget);
+            if (potentialIncreaseAddress)
+            {
+                g_ExternalPotentialIncreaseAddressRuntime = potentialIncreaseAddress;
+                SkillOverlayBridgeSetPotentialIncreaseAddress(potentialIncreaseAddress);
+                WriteLogFmt("[PacketHook] recv external stub potentialIncrease=0x%08X",
+                            (DWORD)potentialIncreaseAddress);
+                PatchExternalPotentialIncreaseStub(pRecvStubTarget);
+            }
         }
     }
 
@@ -4032,8 +8324,1838 @@ static bool SetupPacketHook()
         }
     }
 
+    bool localHookAnyOk = false;
+    if (SetupLocalIndependentPotentialPrimaryFlatStatHook())
+        localHookAnyOk = true;
+    if (SetupLocalIndependentPotentialPrimaryPercentStatHook())
+        localHookAnyOk = true;
+    if (SetupLocalIndependentPotentialFlatStatHook())
+        localHookAnyOk = true;
+    if (SetupLocalIndependentPotentialDisplayFunctionHooks())
+        localHookAnyOk = true;
+    if (SetupAbilityRedHashContainerHooks())
+        localHookAnyOk = true;
+    if (SetupAbilityRedExtendedAggregateHook())
+        localHookAnyOk = true;
+    if (SetupAbilityRedMasterAggregateHook())
+        localHookAnyOk = true;
+    if (SetupAbilityRedSiblingCalcHooks())
+        localHookAnyOk = true;
+    if (SetupAbilityRedDiff84C470PreSubHook())
+        localHookAnyOk = true;
+    if (SetupAbilityRedAdditionalDiffHooks())
+        localHookAnyOk = true;
+    if (SetupAbilityRedPositiveStyleHooks())
+        localHookAnyOk = true;
+    if (SetupAbilityRedBakeWriteHooks())
+        localHookAnyOk = true;
+    if (SetupAbilityRedBake198Hooks())
+        localHookAnyOk = true;
+    if (SetupAbilityRedFinalValueHooks())
+        localHookAnyOk = true;
+    if (SetupAbilityRedDisplayCandidateHook())
+        localHookAnyOk = true;
+    if (SetupAbilityRedDisplayCallsiteHook())
+        localHookAnyOk = true;
+    if (SetupAbilityRedLevelReadHook())
+        localHookAnyOk = true;
+    if (SetupAbilityRedSkillWriteHooks())
+        localHookAnyOk = true;
+
+    WriteLogFmt("[IndependentBuffLocal] local read-point hooks active=%d mode=recv_plus_readpoint",
+        localHookAnyOk ? 1 : 0);
+    if (!SetupPotentialTextDisplayHook())
+        WriteLog("[PotentialTextHook] display text hook install failed");
+    if (!SetupSurfaceDrawImageObservationHook())
+        WriteLog("[ObservedSceneFade] surface draw observation hook install failed");
+    if (!SetupNativeCursorStateHook())
+        WriteLog("[ObservedCursorState] 5F3EC0 hook install failed");
+
     SkillOverlayBridgeSetResetPreviewReceiveHookReady(sendHookOk && recvHookOk);
+    if (!SetupStatusBarBuffSlotHooks())
+        WriteLog("[StatusBarBuffSlot] slot refresh hook install failed");
     return sendHookOk && recvHookOk;
+}
+
+static bool SetupStatusBarBuffSlotHooks()
+{
+    if (g_StatusBarBuffSlotHooksInstalled)
+        return true;
+
+    bool ok = false;
+
+    auto calcSafeCopyLen = [](BYTE* target) -> int
+    {
+        if (!target)
+            return 0;
+        int copyLen = CalcMinCopyLen(target);
+        if (copyLen < 5)
+            copyLen = 5;
+        return copyLen;
+    };
+
+    BYTE* pPrimary = FollowJmpChain((void*)ADDR_StatusBarRefreshSlotsPrimary);
+    if (pPrimary)
+    {
+        const int copyLen = calcSafeCopyLen(pPrimary);
+        oStatusBarRefreshSlotsPrimary = (tStatusBarInternalRefreshFn)GenericInlineHook5(
+            pPrimary,
+            (void*)hkStatusBarRefreshSlotsPrimaryNaked,
+            copyLen);
+        if (oStatusBarRefreshSlotsPrimary)
+        {
+            WriteLogFmt("[StatusBarBuffSlot] primary hook OK entry=0x%08X tramp=0x%08X copyLen=%d",
+                (DWORD)(uintptr_t)pPrimary,
+                (DWORD)(uintptr_t)oStatusBarRefreshSlotsPrimary,
+                copyLen);
+            ok = true;
+        }
+        else
+        {
+            WriteLog("[StatusBarBuffSlot] primary hook failed");
+        }
+    }
+
+    BYTE* pSecondary = FollowJmpChain((void*)ADDR_StatusBarRefreshSlotsSecondary);
+    if (pSecondary)
+    {
+        const int copyLen = calcSafeCopyLen(pSecondary);
+        oStatusBarRefreshSlotsSecondary = (tStatusBarInternalRefreshFn)GenericInlineHook5(
+            pSecondary,
+            (void*)hkStatusBarRefreshSlotsSecondaryNaked,
+            copyLen);
+        if (oStatusBarRefreshSlotsSecondary)
+        {
+            WriteLogFmt("[StatusBarBuffSlot] secondary hook OK entry=0x%08X tramp=0x%08X copyLen=%d",
+                (DWORD)(uintptr_t)pSecondary,
+                (DWORD)(uintptr_t)oStatusBarRefreshSlotsSecondary,
+                copyLen);
+            ok = true;
+        }
+        else
+        {
+            WriteLog("[StatusBarBuffSlot] secondary hook failed");
+        }
+    }
+
+    // 9F5FE0 begins with a relative CALL within the first copied bytes:
+    //   push esi / mov esi, ecx / call 9F4F00
+    // Current GenericInlineHook5 trampolines are raw memcpy and do not relocate
+    // rel32 call targets, so hooking 9F5FE0 directly corrupts the trampoline.
+    // We already observe the real fixed-slot refresh through 9F4F00/9F4C30, so
+    // disable this risky aggregate-entry hook instead of crashing on repeated use.
+    WriteLog("[StatusBarBuffSlot] internal hook disabled: 9F5FE0 rel32 call trampoline unsafe");
+
+    BYTE* pCleanup = FollowJmpChain((void*)ADDR_StatusBarCleanupTransient);
+    if (pCleanup)
+    {
+        const int copyLen = calcSafeCopyLen(pCleanup);
+        oStatusBarCleanupTransient = (tStatusBarInternalRefreshFn)GenericInlineHook5(
+            pCleanup,
+            (void*)hkStatusBarCleanupTransientNaked,
+            copyLen);
+        if (oStatusBarCleanupTransient)
+        {
+            WriteLogFmt("[StatusBarBuffSlot] cleanup hook OK entry=0x%08X tramp=0x%08X copyLen=%d",
+                (DWORD)(uintptr_t)pCleanup,
+                (DWORD)(uintptr_t)oStatusBarCleanupTransient,
+                copyLen);
+            ok = true;
+        }
+        else
+        {
+            WriteLog("[StatusBarBuffSlot] cleanup hook failed");
+        }
+    }
+
+    BYTE* pTransientRefresh = FollowJmpChain((void*)0x009FC110);
+    if (pTransientRefresh)
+    {
+        const int copyLen = calcSafeCopyLen(pTransientRefresh);
+        oStatusBarTransientRefresh = (tStatusBarTransientRefreshFn)GenericInlineHook5(
+            pTransientRefresh,
+            (void*)hkStatusBarTransientRefreshNaked,
+            copyLen);
+        if (oStatusBarTransientRefresh)
+        {
+            WriteLogFmt("[StatusBarBuffSlot] transient refresh hook OK entry=0x%08X tramp=0x%08X copyLen=%d",
+                (DWORD)(uintptr_t)pTransientRefresh,
+                (DWORD)(uintptr_t)oStatusBarTransientRefresh,
+                copyLen);
+            ok = true;
+        }
+        else
+        {
+            WriteLog("[StatusBarBuffSlot] transient refresh hook failed");
+        }
+    }
+
+    BYTE* pTransientDispatch = FollowJmpChain((void*)0x009FCC10);
+    if (pTransientDispatch)
+    {
+        const int copyLen = calcSafeCopyLen(pTransientDispatch);
+        oStatusBarTransientDispatch = (tStatusBarTransientDispatchFn)GenericInlineHook5(
+            pTransientDispatch,
+            (void*)hkStatusBarTransientDispatchNaked,
+            copyLen);
+        if (oStatusBarTransientDispatch)
+        {
+            WriteLogFmt("[StatusBarBuffSlot] transient dispatch hook OK entry=0x%08X tramp=0x%08X copyLen=%d",
+                (DWORD)(uintptr_t)pTransientDispatch,
+                (DWORD)(uintptr_t)oStatusBarTransientDispatch,
+                copyLen);
+            ok = true;
+        }
+        else
+        {
+            WriteLog("[StatusBarBuffSlot] transient dispatch hook failed");
+        }
+    }
+
+    BYTE* pTransientToggle = FollowJmpChain((void*)0x009FCBD0);
+    if (pTransientToggle)
+    {
+        const int copyLen = calcSafeCopyLen(pTransientToggle);
+        oStatusBarTransientToggle = (tStatusBarTransientToggleFn)GenericInlineHook5(
+            pTransientToggle,
+            (void*)hkStatusBarTransientToggleNaked,
+            copyLen);
+        if (oStatusBarTransientToggle)
+        {
+            WriteLogFmt("[StatusBarBuffSlot] transient toggle hook OK entry=0x%08X tramp=0x%08X copyLen=%d",
+                (DWORD)(uintptr_t)pTransientToggle,
+                (DWORD)(uintptr_t)oStatusBarTransientToggle,
+                copyLen);
+            ok = true;
+        }
+        else
+        {
+            WriteLog("[StatusBarBuffSlot] transient toggle hook failed");
+        }
+    }
+
+    g_StatusBarBuffSlotHooksInstalled = ok;
+    return ok;
+}
+
+static bool SetupSurfaceDrawImageObservationHook()
+{
+    if (oSurfaceDrawImageFn)
+        return true;
+
+    BYTE *pTarget = FollowJmpChain((void *)ADDR_401C90);
+    if (!pTarget)
+    {
+        WriteLog("[ObservedSceneFade] 401C90 target missing");
+        return false;
+    }
+
+    int copyLen = CalcMinCopyLen(pTarget);
+    if (copyLen < 5)
+        copyLen = 5;
+
+    oSurfaceDrawImageFn = (tSurfaceDrawImageFn)GenericInlineHook5(
+        pTarget,
+        (void *)hkSurfaceDrawImage,
+        copyLen);
+    if (!oSurfaceDrawImageFn)
+    {
+        WriteLog("[ObservedSceneFade] 401C90 hook failed");
+        return false;
+    }
+
+    WriteLogFmt("[ObservedSceneFade] 401C90 hook OK entry=0x%08X tramp=0x%08X copyLen=%d",
+        (DWORD)(uintptr_t)pTarget,
+        (DWORD)(uintptr_t)oSurfaceDrawImageFn,
+        copyLen);
+    return true;
+}
+
+static bool SetupNativeCursorStateHook()
+{
+    if (oNativeCursorStateSetFn)
+        return true;
+
+    BYTE* pTarget = FollowJmpChain((void*)ADDR_5F3EC0);
+    if (!pTarget)
+    {
+        WriteLog("[ObservedCursorState] 5F3EC0 target missing");
+        return false;
+    }
+
+    int copyLen = CalcMinCopyLen(pTarget);
+    if (copyLen < 5)
+        copyLen = 5;
+
+    oNativeCursorStateSetFn = (tNativeCursorStateSetFn)GenericInlineHook5(
+        pTarget,
+        (void*)hkNativeCursorStateSetNaked,
+        copyLen);
+    if (!oNativeCursorStateSetFn)
+    {
+        WriteLog("[ObservedCursorState] 5F3EC0 hook failed");
+        return false;
+    }
+
+    WriteLogFmt("[ObservedCursorState] 5F3EC0 hook OK entry=0x%08X tramp=0x%08X copyLen=%d",
+        (DWORD)(uintptr_t)pTarget,
+        (DWORD)(uintptr_t)oNativeCursorStateSetFn,
+        copyLen);
+    return true;
+}
+
+static bool SetupLocalIndependentPotentialPrimaryFlatStatHook()
+{
+    BYTE* pEntry = (BYTE*)ADDR_853B49;
+    BYTE* pTarget = FollowJmpChain((void*)ADDR_853B49);
+    if (!pTarget && pEntry)
+        pTarget = TryFollowAbsoluteRegisterJumpStub(pEntry);
+    if (!pTarget)
+    {
+        WriteLog("[IndependentBuffLocal] target missing primary");
+        return false;
+    }
+
+    static const BYTE kExpected[] = {
+        0x85, 0xC0,
+        0x0F, 0x84, 0x9C, 0x02, 0x00, 0x00,
+        0x8B, 0x7C, 0x24, 0x2C,
+        0x8B, 0x56, 0x28,
+        0x69, 0xFF, 0xF0, 0x00, 0x00, 0x00,
+        0x03, 0x78, 0x18
+    };
+
+    if (memcmp(pTarget, kExpected, sizeof(kExpected)) != 0)
+    {
+        char hexDump[256] = {};
+        size_t cursor = 0;
+        for (size_t dumpIndex = 0; dumpIndex < 16; ++dumpIndex)
+        {
+            cursor += sprintf_s(hexDump + cursor, sizeof(hexDump) - cursor, "%02X%s",
+                (unsigned int)pTarget[dumpIndex],
+                dumpIndex + 1 < 16 ? " " : "");
+            if (cursor + 4 >= sizeof(hexDump))
+                break;
+        }
+        WriteLog("[IndependentBuffLocal] skip 853B49 unexpected prologue");
+        WriteLogFmt("[IndependentBuffLocal] 853B49 bytes=%s", hexDump);
+        return false;
+    }
+
+    const DWORD continueNonZero = (DWORD)(uintptr_t)(pTarget + sizeof(kExpected));
+    const DWORD continueZero = *(DWORD*)(pTarget + 4) + (DWORD)(uintptr_t)(pTarget + 8);
+
+    DWORD oldProtect = 0;
+    if (!VirtualProtect(pTarget, sizeof(kExpected), PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        WriteLog("[IndependentBuffLocal] VirtualProtect failed primary");
+        return false;
+    }
+
+    pTarget[0] = 0xE9;
+    *(int*)(pTarget + 1) = (int)((uintptr_t)hkLocalIndependentPotentialPrimaryFlatStatsNaked - (uintptr_t)pTarget - 5);
+    for (size_t i = 5; i < sizeof(kExpected); ++i)
+        pTarget[i] = 0x90;
+
+    VirtualProtect(pTarget, sizeof(kExpected), oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), pTarget, sizeof(kExpected));
+    oLocalIndependentPotentialPrimaryFlatStats = pTarget + sizeof(kExpected);
+    g_LocalIndependentPotentialPrimaryContinueNonZero = continueNonZero;
+    g_LocalIndependentPotentialPrimaryContinueZero = continueZero;
+    WriteLogFmt("[IndependentBuffLocal] OK(853B49): continueNonZero=0x%08X continueZero=0x%08X",
+        g_LocalIndependentPotentialPrimaryContinueNonZero,
+        g_LocalIndependentPotentialPrimaryContinueZero);
+    return true;
+}
+
+static bool SetupLocalIndependentPotentialPrimaryPercentStatHook()
+{
+    BYTE* pEntry = (BYTE*)ADDR_853E5A;
+    BYTE* pTarget = FollowJmpChain((void*)ADDR_853E5A);
+    if (!pTarget && pEntry)
+        pTarget = TryFollowAbsoluteRegisterJumpStub(pEntry);
+    if (!pTarget)
+    {
+        WriteLog("[IndependentBuffLocal] target missing primary percent");
+        return false;
+    }
+
+    static const BYTE kExpected[] = {
+        0x85, 0xED,
+        0x0F, 0x84, 0xB5, 0x00, 0x00, 0x00,
+        0x8B, 0x74, 0x24, 0x30,
+        0x8B, 0x4C, 0x24, 0x34,
+        0x69, 0xF6, 0xF0, 0x00, 0x00, 0x00,
+        0x03, 0x75, 0x18
+    };
+
+    if (memcmp(pTarget, kExpected, sizeof(kExpected)) != 0)
+    {
+        char hexDump[256] = {};
+        size_t cursor = 0;
+        for (size_t dumpIndex = 0; dumpIndex < 16; ++dumpIndex)
+        {
+            cursor += sprintf_s(hexDump + cursor, sizeof(hexDump) - cursor, "%02X%s",
+                (unsigned int)pTarget[dumpIndex],
+                dumpIndex + 1 < 16 ? " " : "");
+            if (cursor + 4 >= sizeof(hexDump))
+                break;
+        }
+        WriteLog("[IndependentBuffLocal] skip 853E5A unexpected prologue");
+        WriteLogFmt("[IndependentBuffLocal] 853E5A bytes=%s", hexDump);
+        return false;
+    }
+
+    const DWORD continueNonZero = (DWORD)(uintptr_t)(pTarget + sizeof(kExpected));
+    const DWORD continueZero = *(DWORD*)(pTarget + 4) + (DWORD)(uintptr_t)(pTarget + 8);
+
+    DWORD oldProtect = 0;
+    if (!VirtualProtect(pTarget, sizeof(kExpected), PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        WriteLog("[IndependentBuffLocal] VirtualProtect failed primary percent");
+        return false;
+    }
+
+    pTarget[0] = 0xE9;
+    *(int*)(pTarget + 1) = (int)((uintptr_t)hkLocalIndependentPotentialPrimaryPercentStatsNaked - (uintptr_t)pTarget - 5);
+    for (size_t i = 5; i < sizeof(kExpected); ++i)
+        pTarget[i] = 0x90;
+
+    VirtualProtect(pTarget, sizeof(kExpected), oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), pTarget, sizeof(kExpected));
+    oLocalIndependentPotentialPrimaryPercentStats = pTarget + sizeof(kExpected);
+    g_LocalIndependentPotentialPrimaryPercentContinueNonZero = continueNonZero;
+    g_LocalIndependentPotentialPrimaryPercentContinueZero = continueZero;
+    WriteLogFmt("[IndependentBuffLocal] OK(853E5A): continueNonZero=0x%08X continueZero=0x%08X",
+        g_LocalIndependentPotentialPrimaryPercentContinueNonZero,
+        g_LocalIndependentPotentialPrimaryPercentContinueZero);
+    return true;
+}
+
+static bool SetupLocalIndependentPotentialFlatStatHook()
+{
+    BYTE* pEntry = (BYTE*)ADDR_856879;
+    BYTE* pTarget = FollowJmpChain((void*)ADDR_856879);
+    if (!pTarget && pEntry)
+        pTarget = TryFollowAbsoluteRegisterJumpStub(pEntry);
+    if (!pTarget)
+    {
+        WriteLog("[IndependentBuffLocal] target missing");
+        return false;
+    }
+
+    if (pTarget[0] >= 0xB8 && pTarget[0] <= 0xBF)
+    {
+        BYTE* pResolvedStub = TryFollowAbsoluteRegisterJumpStub(pTarget);
+        if (pResolvedStub)
+        {
+            WriteLogFmt("[IndependentBuffLocal] resolved absolute jump stub 0x%08X -> 0x%08X",
+                (DWORD)(uintptr_t)pTarget,
+                (DWORD)(uintptr_t)pResolvedStub);
+            pTarget = pResolvedStub;
+        }
+    }
+
+    static const BYTE kExpectedLong[] = {
+        0x85, 0xC0,
+        0x0F, 0x84, 0xFB, 0x02, 0x00, 0x00,
+        0x8B, 0x7C, 0x24, 0x2C,
+        0x69, 0xFF, 0xF0, 0x00, 0x00, 0x00,
+        0x03, 0x78, 0x18
+    };
+    static const BYTE kExpectedShort[] = {
+        0x85, 0xC0,
+        0x74, 0x0D,
+        0x8B, 0x7C, 0x24, 0x2C,
+        0x69, 0xFF, 0xF0, 0x00, 0x00, 0x00,
+        0x03, 0x78, 0x18
+    };
+
+    const BYTE* expected = nullptr;
+    size_t expectedLen = 0;
+    DWORD continueNonZero = 0;
+    DWORD continueZero = 0;
+
+    if (memcmp(pTarget, kExpectedLong, sizeof(kExpectedLong)) == 0)
+    {
+        expected = kExpectedLong;
+        expectedLen = sizeof(kExpectedLong);
+        continueNonZero = (DWORD)(uintptr_t)(pTarget + expectedLen);
+        continueZero = *(DWORD*)(pTarget + 4) + (DWORD)(uintptr_t)(pTarget + 8);
+    }
+    else if (memcmp(pTarget, kExpectedShort, sizeof(kExpectedShort)) == 0)
+    {
+        expected = kExpectedShort;
+        expectedLen = sizeof(kExpectedShort);
+        continueNonZero = (DWORD)(uintptr_t)(pTarget + expectedLen);
+        continueZero = (DWORD)(uintptr_t)(pTarget + expectedLen);
+        WriteLogFmt("[IndependentBuffLocal] using short-branch variant target=0x%08X continue=0x%08X",
+            (DWORD)(uintptr_t)pTarget,
+            continueNonZero);
+    }
+    else
+    {
+        char hexDump[256] = {};
+        size_t cursor = 0;
+        for (size_t dumpIndex = 0; dumpIndex < 16; ++dumpIndex)
+        {
+            cursor += sprintf_s(hexDump + cursor, sizeof(hexDump) - cursor, "%02X%s",
+                (unsigned int)pTarget[dumpIndex],
+                dumpIndex + 1 < 16 ? " " : "");
+            if (cursor + 4 >= sizeof(hexDump))
+                break;
+        }
+        WriteLogFmt("[IndependentBuffLocal] skip 856879 unexpected prologue");
+        WriteLogFmt("[IndependentBuffLocal] 856879 bytes=%s", hexDump);
+        return false;
+    }
+
+    DWORD oldProtect = 0;
+    if (!VirtualProtect(pTarget, expectedLen, PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        WriteLog("[IndependentBuffLocal] VirtualProtect failed");
+        return false;
+    }
+
+    pTarget[0] = 0xE9;
+    *(int*)(pTarget + 1) = (int)((uintptr_t)hkLocalIndependentPotentialFlatStatsNaked - (uintptr_t)pTarget - 5);
+    for (size_t i = 5; i < expectedLen; ++i)
+        pTarget[i] = 0x90;
+
+    VirtualProtect(pTarget, expectedLen, oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), pTarget, expectedLen);
+    oLocalIndependentPotentialFlatStats = pTarget + expectedLen;
+    g_LocalIndependentPotentialContinueNonZero = continueNonZero;
+    g_LocalIndependentPotentialContinueZero = continueZero;
+    WriteLogFmt("[IndependentBuffLocal] OK(856879): continueNonZero=0x%08X continueZero=0x%08X",
+        g_LocalIndependentPotentialContinueNonZero,
+        g_LocalIndependentPotentialContinueZero);
+    return true;
+}
+
+static bool SetupLocalIndependentPotentialDisplayFunctionHooks()
+{
+    bool anyOk = false;
+
+    if (!oLocalIndependentPotentialSkillLevelDisplayFn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_AE0A70);
+        if (pTarget)
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+            oLocalIndependentPotentialSkillLevelDisplayFn =
+                (tLocalIndependentPotentialSkillLevelDisplayFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkLocalIndependentPotentialSkillLevelDisplayFunction,
+                    copyLen);
+            if (oLocalIndependentPotentialSkillLevelDisplayFn)
+            {
+                anyOk = true;
+                WriteLogFmt("[IndependentBuffLocalDisplay] OK(AE0A70): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oLocalIndependentPotentialSkillLevelDisplayFn,
+                    copyLen);
+            }
+            else
+            {
+                WriteLog("[IndependentBuffLocalDisplay] AE0A70 hook failed");
+            }
+        }
+        else
+        {
+            WriteLog("[IndependentBuffLocalDisplay] AE0A70 target missing");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oLocalIndependentPotentialPercentQuadDisplayFn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_8538C0);
+        if (pTarget)
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+            oLocalIndependentPotentialPercentQuadDisplayFn =
+                (tLocalIndependentPotentialPercentQuadDisplayFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkLocalIndependentPotentialPercentQuadDisplayFunction,
+                    copyLen);
+            if (oLocalIndependentPotentialPercentQuadDisplayFn)
+            {
+                anyOk = true;
+                WriteLogFmt("[IndependentBuffLocalDisplay] OK(8538C0): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oLocalIndependentPotentialPercentQuadDisplayFn,
+                    copyLen);
+            }
+            else
+            {
+                WriteLog("[IndependentBuffLocalDisplay] 8538C0 hook failed");
+            }
+        }
+        else
+        {
+            WriteLog("[IndependentBuffLocalDisplay] 8538C0 target missing");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oLocalIndependentPotentialPercentFullDisplayFn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_853E10);
+        if (pTarget)
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+            oLocalIndependentPotentialPercentFullDisplayFn =
+                (tLocalIndependentPotentialPercentFullDisplayFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkLocalIndependentPotentialPercentFullDisplayFunction,
+                    copyLen);
+            if (oLocalIndependentPotentialPercentFullDisplayFn)
+            {
+                anyOk = true;
+                WriteLogFmt("[IndependentBuffLocalDisplay] OK(853E10): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oLocalIndependentPotentialPercentFullDisplayFn,
+                    copyLen);
+            }
+            else
+            {
+                WriteLog("[IndependentBuffLocalDisplay] 853E10 hook failed");
+            }
+        }
+        else
+        {
+            WriteLog("[IndependentBuffLocalDisplay] 853E10 target missing");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oLocalIndependentPotentialFlatBasicDisplayFn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_853B00);
+        if (pTarget)
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+            oLocalIndependentPotentialFlatBasicDisplayFn =
+                (tLocalIndependentPotentialFlatBasicDisplayFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkLocalIndependentPotentialFlatBasicDisplayFunction,
+                    copyLen);
+            if (oLocalIndependentPotentialFlatBasicDisplayFn)
+            {
+                anyOk = true;
+                WriteLogFmt("[IndependentBuffLocalDisplay] OK(853B00): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oLocalIndependentPotentialFlatBasicDisplayFn,
+                    copyLen);
+            }
+            else
+            {
+                WriteLog("[IndependentBuffLocalDisplay] 853B00 hook failed");
+            }
+        }
+        else
+        {
+            WriteLog("[IndependentBuffLocalDisplay] 853B00 target missing");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oLocalIndependentPotentialFlatExtendedDisplayFn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_856830);
+        if (pTarget)
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+            oLocalIndependentPotentialFlatExtendedDisplayFn =
+                (tLocalIndependentPotentialFlatExtendedDisplayFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkLocalIndependentPotentialFlatExtendedDisplayFunction,
+                    copyLen);
+            if (oLocalIndependentPotentialFlatExtendedDisplayFn)
+            {
+                anyOk = true;
+                WriteLogFmt("[IndependentBuffLocalDisplay] OK(856830): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oLocalIndependentPotentialFlatExtendedDisplayFn,
+                    copyLen);
+            }
+            else
+            {
+                WriteLog("[IndependentBuffLocalDisplay] 856830 hook failed");
+            }
+        }
+        else
+        {
+            WriteLog("[IndependentBuffLocalDisplay] 856830 target missing");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    return anyOk;
+}
+
+static bool SetupAbilityRedDisplayCallsiteHook()
+{
+    if (g_AbilityRedDisplayCallsiteOriginalTarget)
+        return true;
+
+    BYTE *pCallsite = (BYTE *)(uintptr_t)ADDR_AE6C21;
+    if (!pCallsite || SafeIsBadReadPtr(pCallsite, 5) || pCallsite[0] != 0xE8)
+    {
+        WriteLog("[AbilityRedDisplay] AE6C21 callsite missing/unexpected");
+        return false;
+    }
+
+    g_AbilityRedDisplayCallsiteOriginalTarget =
+        (DWORD)(uintptr_t)(pCallsite + 5 + *(int *)(pCallsite + 1));
+
+    DWORD oldProtect = 0;
+    if (!VirtualProtect(pCallsite, 5, PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        WriteLog("[AbilityRedDisplay] AE6C21 VirtualProtect failed");
+        g_AbilityRedDisplayCallsiteOriginalTarget = 0;
+        return false;
+    }
+
+    pCallsite[0] = 0xE8;
+    *(int *)(pCallsite + 1) = (int)((uintptr_t)hkAbilityRedDisplayCallsiteNaked - (uintptr_t)pCallsite - 5);
+
+    VirtualProtect(pCallsite, 5, oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), pCallsite, 5);
+
+    WriteLogFmt("[AbilityRedDisplay] OK(AE6C21): original=0x%08X patchedCall=0x%08X",
+        g_AbilityRedDisplayCallsiteOriginalTarget,
+        (DWORD)(uintptr_t)hkAbilityRedDisplayCallsiteNaked);
+    return true;
+}
+
+static bool SetupAbilityRedLevelReadHook()
+{
+    if (oAbilityRedLevelReadHook)
+        return true;
+
+    BYTE *pTarget = FollowJmpChain((void *)ADDR_AE43D5);
+    if (!pTarget)
+    {
+        WriteLog("[AbilityRedLevelRead] AE43D5 target missing");
+        return false;
+    }
+
+    int copyLen = CalcMinCopyLen(pTarget);
+    if (copyLen < 5)
+        copyLen = 5;
+
+    oAbilityRedLevelReadHook = GenericInlineHook5(
+        pTarget,
+        (void *)hkAbilityRedLevelReadNaked,
+        copyLen);
+    if (!oAbilityRedLevelReadHook)
+    {
+        WriteLog("[AbilityRedLevelRead] AE43D5 hook failed");
+        return false;
+    }
+
+    WriteLogFmt("[AbilityRedLevelRead] OK(AE43D5): entry=0x%08X tramp=0x%08X copyLen=%d",
+        (DWORD)(uintptr_t)pTarget,
+        (DWORD)(uintptr_t)oAbilityRedLevelReadHook,
+        copyLen);
+    return true;
+}
+
+static bool SetupAbilityRedSkillWriteHooks()
+{
+    bool anyOk = false;
+
+    if (!oAbilityRedSkillWrite52FE14Hook)
+    {
+        BYTE *pTarget = (BYTE *)(uintptr_t)ADDR_52FE14;
+        oAbilityRedSkillWrite52FE14Hook = GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedSkillWrite52FE14Naked,
+            5);
+        if (oAbilityRedSkillWrite52FE14Hook)
+        {
+            anyOk = true;
+            WriteLogFmt("[AbilityRedSkillWrite] OK(52FE14): tramp=0x%08X",
+                (DWORD)(uintptr_t)oAbilityRedSkillWrite52FE14Hook);
+        }
+        else
+        {
+            WriteLog("[AbilityRedSkillWrite] 52FE14 hook failed");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oAbilityRedSkillWrite6226CEHook)
+    {
+        BYTE *pTarget = (BYTE *)(uintptr_t)ADDR_6226CE;
+        oAbilityRedSkillWrite6226CEHook = GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedSkillWrite6226CENaked,
+            5);
+        if (oAbilityRedSkillWrite6226CEHook)
+        {
+            anyOk = true;
+            WriteLogFmt("[AbilityRedSkillWrite] OK(6226CE): tramp=0x%08X",
+                (DWORD)(uintptr_t)oAbilityRedSkillWrite6226CEHook);
+        }
+        else
+        {
+            WriteLog("[AbilityRedSkillWrite] 6226CE hook failed");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oAbilityRedSkillWrite49CA01Hook)
+    {
+        BYTE *pTarget = (BYTE *)(uintptr_t)ADDR_49CA01;
+        oAbilityRedSkillWrite49CA01Hook = GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedSkillWrite49CA01Naked,
+            5);
+        if (oAbilityRedSkillWrite49CA01Hook)
+        {
+            anyOk = true;
+            WriteLogFmt("[AbilityRedSkillWrite] OK(49CA01): tramp=0x%08X",
+                (DWORD)(uintptr_t)oAbilityRedSkillWrite49CA01Hook);
+        }
+        else
+        {
+            WriteLog("[AbilityRedSkillWrite] 49CA01 hook failed");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    return anyOk;
+}
+
+static bool SetupAbilityRedHashContainerHooks()
+{
+    bool anyOk = false;
+
+    if (!oAbilityRedHashLookupHook)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_49C9C0);
+        if (pTarget)
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oAbilityRedHashLookupHook = GenericInlineHook5(
+                pTarget,
+                (void *)hkAbilityRedHashLookupNaked,
+                copyLen);
+            if (oAbilityRedHashLookupHook)
+            {
+                anyOk = true;
+                WriteLogFmt("[AbilityRedHashLookup] OK(49C9C0): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oAbilityRedHashLookupHook,
+                    copyLen);
+            }
+            else
+            {
+                WriteLog("[AbilityRedHashLookup] 49C9C0 hook failed");
+            }
+        }
+        else
+        {
+            WriteLog("[AbilityRedHashLookup] 49C9C0 target missing");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oAbilityRedHashInsertHook)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_52FD80);
+        if (pTarget)
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oAbilityRedHashInsertHook = GenericInlineHook5(
+                pTarget,
+                (void *)hkAbilityRedHashInsertNaked,
+                copyLen);
+            if (oAbilityRedHashInsertHook)
+            {
+                anyOk = true;
+                WriteLogFmt("[AbilityRedHashInsert] OK(52FD80): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oAbilityRedHashInsertHook,
+                    copyLen);
+            }
+            else
+            {
+                WriteLog("[AbilityRedHashInsert] 52FD80 hook failed");
+            }
+        }
+        else
+        {
+            WriteLog("[AbilityRedHashInsert] 52FD80 target missing");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    return anyOk;
+}
+
+static bool SetupAbilityRedExtendedAggregateHook()
+{
+    if (oAbilityRedExtendedAggregateFn)
+        return true;
+
+    BYTE *pTarget = FollowJmpChain((void *)ADDR_856BA0);
+    if (!pTarget)
+    {
+        WriteLog("[AbilityRedAggregate] 856BA0 target missing");
+        return false;
+    }
+
+    int copyLen = CalcMinCopyLen(pTarget);
+    if (copyLen < 5)
+        copyLen = 5;
+
+    oAbilityRedExtendedAggregateFn =
+        (tAbilityRedExtendedAggregateFn)GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedExtendedAggregateFunction,
+            copyLen);
+    if (!oAbilityRedExtendedAggregateFn)
+    {
+        WriteLog("[AbilityRedAggregate] 856BA0 hook failed");
+        return false;
+    }
+
+    WriteLogFmt("[AbilityRedAggregate] OK(856BA0): entry=0x%08X tramp=0x%08X copyLen=%d",
+        (DWORD)(uintptr_t)pTarget,
+        (DWORD)(uintptr_t)oAbilityRedExtendedAggregateFn,
+        copyLen);
+    return true;
+}
+
+static bool SetupAbilityRedMasterAggregateHook()
+{
+    if (oAbilityRedMasterAggregateFn)
+        return true;
+
+    BYTE *pTarget = FollowJmpChain((void *)ADDR_856C60);
+    if (!pTarget)
+    {
+        WriteLog("[AbilityRedMaster] 856C60 target missing");
+        return false;
+    }
+
+    int copyLen = CalcMinCopyLen(pTarget);
+    if (copyLen < 5)
+        copyLen = 5;
+
+    oAbilityRedMasterAggregateFn =
+        (tAbilityRedMasterAggregateFn)GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedMasterAggregateFunction,
+            copyLen);
+    if (!oAbilityRedMasterAggregateFn)
+    {
+        WriteLog("[AbilityRedMaster] 856C60 hook failed");
+        return false;
+    }
+
+    WriteLogFmt("[AbilityRedMaster] OK(856C60): entry=0x%08X tramp=0x%08X copyLen=%d",
+        (DWORD)(uintptr_t)pTarget,
+        (DWORD)(uintptr_t)oAbilityRedMasterAggregateFn,
+        copyLen);
+    return true;
+}
+
+static bool SetupAbilityRedSiblingCalcHooks()
+{
+    bool anyOk = false;
+
+    if (!oAbilityRedSiblingCalc82F780Fn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_82F780);
+        if (!pTarget)
+        {
+            WriteLog("[AbilityRedSibling] 82F780 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oAbilityRedSiblingCalc82F780Fn =
+                (tAbilityRedSiblingCalcFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkAbilityRedSiblingCalc82F780,
+                    copyLen);
+            if (!oAbilityRedSiblingCalc82F780Fn)
+            {
+                WriteLog("[AbilityRedSibling] 82F780 hook failed");
+            }
+            else
+            {
+                WriteLogFmt("[AbilityRedSibling] OK(82F780): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oAbilityRedSiblingCalc82F780Fn,
+                    copyLen);
+            }
+        }
+    }
+    if (oAbilityRedSiblingCalc82F780Fn)
+        anyOk = true;
+
+    if (!oAbilityRedSiblingCalc82F870Fn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_82F870);
+        if (!pTarget)
+        {
+            WriteLog("[AbilityRedSibling] 82F870 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oAbilityRedSiblingCalc82F870Fn =
+                (tAbilityRedSiblingCalcFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkAbilityRedSiblingCalc82F870,
+                    copyLen);
+            if (!oAbilityRedSiblingCalc82F870Fn)
+            {
+                WriteLog("[AbilityRedSibling] 82F870 hook failed");
+            }
+            else
+            {
+                WriteLogFmt("[AbilityRedSibling] OK(82F870): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oAbilityRedSiblingCalc82F870Fn,
+                    copyLen);
+            }
+        }
+    }
+    if (oAbilityRedSiblingCalc82F870Fn)
+        anyOk = true;
+
+    if (!oAbilityRedSiblingCalc82F960Fn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_82F960);
+        if (!pTarget)
+        {
+            WriteLog("[AbilityRedSibling] 82F960 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oAbilityRedSiblingCalc82F960Fn =
+                (tAbilityRedSiblingCalcFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkAbilityRedSiblingCalc82F960,
+                    copyLen);
+            if (!oAbilityRedSiblingCalc82F960Fn)
+            {
+                WriteLog("[AbilityRedSibling] 82F960 hook failed");
+            }
+            else
+            {
+                WriteLogFmt("[AbilityRedSibling] OK(82F960): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oAbilityRedSiblingCalc82F960Fn,
+                    copyLen);
+            }
+        }
+    }
+    if (oAbilityRedSiblingCalc82F960Fn)
+        anyOk = true;
+
+    if (!oAbilityRedSiblingCalc82FA50Fn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_82FA50);
+        if (!pTarget)
+        {
+            WriteLog("[AbilityRedSibling] 82FA50 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oAbilityRedSiblingCalc82FA50Fn =
+                (tAbilityRedSiblingCalcFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkAbilityRedSiblingCalc82FA50,
+                    copyLen);
+            if (!oAbilityRedSiblingCalc82FA50Fn)
+            {
+                WriteLog("[AbilityRedSibling] 82FA50 hook failed");
+            }
+            else
+            {
+                WriteLogFmt("[AbilityRedSibling] OK(82FA50): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oAbilityRedSiblingCalc82FA50Fn,
+                    copyLen);
+            }
+        }
+    }
+    if (oAbilityRedSiblingCalc82FA50Fn)
+        anyOk = true;
+
+    return anyOk;
+}
+
+static bool SetupAbilityRedDiff84C470PreSubHook()
+{
+    if (g_AbilityRedDiff84C470PreSubContinue)
+        return true;
+
+    BYTE *pSite = (BYTE *)(uintptr_t)ADDR_9F7546;
+    if (!pSite ||
+        SafeIsBadReadPtr(pSite, 5) ||
+        pSite[0] != 0x03 ||
+        pSite[1] != 0xF3 ||
+        pSite[2] != 0x03 ||
+        pSite[3] != 0x75 ||
+        pSite[4] != 0x48)
+    {
+        WriteLog("[AbilityRedDiff] 9F7546 site missing/unexpected");
+        return false;
+    }
+
+    DWORD oldProtect = 0;
+    if (!VirtualProtect(pSite, 5, PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        WriteLog("[AbilityRedDiff] 9F7546 VirtualProtect failed");
+        return false;
+    }
+
+    g_AbilityRedDiff84C470PreSubContinue = ADDR_9F754B;
+    pSite[0] = 0xE9;
+    *(int *)(pSite + 1) = (int)((uintptr_t)hkAbilityRedDiff84C470PreSubNaked - (uintptr_t)pSite - 5);
+
+    VirtualProtect(pSite, 5, oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), pSite, 5);
+
+    WriteLogFmt("[AbilityRedDiff] OK(9F7546): continue=0x%08X hook=0x%08X",
+        g_AbilityRedDiff84C470PreSubContinue,
+        (DWORD)(uintptr_t)hkAbilityRedDiff84C470PreSubNaked);
+    return true;
+}
+
+static bool InstallAbilityRedMidHook(
+    DWORD siteAddress,
+    const BYTE* expectedBytes,
+    size_t expectedLength,
+    void* hookProc,
+    DWORD continueAddress,
+    DWORD* continueSlot,
+    const char* tag)
+{
+    if (continueSlot && *continueSlot)
+        return true;
+    if (!expectedBytes || expectedLength < 5 || !hookProc || !continueSlot)
+        return false;
+
+    BYTE* pSite = reinterpret_cast<BYTE*>(static_cast<uintptr_t>(siteAddress));
+    if (!pSite || SafeIsBadReadPtr(pSite, expectedLength) || memcmp(pSite, expectedBytes, expectedLength) != 0)
+    {
+        WriteLogFmt("[AbilityRed] %s site missing/unexpected", tag ? tag : "midhook");
+        return false;
+    }
+
+    DWORD oldProtect = 0;
+    if (!VirtualProtect(pSite, expectedLength, PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        WriteLogFmt("[AbilityRed] %s VirtualProtect failed", tag ? tag : "midhook");
+        return false;
+    }
+
+    *continueSlot = continueAddress;
+    pSite[0] = 0xE9;
+    *reinterpret_cast<int*>(pSite + 1) =
+        static_cast<int>(reinterpret_cast<uintptr_t>(hookProc) - reinterpret_cast<uintptr_t>(pSite) - 5);
+    for (size_t i = 5; i < expectedLength; ++i)
+        pSite[i] = 0x90;
+
+    VirtualProtect(pSite, expectedLength, oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), pSite, expectedLength);
+
+    WriteLogFmt(
+        "[AbilityRed] OK(%s): site=0x%08X continue=0x%08X hook=0x%08X",
+        tag ? tag : "midhook",
+        siteAddress,
+        continueAddress,
+        static_cast<DWORD>(reinterpret_cast<uintptr_t>(hookProc)));
+    return true;
+}
+
+static bool SetupAbilityRedAdditionalDiffHooks()
+{
+    bool anyOk = false;
+
+    static const BYTE kWdefPreSub[] = { 0x03, 0xF3, 0x03, 0x75, 0x48 };
+    if (InstallAbilityRedMidHook(
+            ADDR_9F7241,
+            kWdefPreSub,
+            sizeof(kWdefPreSub),
+            reinterpret_cast<void*>(hkAbilityRedDiff84BE40PreSubNaked),
+            ADDR_9F7246,
+            &g_AbilityRedDiff84BE40PreSubContinue,
+            "9F7241 wdef diff"))
+    {
+        anyOk = true;
+    }
+
+    static const BYTE kAccPreSub[] = { 0x03, 0xF7, 0x03, 0x75, 0x48 };
+    if (InstallAbilityRedMidHook(
+            ADDR_9F7893,
+            kAccPreSub,
+            sizeof(kAccPreSub),
+            reinterpret_cast<void*>(hkAbilityRedDiff84CA90AccPreSubNaked),
+            ADDR_9F7898,
+            &g_AbilityRedDiff84CA90AccPreSubContinue,
+            "9F7893 acc diff"))
+    {
+        anyOk = true;
+    }
+
+    static const BYTE kMagicAccPreSub[] = { 0x03, 0xF3, 0x03, 0x75, 0x48 };
+    if (InstallAbilityRedMidHook(
+            ADDR_9F7C7F,
+            kMagicAccPreSub,
+            sizeof(kMagicAccPreSub),
+            reinterpret_cast<void*>(hkAbilityRedDiff84CA90MagicAccPreSubNaked),
+            ADDR_9F7C84,
+            &g_AbilityRedDiff84CA90MagicAccPreSubContinue,
+            "9F7C7F magic-acc diff"))
+    {
+        anyOk = true;
+    }
+
+    static const BYTE kAvoidPreSub[] = { 0x03, 0xF3, 0x03, 0x75, 0x48 };
+    if (InstallAbilityRedMidHook(
+            ADDR_9F8048,
+            kAvoidPreSub,
+            sizeof(kAvoidPreSub),
+            reinterpret_cast<void*>(hkAbilityRedDiff84CBD0AvoidPreSubNaked),
+            ADDR_9F804D,
+            &g_AbilityRedDiff84CBD0AvoidPreSubContinue,
+            "9F8048 avoid diff"))
+    {
+        anyOk = true;
+    }
+
+    static const BYTE kMagicAvoidPreSub[] = { 0x03, 0x45, 0x48, 0x03, 0xF0 };
+    if (InstallAbilityRedMidHook(
+            ADDR_9F82A8,
+            kMagicAvoidPreSub,
+            sizeof(kMagicAvoidPreSub),
+            reinterpret_cast<void*>(hkAbilityRedDiff84CBD0MagicAvoidPreSubNaked),
+            ADDR_9F82AD,
+            &g_AbilityRedDiff84CBD0MagicAvoidPreSubContinue,
+            "9F82A8 magic-avoid diff"))
+    {
+        anyOk = true;
+    }
+
+    return anyOk;
+}
+
+static bool SetupAbilityRedPositiveStyleHooks()
+{
+    static const BYTE kAttackStyle[] = { 0x8B, 0x45, 0x68, 0x8D, 0x4D, 0x34, 0x51 };
+    return InstallAbilityRedMidHook(
+            ADDR_9F6E6F,
+            kAttackStyle,
+            sizeof(kAttackStyle),
+            reinterpret_cast<void*>(hkAbilityRedAttackRangeStyleNaked),
+            ADDR_9F6E76,
+            &g_AbilityRedAttackRangeStyleContinue,
+            "9F6E6F attack style");
+}
+
+static bool SetupAbilityRedBakeWriteHooks()
+{
+    bool anyOk = false;
+
+    if (!oAbilityRedBake857BB6Hook)
+    {
+        BYTE *pTarget = (BYTE *)(uintptr_t)ADDR_857BB6;
+        oAbilityRedBake857BB6Hook = GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedBake857BB6Naked,
+            6);
+        if (oAbilityRedBake857BB6Hook)
+        {
+            anyOk = true;
+            WriteLogFmt("[AbilityRedBake] OK(857BB6): tramp=0x%08X",
+                (DWORD)(uintptr_t)oAbilityRedBake857BB6Hook);
+        }
+        else
+        {
+            WriteLog("[AbilityRedBake] 857BB6 hook failed");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oAbilityRedBake857C29Hook)
+    {
+        BYTE *pTarget = (BYTE *)(uintptr_t)ADDR_857C29;
+        oAbilityRedBake857C29Hook = GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedBake857C29Naked,
+            6);
+        if (oAbilityRedBake857C29Hook)
+        {
+            anyOk = true;
+            WriteLogFmt("[AbilityRedBake] OK(857C29): tramp=0x%08X",
+                (DWORD)(uintptr_t)oAbilityRedBake857C29Hook);
+        }
+        else
+        {
+            WriteLog("[AbilityRedBake] 857C29 hook failed");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oAbilityRedBake857C9CHook)
+    {
+        BYTE *pTarget = (BYTE *)(uintptr_t)ADDR_857C9C;
+        oAbilityRedBake857C9CHook = GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedBake857C9CNaked,
+            6);
+        if (oAbilityRedBake857C9CHook)
+        {
+            anyOk = true;
+            WriteLogFmt("[AbilityRedBake] OK(857C9C): tramp=0x%08X",
+                (DWORD)(uintptr_t)oAbilityRedBake857C9CHook);
+        }
+        else
+        {
+            WriteLog("[AbilityRedBake] 857C9C hook failed");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oAbilityRedBake857D0FHook)
+    {
+        BYTE *pTarget = (BYTE *)(uintptr_t)ADDR_857D0F;
+        oAbilityRedBake857D0FHook = GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedBake857D0FNaked,
+            6);
+        if (oAbilityRedBake857D0FHook)
+        {
+            anyOk = true;
+            WriteLogFmt("[AbilityRedBake] OK(857D0F): tramp=0x%08X",
+                (DWORD)(uintptr_t)oAbilityRedBake857D0FHook);
+        }
+        else
+        {
+            WriteLog("[AbilityRedBake] 857D0F hook failed");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    return anyOk;
+}
+
+static bool SetupAbilityRedBake198Hooks()
+{
+    bool anyOk = false;
+
+    if (!oAbilityRedBake1988569C3Hook)
+    {
+        BYTE *pTarget = (BYTE *)(uintptr_t)ADDR_8569C3;
+        oAbilityRedBake1988569C3Hook = GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedBake1988569C3Naked,
+            6);
+        if (oAbilityRedBake1988569C3Hook)
+        {
+            anyOk = true;
+            WriteLogFmt("[AbilityRedBake198] OK(8569C3): tramp=0x%08X",
+                (DWORD)(uintptr_t)oAbilityRedBake1988569C3Hook);
+        }
+        else
+        {
+            WriteLog("[AbilityRedBake198] 8569C3 hook failed");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oAbilityRedBake198856D57Hook)
+    {
+        BYTE *pTarget = (BYTE *)(uintptr_t)ADDR_856D57;
+        oAbilityRedBake198856D57Hook = GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedBake198856D57Naked,
+            6);
+        if (oAbilityRedBake198856D57Hook)
+        {
+            anyOk = true;
+            WriteLogFmt("[AbilityRedBake198] OK(856D57): tramp=0x%08X",
+                (DWORD)(uintptr_t)oAbilityRedBake198856D57Hook);
+        }
+        else
+        {
+            WriteLog("[AbilityRedBake198] 856D57 hook failed");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oAbilityRedBake19885725FHook)
+    {
+        BYTE *pTarget = (BYTE *)(uintptr_t)ADDR_85725F;
+        oAbilityRedBake19885725FHook = GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedBake19885725FNaked,
+            6);
+        if (oAbilityRedBake19885725FHook)
+        {
+            anyOk = true;
+            WriteLogFmt("[AbilityRedBake198] OK(85725F): tramp=0x%08X",
+                (DWORD)(uintptr_t)oAbilityRedBake19885725FHook);
+        }
+        else
+        {
+            WriteLog("[AbilityRedBake198] 85725F hook failed");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oAbilityRedBake198857C3BHook)
+    {
+        BYTE *pTarget = (BYTE *)(uintptr_t)ADDR_857C3B;
+        oAbilityRedBake198857C3BHook = GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedBake198857C3BNaked,
+            6);
+        if (oAbilityRedBake198857C3BHook)
+        {
+            anyOk = true;
+            WriteLogFmt("[AbilityRedBake198] OK(857C3B): tramp=0x%08X",
+                (DWORD)(uintptr_t)oAbilityRedBake198857C3BHook);
+        }
+        else
+        {
+            WriteLog("[AbilityRedBake198] 857C3B hook failed");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oAbilityRedBake198858AEDHook)
+    {
+        BYTE *pTarget = (BYTE *)(uintptr_t)ADDR_858AED;
+        oAbilityRedBake198858AEDHook = GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedBake198858AEDNaked,
+            6);
+        if (oAbilityRedBake198858AEDHook)
+        {
+            anyOk = true;
+            WriteLogFmt("[AbilityRedBake198] OK(858AED): tramp=0x%08X",
+                (DWORD)(uintptr_t)oAbilityRedBake198858AEDHook);
+        }
+        else
+        {
+            WriteLog("[AbilityRedBake198] 858AED hook failed");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oAbilityRedBake198831A50Hook)
+    {
+        BYTE *pTarget = (BYTE *)(uintptr_t)ADDR_831A50;
+        oAbilityRedBake198831A50Hook = GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedBake198831A50Naked,
+            6);
+        if (oAbilityRedBake198831A50Hook)
+        {
+            anyOk = true;
+            WriteLogFmt("[AbilityRedBake198] OK(831A50): tramp=0x%08X",
+                (DWORD)(uintptr_t)oAbilityRedBake198831A50Hook);
+        }
+        else
+        {
+            WriteLog("[AbilityRedBake198] 831A50 hook failed");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oAbilityRedBake19883AF02Hook)
+    {
+        BYTE *pTarget = (BYTE *)(uintptr_t)ADDR_83AF02;
+        oAbilityRedBake19883AF02Hook = GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedBake19883AF02Naked,
+            6);
+        if (oAbilityRedBake19883AF02Hook)
+        {
+            anyOk = true;
+            WriteLogFmt("[AbilityRedBake198] OK(83AF02): tramp=0x%08X",
+                (DWORD)(uintptr_t)oAbilityRedBake19883AF02Hook);
+        }
+        else
+        {
+            WriteLog("[AbilityRedBake198] 83AF02 hook failed");
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    return anyOk;
+}
+
+static bool SetupAbilityRedFinalValueHooks()
+{
+    bool anyOk = false;
+
+    if (!oAbilityRedFinalCalc84C470Fn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_84C470);
+        if (!pTarget)
+        {
+            WriteLog("[AbilityRedFinal] 84C470 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oAbilityRedFinalCalc84C470Fn =
+                (tAbilityRedFinalCalc6Fn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkAbilityRedFinalCalc84C470,
+                    copyLen);
+            if (!oAbilityRedFinalCalc84C470Fn)
+            {
+                WriteLog("[AbilityRedFinal] 84C470 hook failed");
+            }
+            else
+            {
+                WriteLogFmt("[AbilityRedFinal] OK(84C470): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oAbilityRedFinalCalc84C470Fn,
+                    copyLen);
+            }
+        }
+    }
+    if (oAbilityRedFinalCalc84C470Fn)
+        anyOk = true;
+
+    if (!oAbilityRedFinalCalc84CA90Fn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_84CA90);
+        if (!pTarget)
+        {
+            WriteLog("[AbilityRedFinal] 84CA90 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oAbilityRedFinalCalc84CA90Fn =
+                (tAbilityRedFinalCalc5Fn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkAbilityRedFinalCalc84CA90,
+                    copyLen);
+            if (!oAbilityRedFinalCalc84CA90Fn)
+            {
+                WriteLog("[AbilityRedFinal] 84CA90 hook failed");
+            }
+            else
+            {
+                WriteLogFmt("[AbilityRedFinal] OK(84CA90): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oAbilityRedFinalCalc84CA90Fn,
+                    copyLen);
+            }
+        }
+    }
+    if (oAbilityRedFinalCalc84CA90Fn)
+        anyOk = true;
+
+    if (!oAbilityRedFinalCalc84CBD0Fn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_84CBD0);
+        if (!pTarget)
+        {
+            WriteLog("[AbilityRedFinal] 84CBD0 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oAbilityRedFinalCalc84CBD0Fn =
+                (tAbilityRedFinalCalc5Fn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkAbilityRedFinalCalc84CBD0,
+                    copyLen);
+            if (!oAbilityRedFinalCalc84CBD0Fn)
+            {
+                WriteLog("[AbilityRedFinal] 84CBD0 hook failed");
+            }
+            else
+            {
+                WriteLogFmt("[AbilityRedFinal] OK(84CBD0): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oAbilityRedFinalCalc84CBD0Fn,
+                    copyLen);
+            }
+        }
+    }
+    if (oAbilityRedFinalCalc84CBD0Fn)
+        anyOk = true;
+
+    return anyOk;
+}
+
+static bool SetupAbilityRedDisplayCandidateHook()
+{
+    if (oAbilityRedDisplayCandidateFn)
+        return true;
+
+    BYTE *pTarget = FollowJmpChain((void *)ADDR_AE0E60);
+    if (!pTarget)
+    {
+        WriteLog("[AbilityRedDisplay] AE0E60 target missing");
+        return false;
+    }
+
+    int copyLen = CalcMinCopyLen(pTarget);
+    if (copyLen < 5)
+        copyLen = 5;
+
+    oAbilityRedDisplayCandidateFn =
+        (tAbilityRedDisplayCandidateFn)GenericInlineHook5(
+            pTarget,
+            (void *)hkAbilityRedDisplayCandidateFunction,
+            copyLen);
+    if (!oAbilityRedDisplayCandidateFn)
+    {
+        WriteLog("[AbilityRedDisplay] AE0E60 hook failed");
+        return false;
+    }
+
+    WriteLogFmt("[AbilityRedDisplay] OK(AE0E60): entry=0x%08X tramp=0x%08X copyLen=%d",
+        (DWORD)(uintptr_t)pTarget,
+        (DWORD)(uintptr_t)oAbilityRedDisplayCandidateFn,
+        copyLen);
+    return true;
+}
+
+static bool SetupPotentialTextDisplayHook()
+{
+    if (oPotentialTextFormat)
+        return true;
+
+    BYTE* pTarget = FollowJmpChain((void*)ADDR_A4CA60);
+    if (!pTarget)
+    {
+        WriteLog("[PotentialTextHook] A4CA60 target missing");
+        return false;
+    }
+
+    const int copyLen = CalcMinCopyLen(pTarget);
+    if (copyLen < 5)
+    {
+        WriteLogFmt("[PotentialTextHook] A4CA60 invalid copyLen=%d", copyLen);
+        return false;
+    }
+
+    oPotentialTextFormat = (tPotentialTextFormatFn)GenericInlineHook5(
+        pTarget,
+        (void*)hkPotentialTextFormat,
+        copyLen);
+    if (!oPotentialTextFormat)
+    {
+        WriteLog("[PotentialTextHook] A4CA60 hook failed");
+        return false;
+    }
+
+    WriteLogFmt("[PotentialTextHook] OK(A4CA60): entry=0x%08X tramp=0x%08X copyLen=%d",
+        (DWORD)(uintptr_t)pTarget,
+        (DWORD)(uintptr_t)oPotentialTextFormat,
+        copyLen);
+    return true;
+}
+
+static bool SetupLocalIndependentPotentialSkillLevelDisplayHook()
+{
+    if (oLocalIndependentPotentialSkillLevelDisplay)
+        return true;
+
+    BYTE* pTarget = FollowJmpChain((void*)ADDR_AE0B23);
+    if (!pTarget)
+        pTarget = TryFollowAbsoluteRegisterJumpStub((BYTE*)ADDR_AE0B23);
+    if (pTarget && pTarget[0] >= 0xB8 && pTarget[0] <= 0xBF)
+    {
+        BYTE* pResolvedStub = TryFollowAbsoluteRegisterJumpStub(pTarget);
+        if (pResolvedStub)
+            pTarget = pResolvedStub;
+    }
+    if (!pTarget)
+    {
+        WriteLog("[IndependentBuffLocalDisplay] AE0B23 target missing");
+        return false;
+    }
+
+    const int copyLen = CalcMinCopyLen(pTarget);
+    if (copyLen < 5)
+    {
+        WriteLogFmt("[IndependentBuffLocalDisplay] AE0B23 invalid copyLen=%d", copyLen);
+        return false;
+    }
+
+    oLocalIndependentPotentialSkillLevelDisplay = GenericInlineHook5(
+        pTarget,
+        (void*)hkLocalIndependentPotentialSkillLevelDisplayNaked,
+        copyLen);
+    if (!oLocalIndependentPotentialSkillLevelDisplay)
+    {
+        WriteLog("[IndependentBuffLocalDisplay] AE0B23 hook failed");
+        return false;
+    }
+
+    WriteLogFmt("[IndependentBuffLocalDisplay] OK(AE0B23): entry=0x%08X tramp=0x%08X copyLen=%d",
+        (DWORD)(uintptr_t)pTarget,
+        (DWORD)(uintptr_t)oLocalIndependentPotentialSkillLevelDisplay,
+        copyLen);
+    return true;
+}
+
+static bool SetupLocalIndependentPotentialDamageDisplayHook()
+{
+    if (oLocalIndependentPotentialDamageDisplay)
+        return true;
+
+    BYTE* pTarget = FollowJmpChain((void*)ADDR_AE0FDC);
+    if (!pTarget)
+        pTarget = TryFollowAbsoluteRegisterJumpStub((BYTE*)ADDR_AE0FDC);
+    if (pTarget && pTarget[0] >= 0xB8 && pTarget[0] <= 0xBF)
+    {
+        BYTE* pResolvedStub = TryFollowAbsoluteRegisterJumpStub(pTarget);
+        if (pResolvedStub)
+            pTarget = pResolvedStub;
+    }
+    if (!pTarget)
+    {
+        WriteLog("[IndependentBuffLocalDisplay] AE0FDC target missing");
+        return false;
+    }
+
+    const int copyLen = CalcMinCopyLen(pTarget);
+    if (copyLen < 5)
+    {
+        WriteLogFmt("[IndependentBuffLocalDisplay] AE0FDC invalid copyLen=%d", copyLen);
+        return false;
+    }
+
+    oLocalIndependentPotentialDamageDisplay = GenericInlineHook5(
+        pTarget,
+        (void*)hkLocalIndependentPotentialDamageDisplayNaked,
+        copyLen);
+    if (!oLocalIndependentPotentialDamageDisplay)
+    {
+        WriteLog("[IndependentBuffLocalDisplay] AE0FDC hook failed");
+        return false;
+    }
+
+    WriteLogFmt("[IndependentBuffLocalDisplay] OK(AE0FDC): entry=0x%08X tramp=0x%08X copyLen=%d",
+        (DWORD)(uintptr_t)pTarget,
+        (DWORD)(uintptr_t)oLocalIndependentPotentialDamageDisplay,
+        copyLen);
+    return true;
 }
 
 // ============================================================================
@@ -4341,6 +10463,9 @@ static bool SetupSkillNativeIdGateHooks()
     {
         WriteLog("[MountSoaringGate] hook failed: 7DC1B0");
     }
+
+    if (ApplyMountMovementCapPatches())
+        ok = true;
 
     return ok;
 }

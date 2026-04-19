@@ -21,6 +21,7 @@ const DWORD ADDR_DirtyListTail   = 0x00F57448;  // off_F57438 tail cursor
 const DWORD ADDR_InteractList    = ADDR_ZOrderListTail;  // 兼容旧名：不是独立 interact list
 const DWORD ADDR_CanvasFactory   = 0x00F6A848;  // Canvas/图形工厂(COM)
 const DWORD ADDR_SkillWndEx      = 0x00F6A0C0;  // SkillWndEx全局单例指针
+const DWORD ADDR_CursorManager   = 0x00F5EB14;  // 原生鼠标状态管理器单例（sub_5F3EC0 this）
 const DWORD ADDR_GameHeap        = 0x00F68F50;  // gameMalloc 堆句柄
 const DWORD ADDR_SkillDataMgr    = 0x00F59D38;  // SkillDataMgr全局指针
 
@@ -70,6 +71,7 @@ const DWORD ADDR_435A50 = 0x00435A50;  // 获取渲染surface(__thiscall)
 const DWORD ADDR_4016D0 = 0x004016D0;  // 拷贝默认VARIANT到局部(__cdecl)
 const DWORD ADDR_40CA00 = 0x0040CA00;  // QueryInterface样式包装，取可绘制对象
 const DWORD ADDR_401C90 = 0x00401C90;  // 画图标(COM转发)
+const DWORD ADDR_5F3EC0 = 0x005F3EC0;  // 原生鼠标状态切换器：维护 cursorManager+625 当前状态并切换资源
 const DWORD ADDR_401990 = 0x00401990;  // 从VARIANT取对象(__thiscall, push 0,0)
 const DWORD ADDR_4027F0 = 0x004027F0;  // 将资源对象QueryInterface后写入槽位(__thiscall)
 const DWORD ADDR_402F60 = 0x00402F60;  // 宽字符串 -> 游戏字符串对象(__thiscall, retn 4)
@@ -239,12 +241,97 @@ const DWORD ADDR_KeyArrayPtr    = 0x00F617A8;  // *(DWORD*)此地址 = 数组基
 const DWORD ADDR_SlotTablePtr   = 0x00F619D0;  // *(DWORD*)此地址 = 映射表基址
 // StatusBar 全局单例
 const DWORD ADDR_StatusBar      = 0x00F6A18C;  // *(DWORD*)此地址 = StatusBar this
+const DWORD ADDR_StatusBarRefreshInternal      = 0x009F5FE0;  // StatusBar 内部刷新入口：先调 9F4F00/9F4C30，再 B9A5D0(self/child)
+const DWORD ADDR_StatusBarRefreshSlotsPrimary  = 0x009F4F00;  // StatusBar 内部槽刷新 A：遍历 +0xAE8 的 6 个槽和 +0xB18 的 3 个槽
+const DWORD ADDR_StatusBarRefreshSlotsSecondary= 0x009F4C30;  // StatusBar 内部槽刷新 B：遍历 +0xAE8 的 6 个槽和 +0xB18 的 3 个槽
+const DWORD ADDR_StatusBarCleanupTransient     = 0x009FCAE0;  // StatusBar 临时 child / wrapper 清理入口（涉及 +0xB2C / +0xB30）
+const DWORD ADDR_856879         = 0x00856879;  // 客户端本地属性重算-直加属性潜能链入口(flat stats potential path)
+const DWORD ADDR_85688E         = 0x0085688E;  // 856879 hook continuation when eax != 0
+const DWORD ADDR_856B7C         = 0x00856B7C;  // 856879 hook continuation when eax == 0
+const DWORD ADDR_853B49         = 0x00853B49;  // 客户端本地属性重算-基础平属性潜能链入口(2/3/4/5/8/9)
+const DWORD ADDR_853B61         = 0x00853B61;  // 853B49 hook continuation when eax != 0
+const DWORD ADDR_853DED         = 0x00853DED;  // 853B49 hook continuation when eax == 0
+const DWORD ADDR_853E5A         = 0x00853E5A;  // 客户端本地属性重算-百分比属性链入口(18/19/20/21/22/23)
+const DWORD ADDR_853E73         = 0x00853E73;  // 853E5A hook continuation when ebp != 0
+const DWORD ADDR_853F17         = 0x00853F17;  // 853E5A hook continuation when ebp == 0 / synthetic tail
+const DWORD ADDR_856BDE         = 0x00856BDE;  // 客户端本地属性重算-百分比次级属性链入口(24/25/26/27/28/29)
+const DWORD ADDR_856BF3         = 0x00856BF3;  // 856BDE hook continuation when edx != 0
+const DWORD ADDR_856C44         = 0x00856C44;  // 856BDE hook continuation when edx == 0 / synthetic tail
+const DWORD ADDR_856C60         = 0x00856C60;  // 客户端角色面板大汇总入口：串起 853B00/856830/856BA0 等子链，并接收多个 output sub-struct
+const DWORD ADDR_BE6760         = 0x00BE6760;  // UserLocal 全量属性/面板刷新入口：内部重跑 856C60 并刷新多个 UI
+const DWORD ADDR_BF3E60         = 0x00BF3E60;  // UserLocal buff-on 刷新包装：内部重跑 856C60 并刷新 UI
+const DWORD ADDR_BF4110         = 0x00BF4110;  // UserLocal buff-off 刷新包装：内部重跑 856C60 并刷新 UI
+const DWORD ADDR_AbilityPrimaryCache = 0x00F6D134; // 角色面板主属性三元组缓存
+const DWORD ADDR_AbilityExtendedCache = 0x00F6D200; // 角色面板扩展属性三元组缓存
+const DWORD ADDR_8538C0         = 0x008538C0;  // 客户端角色面板红字-基础百分比汇总函数(18/19/20/21)
+const DWORD ADDR_853B00         = 0x00853B00;  // 客户端角色面板红字-基础平属性汇总函数(2/3/4/5/8/9)
+const DWORD ADDR_853E10         = 0x00853E10;  // 客户端角色面板红字-全属性/HP/MP百分比汇总函数(18/19/20/21/22/23)
+const DWORD ADDR_856830         = 0x00856830;  // 客户端角色面板红字-单属性/攻防/速度/暴伤等汇总函数(10/11/12/13/14/15/16/17/50/51/52/53)
+const DWORD ADDR_856BA0         = 0x00856BA0;  // 客户端角色面板扩展属性 plain 结果拼装：把 stats[0x60..0x74] 累加进 6-field output struct
+const DWORD ADDR_AE0A70         = 0x00AE0A70;  // 客户端角色面板红字-技能等级提升汇总函数(34)
+const DWORD ADDR_AE0E60         = 0x00AE0E60;  // 客户端能力面板红字/显示候选函数，处理暴击/无视/伤害/BOSS伤害显示
+const DWORD ADDR_AE6C21         = 0x00AE6C21;  // AE0E60 的关键 callsite，能力面板红字显示候选调用点
+const DWORD ADDR_AE43D5         = 0x00AE43D5;  // 能力面板红字候选链中的技能等级读取点（mov ebp,[esp+18]）
+const DWORD ADDR_82F780         = 0x0082F780;  // 能力面板 caller-local diff helper：消费 sibling(this-0xCC) 的 0x30/0x3C/0x48 triplet 家族
+const DWORD ADDR_82F870         = 0x0082F870;  // 能力面板 caller-local diff helper：消费 sibling(this-0xCC) 的 0x24/0x30/0x48 triplet 家族
+const DWORD ADDR_82F960         = 0x0082F960;  // 能力面板 caller-local diff helper：消费 sibling(this-0xCC) 的 0x30/0x3C/0x48 triplet 家族
+const DWORD ADDR_82FA50         = 0x0082FA50;  // 能力面板 caller-local diff helper：消费 sibling(this-0xCC) 的 0x24/0x30/0x48 triplet 家族
+const DWORD ADDR_84BE40         = 0x0084BE40;  // 能力面板最终数值消费函数：读取 this+0x120/0x124/0x128，并继续拼装最终结果
+const DWORD ADDR_9F7546         = 0x009F7546;  // 84C470 caller-local diff pre-sub 观察点：sum += slot198; sum += local48
+const DWORD ADDR_9F754B         = 0x009F754B;  // 84C470 caller-local diff pre-sub continuation
+const DWORD ADDR_9F7241         = 0x009F7241;  // 84BE40 caller-local diff pre-sub：sum += slot120; sum += local48
+const DWORD ADDR_9F7246         = 0x009F7246;  // 84BE40 caller-local diff pre-sub continuation
+const DWORD ADDR_9F7893         = 0x009F7893;  // 84CA90 caller-local diff pre-sub：sum += slot1D4; sum += local48（命中）
+const DWORD ADDR_9F7898         = 0x009F7898;  // 84CA90 caller-local diff pre-sub continuation
+const DWORD ADDR_9F7C7F         = 0x009F7C7F;  // 84CA90 caller-local diff pre-sub：sum += slot1D4; sum += local48（魔命中）
+const DWORD ADDR_9F7C84         = 0x009F7C84;  // 84CA90 caller-local diff pre-sub continuation
+const DWORD ADDR_9F8048         = 0x009F8048;  // 84CBD0 caller-local diff pre-sub：sum += slot210; sum += local48（回避）
+const DWORD ADDR_9F804D         = 0x009F804D;  // 84CBD0 caller-local diff pre-sub continuation
+const DWORD ADDR_9F82A8         = 0x009F82A8;  // 84CBD0 caller-local diff pre-sub：sum += slot240/local48（魔回避）
+const DWORD ADDR_9F82AD         = 0x009F82AD;  // 84CBD0 caller-local diff pre-sub continuation
+const DWORD ADDR_9F6E6F         = 0x009F6E6F;  // 能力面板攻击力文本样式选择点
+const DWORD ADDR_9F6E76         = 0x009F6E76;  // 攻击力文本样式选择 continuation
+const DWORD ADDR_9F7A7C         = 0x009F7A7C;  // 能力面板暴击率文本样式选择点
+const DWORD ADDR_9F7A83         = 0x009F7A83;  // 暴击率文本样式选择 continuation
+const DWORD ADDR_9F8565         = 0x009F8565;  // 能力面板移动速度文本样式选择点
+const DWORD ADDR_9F856C         = 0x009F856C;  // 移动速度文本样式选择 continuation
+const DWORD ADDR_9F8696         = 0x009F8696;  // 能力面板跳跃力文本样式选择点
+const DWORD ADDR_9F869C         = 0x009F869C;  // 跳跃力文本样式选择 continuation
+const DWORD ADDR_857BB6         = 0x00857BB6;  // 856C60 内部加值重写点：src(edi+0x91/0x95) -> this+0x15C
+const DWORD ADDR_857C29         = 0x00857C29;  // 856C60 内部加值重写点：src(edi+0xA1/0xA5) -> this+0x198
+const DWORD ADDR_857C3B         = 0x00857C3B;  // 856C60 内部 0x198 真正写入指令
+const DWORD ADDR_857C9C         = 0x00857C9C;  // 856C60 内部加值重写点：src(edi+0xA9/0xAD) -> this+0x1D4
+const DWORD ADDR_857D0F         = 0x00857D0F;  // 856C60 内部加值重写点：src(edi+0xB1/0xB5) -> this+0x210
+const DWORD ADDR_8569C3         = 0x008569C3;  // 0x198 写点：sum = sub_821D10(this) + [edi+0x44]
+const DWORD ADDR_856D57         = 0x00856D57;  // 0x198 初始写点：856C60 入口初始化阶段的默认 key 写入
+const DWORD ADDR_85725F         = 0x0085725F;  // 0x198 写点：sum = signext([*edi+0x18]) + old(0x198)
+const DWORD ADDR_858AED         = 0x00858AED;  // 0x198 写点：sum = sub_821280(ebp)
+const DWORD ADDR_831A50         = 0x00831A50;  // 小 helper：直接用 edx/plainValue 重写 this+0x198
+const DWORD ADDR_83AF02         = 0x0083AF02;  // 0x198 写点：sum = old(0x198) + [edi+0x7C5]
+const DWORD ADDR_84C470         = 0x0084C470;  // 能力面板最终数值消费函数：直接读取 this+0x198/0x19C/0x1A0，并继续拼装最终结果
+const DWORD ADDR_84CA90         = 0x0084CA90;  // 能力面板最终数值消费函数：读取 this+0x1D4/0x1D8/0x1DC 与 this+0x204/0x208/0x20C
+const DWORD ADDR_84CBD0         = 0x0084CBD0;  // 能力面板最终数值消费函数：读取 this+0x210/0x214/0x218 与 this+0x240/0x244/0x248
+const DWORD ADDR_AE0B23         = 0x00AE0B23;  // 客户端本地属性重算-技能等级提升潜能链入口(34)
+const DWORD ADDR_AE0B34         = 0x00AE0B34;  // AE0B23 hook continuation when ecx != 0
+const DWORD ADDR_AE0B72         = 0x00AE0B72;  // AE0B23 hook continuation when ecx == 0
+const DWORD ADDR_AE0FDC         = 0x00AE0FDC;  // 客户端本地属性重算-伤害/无视/BOSS/暴伤链入口(30/40/43/49/50/51/52/53)
+const DWORD ADDR_AE0FE4         = 0x00AE0FE4;  // AE0FDC hook continuation
+const DWORD ADDR_A4CA60         = 0x00A4CA60;  // 角色面板/潜能属性文本组装入口，按 index 读取潜能数组并拼红字文本
+const DWORD ADDR_4098C0         = 0x004098C0;  // 加密三元组写入用随机 key 生成函数
+const DWORD ADDR_F631B8         = 0x00F631B8;  // 加密三元组随机 key 上下文
 // 发包函数：CHANGE_KEYMAP（opcode 221, 遍历89项差异发包）
 // __thiscall(ECX = *(DWORD*)ADDR_KeyArrayPtr), 无栈参数
 const DWORD ADDR_5E6F90         = 0x005E6F90;  // sub_5E6F90
 // 通用发包入口：栈参数 [esp+4]=packetData, [esp+8]=packetLen，packet[0..1]=opcode
 const DWORD ADDR_43D94D         = 0x0043D94D;  // send packet
+const DWORD ADDR_43D510         = 0x0043D510;  // raw send packet callee used by 43D94D first call
 const DWORD ADDR_4D6A13         = 0x004D6A13;  // recv packet opcode dispatch prologue
+const DWORD ADDR_49C9C0         = 0x0049C9C0;  // 能力面板红字候选链共用 hash lookup：key -> value / return &node->value
+const DWORD ADDR_49CA01         = 0x0049CA01;  // 能力面板红字候选链：读取 [edx+0xC] -> 写入 [eax]
+const DWORD ADDR_52FD80         = 0x0052FD80;  // 能力面板红字候选链共用 hash insert/update：写入 [vtable,next,key,value] 节点
+const DWORD ADDR_52FE14         = 0x0052FE14;  // 能力面板红字候选链：读取 [ecx] -> 写入 [eax+0xC]
+const DWORD ADDR_622680         = 0x00622680;  // 能力面板红字候选链共用 hash clone/copy：复制 [vtable,next,key,value] 节点链
+const DWORD ADDR_6226CE         = 0x006226CE;  // 能力面板红字候选链：读取 [esi+0xC] -> 写入 [eax+0xC]
 const DWORD ADDR_417240         = 0x00417240;  // COutPacket::Encode4 (__thiscall, push value)
 const DWORD ADDR_4D63A0         = 0x004D63A0;  // CWvsContext / network session send (__thiscall, push COutPacket*)
 const DWORD ADDR_750C20         = 0x00750C20;  // COutPacket ctor/init (__thiscall, push opcode)
@@ -278,6 +365,10 @@ const DWORD ADDR_7CF370         = 0x007CF370;
 const DWORD ADDR_7DC1B0         = 0x007DC1B0;
 const DWORD ADDR_7D4CA0         = 0x007D4CA0;
 const DWORD ADDR_7D4CD0         = 0x007D4CD0;
+// sub_856C60 stat finalize cap: speed clamps to maxBase+140, jump clamps to 123.
+const DWORD ADDR_858D30         = 0x00858D30;  // speed upper clamp: cmp/jl/mov edx,edi
+const DWORD ADDR_858D49         = 0x00858D49;  // jump upper clamp compare
+const DWORD ADDR_858D4E         = 0x00858D4E;  // jump upper clamp branch + mov edx,123
 
 // ============================================================================
 // 技能列表构建过滤点（sub_7DD420 LABEL_42 入口，技能加入 entries 前最后一刻）

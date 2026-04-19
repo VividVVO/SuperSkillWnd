@@ -1126,7 +1126,9 @@ static void RenderSkillTooltipCard(const SkillEntry& skill, RetroSkillAssets& as
     ImGuiIO& io = ImGui::GetIO();
     const float edgePadding = 4.0f;
     const float followOffsetX = 0.0f;
-    const float followOffsetY = 18.0f * mainScale;
+    // Independent buff tooltip: keep the existing follow behavior, but lift it
+    // 19px relative to the old placement so it doesn't sit too low.
+    const float followOffsetY = -1.0f * mainScale;
     float tooltipX = floorf(io.MousePos.x + followOffsetX);
     if (tooltipX < edgePadding)
         tooltipX = edgePadding;
@@ -1255,6 +1257,222 @@ static void RenderSkillTooltipCard(const SkillEntry& skill, RetroSkillAssets& as
 static void RenderSkillTooltip(const SkillEntry& skill, RetroSkillAssets& assets, float mainScale, const ImVec2& hoveredMin, const ImVec2& hoveredMax, const ImVec2& panelPos, float panelWidth)
 {
     RenderSkillTooltipCard(skill, assets, mainScale, hoveredMin, hoveredMax, panelPos, panelWidth);
+}
+
+void RenderRetroCompactTooltipCard(const char* title, int iconId, const char* infoText, RetroSkillAssets& assets, float mainScale)
+{
+    if (!title || !title[0])
+        return;
+
+    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+    if (!drawList)
+        return;
+
+    const float tooltipWidth = floorf(290.0f * mainScale);
+    const float titleFontSize = floorf(14.0f * mainScale);
+    const float bodyFontSize = floorf(12.0f * mainScale);
+    const float glyphSpacing = 1.0f * mainScale;
+    const float lineGap = 4.0f * mainScale;
+    const float contentOffsetY = floorf(2.0f * mainScale);
+    const float titleOffsetY = floorf(10.0f * mainScale);
+    const float iconTopOffsetY = floorf(34.0f * mainScale);
+    const float infoTextLeft = floorf(92.0f * mainScale);
+    const float tooltipBodyRightPadding = floorf(10.0f * mainScale);
+
+    const std::string compactInfoText = infoText ? ConvertLiteralNewlines(infoText) : std::string();
+    const float infoWrapWidth = (tooltipWidth - infoTextLeft - tooltipBodyRightPadding > 1.0f)
+        ? (tooltipWidth - infoTextLeft - tooltipBodyRightPadding)
+        : 1.0f;
+    const float infoHeight = compactInfoText.empty()
+        ? 0.0f
+        : MeasureWrappedTooltipBlockHeight(compactInfoText, infoWrapWidth, bodyFontSize, glyphSpacing, lineGap);
+    const float bodyBottomOffsetY = floorf(iconTopOffsetY + (compactInfoText.empty() ? 64.0f : (infoHeight + 12.0f * mainScale)));
+    const float tooltipHeight = (std::max)(
+        floorf(contentOffsetY + bodyBottomOffsetY + (12.0f * mainScale)),
+        floorf(128.0f * mainScale));
+    const ImVec2 tooltipSize(tooltipWidth, tooltipHeight);
+
+    ImGuiIO& io = ImGui::GetIO();
+    const float edgePadding = 4.0f;
+    const float followOffsetX = 0.0f;
+    const float followOffsetY = 18.0f * mainScale;
+
+    float tooltipX = floorf(io.MousePos.x + followOffsetX);
+    if (tooltipX < edgePadding)
+        tooltipX = edgePadding;
+    if (tooltipX + tooltipSize.x > io.DisplaySize.x - edgePadding)
+        tooltipX = floorf(io.DisplaySize.x - tooltipSize.x - edgePadding);
+    if (tooltipX < edgePadding)
+        tooltipX = edgePadding;
+
+    float tooltipY = floorf(io.MousePos.y + followOffsetY);
+    if (tooltipY < edgePadding)
+        tooltipY = edgePadding;
+    if (tooltipY + tooltipSize.y > io.DisplaySize.y - edgePadding)
+        tooltipY = floorf(io.DisplaySize.y - tooltipSize.y - edgePadding);
+    if (tooltipY < edgePadding)
+        tooltipY = edgePadding;
+
+    const ImVec2 tooltipMin(tooltipX, tooltipY);
+    const ImVec2 tooltipMax(tooltipX + tooltipSize.x, tooltipY + tooltipSize.y);
+    DrawTooltipBorder(drawList, tooltipMin, tooltipMax);
+
+    const std::string titleText = title;
+    const ImVec2 titleSize(
+        MeasureTooltipSpacedLineWidth(titleText, titleFontSize, glyphSpacing, 1.0f * mainScale, true),
+        ResolveRetroLineHeight(titleFontSize, glyphSpacing));
+    const ImVec2 titlePos(
+        floorf(tooltipMin.x + (tooltipWidth - titleSize.x) * 0.5f),
+        floorf(tooltipMin.y + titleOffsetY + contentOffsetY));
+    DrawBoldTooltipTitle(drawList, titlePos, titleText.c_str(), mainScale, titleFontSize, glyphSpacing);
+
+    UITexture* iconTex = GetRetroSkillSkillIconTexture(assets, iconId);
+    const ImVec2 iconMin(
+        floorf(tooltipMin.x + 16.0f * mainScale),
+        floorf(tooltipMin.y + iconTopOffsetY - 1.0f * mainScale + contentOffsetY));
+    const ImVec2 iconMax(iconMin.x + 64.0f * mainScale, iconMin.y + 64.0f * mainScale);
+    const ImVec2 iconBackplateMin(
+        floorf(tooltipMin.x + 14.0f * mainScale),
+        floorf(tooltipMin.y + iconTopOffsetY - 3.0f * mainScale + contentOffsetY));
+    const ImVec2 iconBackplateMax(iconBackplateMin.x + 68.0f * mainScale, iconBackplateMin.y + 68.0f * mainScale);
+    drawList->AddRectFilled(iconBackplateMin, iconBackplateMax, kTooltipIconBackplateColor);
+
+    if (iconTex && iconTex->texture)
+        drawList->AddImage((ImTextureID)iconTex->texture, iconMin, iconMax);
+    else
+        drawList->AddRectFilled(iconMin, iconMax, IM_COL32(82, 97, 120, 255), 2.0f * mainScale);
+
+    if (!compactInfoText.empty())
+    {
+        DrawWrappedTooltipBlock(
+            drawList,
+            ImVec2(floorf(tooltipMin.x + infoTextLeft), floorf(tooltipMin.y + iconTopOffsetY + contentOffsetY)),
+            infoWrapWidth,
+            compactInfoText,
+            kRetroPureWhiteTextColor,
+            mainScale,
+            bodyFontSize,
+            glyphSpacing,
+            lineGap);
+    }
+}
+
+void RenderRetroBuffTooltipCard(const SkillEntry& skill, RetroSkillAssets& assets, float mainScale)
+{
+    if (skill.skillId <= 0 && skill.iconId <= 0 && skill.name.empty())
+        return;
+
+    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+    if (!drawList)
+        return;
+
+    const float tooltipWidth = floorf(290.0f * mainScale);
+    const float titleFontSize = floorf(14.0f * mainScale);
+    const float bodyFontSize = floorf(12.0f * mainScale);
+    const float glyphSpacing = 1.0f * mainScale;
+    const float lineGap = 4.0f * mainScale;
+    const float tooltipBodyRightPadding = floorf(10.0f * mainScale);
+    const float descriptionTextLeft = floorf(92.0f * mainScale);
+    const float contentOffsetY = floorf(2.0f * mainScale);
+    const float descriptionInfoOffsetY = floorf(-4.0f * mainScale);
+    const float titleOffsetY = floorf(10.0f * mainScale);
+    const float iconTopOffsetY = floorf(34.0f * mainScale);
+    const float descriptionTopOffsetY = floorf(37.0f * mainScale);
+
+    std::string descriptionText;
+    if (skill.maxLevel > 0)
+        descriptionText = BuildTooltipMaxLevelLabel(skill.maxLevel);
+
+    const std::string descriptionBodyText = ResolveTooltipDescriptionText(skill);
+    if (!descriptionBodyText.empty())
+    {
+        if (!descriptionText.empty())
+            descriptionText += "\n";
+        descriptionText += descriptionBodyText;
+    }
+
+    const float descriptionAvailableWidth = tooltipWidth - descriptionTextLeft - tooltipBodyRightPadding;
+    const float descriptionWrapWidth = (descriptionAvailableWidth > 1.0f) ? descriptionAvailableWidth : 1.0f;
+    const float descriptionHeight = descriptionText.empty()
+        ? 0.0f
+        : MeasureWrappedTooltipBlockHeight(
+            descriptionText,
+            descriptionWrapWidth,
+            bodyFontSize,
+            glyphSpacing,
+            lineGap);
+    const float iconBottomOffsetY = floorf(iconTopOffsetY + 68.0f * mainScale);
+    const float descriptionBottomOffsetY = floorf(descriptionTopOffsetY + descriptionHeight);
+    const float bodyBottomOffsetY = (iconBottomOffsetY > descriptionBottomOffsetY)
+        ? iconBottomOffsetY
+        : descriptionBottomOffsetY;
+    const float tooltipHeight = (std::max)(
+        floorf(contentOffsetY + bodyBottomOffsetY + (12.0f * mainScale)),
+        floorf(100.0f * mainScale));
+    const ImVec2 tooltipSize(tooltipWidth, tooltipHeight);
+
+    ImGuiIO& io = ImGui::GetIO();
+    const float edgePadding = 4.0f;
+    const float followOffsetX = 0.0f;
+    const float followOffsetY = 18.0f * mainScale;
+    float tooltipX = floorf(io.MousePos.x + followOffsetX);
+    if (tooltipX < edgePadding)
+        tooltipX = edgePadding;
+    if (tooltipX + tooltipSize.x > io.DisplaySize.x - edgePadding)
+        tooltipX = floorf(io.DisplaySize.x - tooltipSize.x - edgePadding);
+    if (tooltipX < edgePadding)
+        tooltipX = edgePadding;
+
+    float tooltipY = floorf(io.MousePos.y + followOffsetY);
+    if (tooltipY < edgePadding)
+        tooltipY = edgePadding;
+    if (tooltipY + tooltipSize.y > io.DisplaySize.y - edgePadding)
+        tooltipY = floorf(io.DisplaySize.y - tooltipSize.y - edgePadding);
+    if (tooltipY < edgePadding)
+        tooltipY = edgePadding;
+
+    const ImVec2 tooltipMin(tooltipX, tooltipY);
+    const ImVec2 tooltipMax(tooltipX + tooltipSize.x, tooltipY + tooltipSize.y);
+    DrawTooltipBorder(drawList, tooltipMin, tooltipMax);
+
+    const std::string titleText = !skill.name.empty() ? skill.name : std::string();
+    const ImVec2 titleSize(
+        MeasureTooltipSpacedLineWidth(titleText, titleFontSize, glyphSpacing, 1.0f * mainScale, true),
+        ResolveRetroLineHeight(titleFontSize, glyphSpacing));
+    const ImVec2 titlePos(
+        floorf(tooltipMin.x + (tooltipWidth - titleSize.x) * 0.5f),
+        floorf(tooltipMin.y + titleOffsetY + contentOffsetY));
+    DrawBoldTooltipTitle(drawList, titlePos, titleText.c_str(), mainScale, titleFontSize, glyphSpacing);
+
+    UITexture* iconTex = GetRetroSkillSkillIconTexture(assets, skill.iconId);
+    const ImVec2 iconMin(
+        floorf(tooltipMin.x + 16.0f * mainScale),
+        floorf(tooltipMin.y + iconTopOffsetY - 1.0f * mainScale + contentOffsetY));
+    const ImVec2 iconMax(iconMin.x + 64.0f * mainScale, iconMin.y + 64.0f * mainScale);
+    const ImVec2 iconBackplateMin(
+        floorf(tooltipMin.x + 14.0f * mainScale),
+        floorf(tooltipMin.y + iconTopOffsetY - 3.0f * mainScale + contentOffsetY));
+    const ImVec2 iconBackplateMax(iconBackplateMin.x + 68.0f * mainScale, iconBackplateMin.y + 68.0f * mainScale);
+    drawList->AddRectFilled(iconBackplateMin, iconBackplateMax, kTooltipIconBackplateColor);
+
+    if (iconTex && iconTex->texture)
+        drawList->AddImage((ImTextureID)iconTex->texture, iconMin, iconMax);
+    else
+        drawList->AddRectFilled(iconMin, iconMax, IM_COL32(82, 97, 120, 255), 2.0f * mainScale);
+
+    if (!descriptionText.empty())
+    {
+        DrawWrappedTooltipBlock(
+            drawList,
+            ImVec2(floorf(tooltipMin.x + descriptionTextLeft), floorf(tooltipMin.y + descriptionTopOffsetY + contentOffsetY + descriptionInfoOffsetY)),
+            descriptionWrapWidth,
+            descriptionText,
+            kRetroPureWhiteTextColor,
+            mainScale,
+            bodyFontSize,
+            glyphSpacing,
+            lineGap);
+    }
 }
 
 static int CalculateSuperSkillResetSpentSp(const std::vector<SkillEntry>& skills)

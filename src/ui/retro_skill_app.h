@@ -56,6 +56,7 @@ void RenderRetroSkillCursorOverlay(
     bool extraHoverAnimation = false,
     bool extraPressed = false,
     uint64_t extraHoverStartTick = 0,
-    bool extraHoverInstantUseNormal1 = false);
+    bool extraHoverInstantUseNormal1 = false,
+    int observedNativeCursorState = -1);
 void RenderRetroSkillScene(RetroSkillRuntimeState& state, RetroSkillAssets& assets, LPDIRECT3DDEVICE9 device, float mainScale);
 void RenderRetroSkillSceneEx(RetroSkillRuntimeState& state, RetroSkillAssets& assets, LPDIRECT3DDEVICE9 device, float mainScale, const RetroSkillBehaviorHooks* hooks);

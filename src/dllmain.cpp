@@ -21,6 +21,7 @@
 #include "d3d8/d3d8_renderer.h"
 #include "runtime/init_pipeline.h"
 #include "runtime/cleanup_pipeline.h"
+#include <algorithm>
 #include <cwchar>
 #include <intrin.h>
 #include <vector>

@@ -126,6 +126,89 @@ namespace
 
 enum MouseState { MS_NORMAL, MS_PRESSED, MS_DRAG, MS_HOVER_INSTANT, MS_HOVER_LOOP_A, MS_HOVER_LOOP_B };
 
+namespace
+{
+    bool IsPressedNativeCursorState(int state)
+    {
+        return state == 9 || state == 10 || state == 12;
+    }
+
+    bool IsHoverNativeCursorState(int state)
+    {
+        switch (state)
+        {
+        case 4:
+        case 5:
+        case 6:
+        case 7:
+        case 8:
+        case 11:
+        case 14:
+        case 15:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    bool IsDragNativeCursorState(int state)
+    {
+        return state == 16;
+    }
+
+    int ResolveOverlayNativeCursorState(
+        bool wantsHover,
+        bool wantsPressed,
+        bool wantsDrag,
+        int observedState)
+    {
+        if (wantsDrag)
+            return IsDragNativeCursorState(observedState) ? observedState : 16;
+        if (wantsPressed)
+            return IsPressedNativeCursorState(observedState) ? observedState : 12;
+        if (wantsHover)
+            return IsHoverNativeCursorState(observedState) ? observedState : 4;
+        return observedState;
+    }
+
+    bool TryResolveMouseStateFromNativeCursorState(int nativeState, MouseState* outMouseState)
+    {
+        if (!outMouseState)
+            return false;
+
+        switch (nativeState)
+        {
+        case 0:
+            *outMouseState = MS_NORMAL;
+            return true;
+        case 4:
+        case 7:
+        case 14:
+            *outMouseState = MS_HOVER_LOOP_A;
+            return true;
+        case 5:
+        case 11:
+            *outMouseState = MS_HOVER_INSTANT;
+            return true;
+        case 6:
+        case 8:
+        case 15:
+            *outMouseState = MS_HOVER_LOOP_B;
+            return true;
+        case 9:
+        case 10:
+        case 12:
+            *outMouseState = MS_PRESSED;
+            return true;
+        case 16:
+            *outMouseState = MS_DRAG;
+            return true;
+        default:
+            return false;
+        }
+    }
+}
+
 void InitializeRetroSkillApp(RetroSkillRuntimeState& state, RetroSkillAssets& assets, const RetroDeviceRef& deviceRef, const char* assetPath)
 {
     ResetRetroSkillData(state);
@@ -158,7 +241,8 @@ void RenderRetroSkillCursorOverlay(
     bool extraHoverAnimation,
     bool extraPressed,
     uint64_t extraHoverStartTick,
-    bool extraHoverInstantUseNormal1)
+    bool extraHoverInstantUseNormal1,
+    int observedNativeCursorState)
 {
     ImGuiIO& io = ImGui::GetIO();
 
@@ -172,15 +256,27 @@ void RenderRetroSkillCursorOverlay(
     bool isMouseDown = io.MouseDown[0];
     const bool stateHoverAnimation = state.isHoveringActionButtons && !state.actionHoverStoppedByClick;
     MouseState mouseState = MS_NORMAL;
-    if (state.isDraggingSkill)
+    const bool wantsDrag = state.isDraggingSkill;
+    const bool wantsPressed = isMouseDown && (state.isPressingUiButton || extraPressed);
+    const bool wantsHover = stateHoverAnimation || extraHoverAnimation;
+    const int effectiveNativeCursorState = ResolveOverlayNativeCursorState(
+        wantsHover,
+        wantsPressed,
+        wantsDrag,
+        observedNativeCursorState);
+
+    if (TryResolveMouseStateFromNativeCursorState(effectiveNativeCursorState, &mouseState))
+    {
+    }
+    else if (state.isDraggingSkill)
     {
         mouseState = MS_DRAG;
     }
-    else if (isMouseDown && (state.isPressingUiButton || extraPressed))
+    else if (wantsPressed)
     {
         mouseState = MS_PRESSED;
     }
-    else if (stateHoverAnimation || extraHoverAnimation)
+    else if (wantsHover)
     {
         double hoverElapsed = 0.0;
         bool hoverInstantUseNormal1 = false;

@@ -25,6 +25,22 @@ inline bool SafeIsBadReadPtr(const void* ptr, size_t size)
     return false;
 }
 
+inline bool SafeIsBadWritePtr(void* ptr, size_t size)
+{
+    if (!ptr) return true;
+    MEMORY_BASIC_INFORMATION mbi = {};
+    if (VirtualQuery(ptr, &mbi, sizeof(mbi)) == 0) return true;
+    if (mbi.State != MEM_COMMIT) return true;
+    if (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) return true;
+    const DWORD writableMask =
+        PAGE_READWRITE | PAGE_WRITECOPY |
+        PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+    if ((mbi.Protect & writableMask) == 0) return true;
+    uintptr_t regionEnd = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
+    if ((uintptr_t)ptr + size > regionEnd) return true;
+    return false;
+}
+
 // ============================================================================
 // 日志
 // ============================================================================

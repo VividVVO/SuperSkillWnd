@@ -69,6 +69,7 @@ uintptr_t wnd = *(uintptr_t*)(vecData + i * 4);
 - 修正前：第 0 项会把 vector data 指针本身当成 CWnd，后续项会读到 CWndMan 结构字段，遮挡枚举容易为空或随机。
 - 修正后：可以真正读到所有 top-level CWnd 指针和矩形。
 - 仍需注意：top-level vector 是“窗口集合”，不是已证实的前后层级顺序。
+- 进一步纠偏：不能因为 `CWndMan+0x4A74` 为空，就把附近任何“`vec[-1]` 像 count”的字段当作替代 top-level vector。`0x4A64 / 0x4A68` 在 `sub_C08290` 等代码里会被当作带虚表调用和字符串查询的对象使用，不是已证实的 top-level `CWnd*` 数组。
 
 ## 4. 原生窗口创建总入口
 
