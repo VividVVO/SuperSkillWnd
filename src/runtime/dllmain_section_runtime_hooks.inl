@@ -6348,6 +6348,106 @@ static bool IsNativeMountFlyingFamilySkillId(int skillId)
     return (skillId >= 80001063 && skillId <= 80001089) || skillId == 80001120;
 }
 
+static bool TryGetMountItemIdFromContextSafe(void *mountContext, int *outMountItemId, const char *logTag)
+{
+    if (outMountItemId)
+    {
+        *outMountItemId = 0;
+    }
+    if (!mountContext || SafeIsBadReadPtr(mountContext, sizeof(DWORD)))
+    {
+        return false;
+    }
+
+    tMountContextGetItemIdFn getItemIdFn =
+        reinterpret_cast<tMountContextGetItemIdFn>(ADDR_7D4CA0);
+    if (!getItemIdFn)
+    {
+        return false;
+    }
+
+    int mountItemId = 0;
+    __try
+    {
+        mountItemId = getItemIdFn(mountContext);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        static LONG s_mountGetItemIdExceptionLogBudget = 24;
+        const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountGetItemIdExceptionLogBudget);
+        if (budgetAfterDecrement >= 0)
+        {
+            WriteLogFmt("[MountCtx] getItemId EXCEPTION ctx=0x%08X tag=%s code=0x%08X",
+                        (DWORD)(uintptr_t)mountContext,
+                        logTag ? logTag : "unknown",
+                        GetExceptionCode());
+        }
+        return false;
+    }
+
+    if (outMountItemId)
+    {
+        *outMountItemId = mountItemId;
+    }
+    return true;
+}
+
+static bool TryReadSkillEntryOutSafe(unsigned int **skillEntryOut, uintptr_t *outSkillEntry)
+{
+    if (outSkillEntry)
+    {
+        *outSkillEntry = 0;
+    }
+    if (!skillEntryOut || SafeIsBadReadPtr(skillEntryOut, sizeof(void *)))
+    {
+        return false;
+    }
+
+    uintptr_t entry = 0;
+    __try
+    {
+        entry = reinterpret_cast<uintptr_t>(*skillEntryOut);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+
+    if (outSkillEntry)
+    {
+        *outSkillEntry = entry;
+    }
+    return true;
+}
+
+static bool TryWriteSkillEntryOutSafe(unsigned int **skillEntryOut, uintptr_t entry, const char *logTag)
+{
+    if (!skillEntryOut || SafeIsBadWritePtr(skillEntryOut, sizeof(void *)))
+    {
+        return false;
+    }
+
+    __try
+    {
+        *skillEntryOut = reinterpret_cast<unsigned int *>(entry);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        static LONG s_mountWriteSkillEntryExceptionLogBudget = 16;
+        const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountWriteSkillEntryExceptionLogBudget);
+        if (budgetAfterDecrement >= 0)
+        {
+            WriteLogFmt("[MountSoaringGate] write skillEntryOut EXCEPTION out=0x%08X entry=0x%08X tag=%s code=0x%08X",
+                        (DWORD)(uintptr_t)skillEntryOut,
+                        (DWORD)entry,
+                        logTag ? logTag : "unknown",
+                        GetExceptionCode());
+        }
+        return false;
+    }
+    return true;
+}
+
 static uintptr_t LookupSkillEntryBySkillDataMgr(void *skillDataMgr, int skillId)
 {
     if (!skillDataMgr || skillId <= 0)
@@ -6480,22 +6580,40 @@ static int __fastcall hkMountContextIsFlyingFamily7D4CD0(void *mountContext, voi
         return 0;
     }
 
-    const BOOL nativeResult = oMountContextIsFlyingFamily7D4CD0
-                                  ? oMountContextIsFlyingFamily7D4CD0(mountContext)
-                                  : FALSE;
+    BOOL nativeResult = FALSE;
+    if (oMountContextIsFlyingFamily7D4CD0)
+    {
+        __try
+        {
+            nativeResult = oMountContextIsFlyingFamily7D4CD0(mountContext);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            static LONG s_mountFamilyNativeExceptionLogBudget = 16;
+            const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountFamilyNativeExceptionLogBudget);
+            if (budgetAfterDecrement >= 0)
+            {
+                WriteLogFmt("[MountFamily] native call EXCEPTION ctx=0x%08X code=0x%08X",
+                            (DWORD)(uintptr_t)mountContext,
+                            GetExceptionCode());
+            }
+            return 0;
+        }
+    }
     if (nativeResult)
     {
         return 1;
     }
 
-    tMountContextGetItemIdFn getItemIdFn =
-        reinterpret_cast<tMountContextGetItemIdFn>(ADDR_7D4CA0);
-    if (!getItemIdFn)
+    int mountItemId = 0;
+    if (!TryGetMountItemIdFromContextSafe(mountContext, &mountItemId, "7D4CD0"))
     {
         return 0;
     }
-
-    const int mountItemId = getItemIdFn(mountContext);
+    if (mountItemId <= 0)
+    {
+        return 0;
+    }
     ObserveExtendedMountFlightContext(mountItemId);
     if (!IsExtendedMountActionGateMount(mountItemId))
     {
@@ -6519,28 +6637,56 @@ static int __fastcall hkMountSoaringGate7DC1B0(
     int skillId,
     unsigned int **skillEntryOut)
 {
-    int result = oMountSoaringGate7DC1B0
-                     ? oMountSoaringGate7DC1B0(thisPtr, levelContext, mountContext, skillId, skillEntryOut)
-                     : 0;
+    int result = 0;
+    if (oMountSoaringGate7DC1B0)
+    {
+        __try
+        {
+            result = oMountSoaringGate7DC1B0(thisPtr, levelContext, mountContext, skillId, skillEntryOut);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            static LONG s_mountSoaringNativeExceptionLogBudget = 16;
+            const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountSoaringNativeExceptionLogBudget);
+            if (budgetAfterDecrement >= 0)
+            {
+                WriteLogFmt("[MountSoaringGate] native call EXCEPTION skill=%d ctx=0x%08X out=0x%08X code=0x%08X",
+                            skillId,
+                            (DWORD)(uintptr_t)mountContext,
+                            (DWORD)(uintptr_t)skillEntryOut,
+                            GetExceptionCode());
+            }
+            return 0;
+        }
+    }
 
     if (!mountContext)
     {
         return result;
     }
 
-    tMountContextGetItemIdFn getItemIdFn =
-        reinterpret_cast<tMountContextGetItemIdFn>(ADDR_7D4CA0);
-    if (!getItemIdFn)
+    // sub_7DC1B0 原生只把 80001089 走坐骑飞行分支，其它技能直接查等级。
+    // 这里同样先限制到飞行族，避免普通骑乘技能误入扩展分支触发非法解引用。
+    if (!IsNativeMountFlyingFamilySkillId(skillId))
     {
         return result;
     }
 
-    const int mountItemId = getItemIdFn(mountContext);
+    int mountItemId = 0;
+    if (!TryGetMountItemIdFromContextSafe(mountContext, &mountItemId, "7DC1B0"))
+    {
+        return result;
+    }
+    if (mountItemId <= 0)
+    {
+        return result;
+    }
+
     ObserveExtendedMountFlightContext(mountItemId);
     const bool isExtendedMount = IsExtendedMountActionGateMount(mountItemId);
     const int mappedNativeFlightSkillId = ResolveExtendedMountNativeFlightSkillId(mountItemId);
-    const uintptr_t originalSkillEntry =
-        (skillEntryOut && *skillEntryOut) ? reinterpret_cast<uintptr_t>(*skillEntryOut) : 0;
+    uintptr_t originalSkillEntry = 0;
+    TryReadSkillEntryOutSafe(skillEntryOut, &originalSkillEntry);
 
     if (mountItemId == 1932163 || mountItemId == 1992018 || mountItemId == 1992020)
     {
@@ -6564,9 +6710,9 @@ static int __fastcall hkMountSoaringGate7DC1B0(
     if (isExtendedMount)
     {
         uintptr_t mappedSkillEntry = 0;
-        if (skillEntryOut && *skillEntryOut)
+        if (TryReadSkillEntryOutSafe(skillEntryOut, &mappedSkillEntry) && mappedSkillEntry)
         {
-            mappedSkillEntry = reinterpret_cast<uintptr_t>(*skillEntryOut);
+            // keep existing entry
         }
         if (!mappedSkillEntry)
         {
@@ -6585,12 +6731,11 @@ static int __fastcall hkMountSoaringGate7DC1B0(
             mappedSkillEntry = SkillOverlayBridgeLookupSkillEntryPointer(mappedNativeFlightSkillId);
         }
 
-        if (skillEntryOut && !*skillEntryOut)
+        uintptr_t currentSkillEntryOut = 0;
+        const bool skillEntryOutReadable = TryReadSkillEntryOutSafe(skillEntryOut, &currentSkillEntryOut);
+        if (skillEntryOutReadable && currentSkillEntryOut == 0 && mappedSkillEntry)
         {
-            if (mappedSkillEntry)
-            {
-                *skillEntryOut = reinterpret_cast<unsigned int *>(mappedSkillEntry);
-            }
+            TryWriteSkillEntryOutSafe(skillEntryOut, mappedSkillEntry, "extend_map");
         }
 
         if (IsNativeMountFlyingFamilySkillId(skillId) || mappedSkillEntry != 0)
@@ -6625,9 +6770,34 @@ static int __fastcall hkMountSoaringGate7DC1B0(
         return result;
     }
 
-    tMountContextIsFlyingFamilyFn isFlyingFamilyFn =
-        reinterpret_cast<tMountContextIsFlyingFamilyFn>(ADDR_7D4CD0);
-    const bool nativeFlyingFamily = (isFlyingFamilyFn != nullptr) && (isFlyingFamilyFn(mountContext) != FALSE);
+    bool nativeFlyingFamily = false;
+    if (oMountContextIsFlyingFamily7D4CD0)
+    {
+        __try
+        {
+            nativeFlyingFamily = oMountContextIsFlyingFamily7D4CD0(mountContext) != FALSE;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            nativeFlyingFamily = false;
+        }
+    }
+    else
+    {
+        tMountContextIsFlyingFamilyFn isFlyingFamilyFn =
+            reinterpret_cast<tMountContextIsFlyingFamilyFn>(ADDR_7D4CD0);
+        if (isFlyingFamilyFn)
+        {
+            __try
+            {
+                nativeFlyingFamily = isFlyingFamilyFn(mountContext) != FALSE;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                nativeFlyingFamily = false;
+            }
+        }
+    }
     if (!nativeFlyingFamily && !isExtendedMount)
     {
         return result;
@@ -6638,12 +6808,14 @@ static int __fastcall hkMountSoaringGate7DC1B0(
         return result;
     }
 
-    if (skillEntryOut && !*skillEntryOut)
+    uintptr_t currentSoaringEntryOut = 0;
+    const bool soaringEntryOutReadable = TryReadSkillEntryOutSafe(skillEntryOut, &currentSoaringEntryOut);
+    if (soaringEntryOutReadable && currentSoaringEntryOut == 0)
     {
         const uintptr_t soaringSkillEntry = SkillOverlayBridgeLookupSkillEntryPointer(80001089);
         if (soaringSkillEntry)
         {
-            *skillEntryOut = reinterpret_cast<unsigned int *>(soaringSkillEntry);
+            TryWriteSkillEntryOutSafe(skillEntryOut, soaringSkillEntry, "soaring_default");
         }
     }
 
