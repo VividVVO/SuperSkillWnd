@@ -7436,11 +7436,14 @@ void SkillOverlayBridgeGetIndependentBuffOverlayEntries(std::vector<IndependentB
         PruneExpiredNativeVisibleBuffStates();
         std::vector<NativeVisibleBuffState> nativeStates;
         nativeStates.reserve(g_nativeVisibleBuffStates.size());
+        std::map<int, int> nativeVisibleCountBySkillId;
         for (std::map<unsigned long long, NativeVisibleBuffState>::const_iterator it = g_nativeVisibleBuffStates.begin();
              it != g_nativeVisibleBuffStates.end();
              ++it)
         {
             nativeStates.push_back(it->second);
+            if (it->second.skillId > 0)
+                nativeVisibleCountBySkillId[it->second.skillId] += 1;
         }
 
         std::sort(virtualStates.begin(), virtualStates.end(),
@@ -7498,6 +7501,24 @@ void SkillOverlayBridgeGetIndependentBuffOverlayEntries(std::vector<IndependentB
             }
 
             const IndependentBuffOverlayState& state = virtualStates[virtualIndex];
+            const bool hasNativeSameSkill =
+                (state.skillId > 0 &&
+                 nativeVisibleCountBySkillId.find(state.skillId) != nativeVisibleCountBySkillId.end()) ||
+                (state.iconSkillId > 0 &&
+                 nativeVisibleCountBySkillId.find(state.iconSkillId) != nativeVisibleCountBySkillId.end());
+            if (hasNativeSameSkill)
+            {
+                static LONG s_virtualNativeVisibleDedupLogBudget = 24;
+                const LONG budgetAfterDecrement = InterlockedDecrement(&s_virtualNativeVisibleDedupLogBudget);
+                if (budgetAfterDecrement >= 0)
+                {
+                    WriteLogFmt("[IndependentBuffOverlay] dedup virtual skillId=%d iconSkillId=%d because native-visible exists",
+                        state.skillId,
+                        state.iconSkillId);
+                }
+                ++virtualIndex;
+                continue;
+            }
             int remainingMs = 0;
             if (state.durationMs > 0)
             {

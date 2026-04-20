@@ -445,10 +445,25 @@ static void __fastcall SuperCWndDraw(uintptr_t thisPtr, void * /*edx_unused*/, i
 // 新增了哪些空指针和时机保护：SkillWndThis非空、+0xBEC可读
 // 仍不确定需补查的数据：无
 // ============================================================================
+static void ReleaseAllSuperButtonObjects(const char *reason);
+static void TryEnableD3D8HooksLate(const char *reason);
+
 static bool CreateSuperButton(uintptr_t skillWndThis)
 {
     if (!skillWndThis)
         return false;
+
+    if (g_SuperBtnObj || g_SuperBtnCompareObj || g_SuperBtnSkinDonorObj)
+    {
+        ReleaseAllSuperButtonObjects("create_reuse");
+        g_SuperBtnObj = 0;
+        g_SuperBtnSkinDonorObj = 0;
+        g_SuperBtnCompareObj = 0;
+        for (int i = 0; i < 5; ++i)
+        {
+            g_SuperBtnStateDonorObj[i] = 0;
+        }
+    }
 
     for (int i = 0; i < 5; ++i)
     {
@@ -983,6 +998,71 @@ static void SafeCloseSuperWnd(const char *reason)
     }
 }
 
+static void SafeCloseNativeUiObject(uintptr_t obj, const char *tag)
+{
+    if (!obj || SafeIsBadReadPtr((void *)obj, 4))
+    {
+        return;
+    }
+
+    DWORD fnClose = ADDR_B9E880;
+    __try
+    {
+        __asm {
+            mov ecx, [obj]
+            call [fnClose]
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        WriteLogFmt("[NativeBtn] close EXCEPTION obj=0x%08X tag=%s code=0x%08X",
+                    (DWORD)obj,
+                    tag ? tag : "unknown",
+                    GetExceptionCode());
+    }
+}
+
+static void ReleaseAllSuperButtonObjects(const char *reason)
+{
+    uintptr_t uniqueObjs[16] = {};
+    int uniqueCount = 0;
+
+    auto closeUnique = [&](uintptr_t obj, const char *tag)
+    {
+        if (!obj)
+        {
+            return;
+        }
+        for (int i = 0; i < uniqueCount; ++i)
+        {
+            if (uniqueObjs[i] == obj)
+            {
+                return;
+            }
+        }
+        if (uniqueCount < (int)ARRAYSIZE(uniqueObjs))
+        {
+            uniqueObjs[uniqueCount++] = obj;
+        }
+        SafeCloseNativeUiObject(obj, tag);
+    };
+
+    closeUnique(g_SuperBtnObj, "super_btn");
+    closeUnique(g_SuperBtnCompareObj, "compare_btn");
+    closeUnique(g_SuperBtnSkinDonorObj, "skin_donor");
+    for (int i = 0; i < 5; ++i)
+    {
+        closeUnique(g_SuperBtnStateDonorObj[i], "state_donor");
+    }
+
+    if (uniqueCount > 0)
+    {
+        WriteLogFmt("[NativeBtn] released old button objects count=%d reason=%s",
+                    uniqueCount,
+                    reason ? reason : "unknown");
+    }
+}
+
 static void DestroySuperWndOnly(const char *reason)
 {
     if (ENABLE_IMGUI_OVERLAY_PANEL)
@@ -1032,6 +1112,11 @@ static void ResetSuperRuntimeState(bool closeWnd, const char *reason)
     g_PanelDrawX = -9999;
     g_PanelDrawY = -9999;
 
+    if (g_SuperBtnObj || g_SuperBtnCompareObj || g_SuperBtnSkinDonorObj)
+    {
+        ReleaseAllSuperButtonObjects(reason ? reason : "runtime_reset");
+    }
+
     g_SuperBtnObj = 0;
     g_SuperBtnSkinDonorObj = 0;
     g_SuperBtnCompareObj = 0;
@@ -1056,6 +1141,7 @@ static void ResetSuperRuntimeState(bool closeWnd, const char *reason)
 static void OnSkillWndPointerObserved(uintptr_t observed, const char *srcTag)
 {
     DWORD now = GetTickCount();
+    TryEnableD3D8HooksLate("skillwnd_observe");
     if (observed && SafeIsBadReadPtr((void *)observed, 0x20))
     {
         observed = 0;
@@ -1871,6 +1957,8 @@ static tMountSoaringGateFn oMountSoaringGate7DC1B0 = nullptr;
 typedef int(__thiscall *tMountContextGetItemIdFn)(void *mountContext);
 typedef BOOL(__thiscall *tMountContextIsFlyingFamilyFn)(void *mountContext);
 static tMountContextIsFlyingFamilyFn oMountContextIsFlyingFamily7D4CD0 = nullptr;
+static volatile LONG g_LastObservedExtendedMountItemId = 0;
+static volatile LONG g_LastObservedExtendedMountTick = 0;
 typedef int(__thiscall *tNativeGlyphLookupFn)(void *fontCache, unsigned int codepoint, RECT *outRectOrNull);
 static tNativeGlyphLookupFn oNativeGlyphLookup = nullptr;
 typedef int(__thiscall *tSkillLevelBaseFn)(void *thisPtr, DWORD playerObj, int skillId, void *cachePtr);
@@ -6216,6 +6304,45 @@ static int ResolveExtendedMountNativeFlightSkillId(int mountItemId)
     return 0;
 }
 
+static void ObserveExtendedMountFlightContext(int mountItemId)
+{
+    if (!IsExtendedMountActionGateMount(mountItemId))
+    {
+        return;
+    }
+
+    InterlockedExchange(&g_LastObservedExtendedMountItemId, mountItemId);
+    InterlockedExchange(&g_LastObservedExtendedMountTick, (LONG)GetTickCount());
+}
+
+static bool TryGetRecentExtendedMountFlightContext(DWORD maxAgeMs, int *outMountItemId)
+{
+    const LONG observedMountItemId = InterlockedCompareExchange(&g_LastObservedExtendedMountItemId, 0, 0);
+    const LONG observedTick = InterlockedCompareExchange(&g_LastObservedExtendedMountTick, 0, 0);
+    if (observedMountItemId <= 0 || observedTick <= 0)
+    {
+        return false;
+    }
+
+    const DWORD now = GetTickCount();
+    const DWORD elapsed = now - (DWORD)observedTick;
+    if (elapsed > maxAgeMs)
+    {
+        return false;
+    }
+
+    if (!IsExtendedMountActionGateMount((int)observedMountItemId))
+    {
+        return false;
+    }
+
+    if (outMountItemId)
+    {
+        *outMountItemId = (int)observedMountItemId;
+    }
+    return true;
+}
+
 static bool IsNativeMountFlyingFamilySkillId(int skillId)
 {
     return (skillId >= 80001063 && skillId <= 80001089) || skillId == 80001120;
@@ -6369,6 +6496,7 @@ static int __fastcall hkMountContextIsFlyingFamily7D4CD0(void *mountContext, voi
     }
 
     const int mountItemId = getItemIdFn(mountContext);
+    ObserveExtendedMountFlightContext(mountItemId);
     if (!IsExtendedMountActionGateMount(mountItemId))
     {
         return 0;
@@ -6408,6 +6536,7 @@ static int __fastcall hkMountSoaringGate7DC1B0(
     }
 
     const int mountItemId = getItemIdFn(mountContext);
+    ObserveExtendedMountFlightContext(mountItemId);
     const bool isExtendedMount = IsExtendedMountActionGateMount(mountItemId);
     const int mappedNativeFlightSkillId = ResolveExtendedMountNativeFlightSkillId(mountItemId);
     const uintptr_t originalSkillEntry =
@@ -6644,6 +6773,23 @@ static int __fastcall hkSkillLevelBase(void *thisPtr, void * /*edxUnused*/, DWOR
             result = 0;
         }
     }
+    if (result <= 0 && IsNativeMountFlyingFamilySkillId(lookupSkillId))
+    {
+        int recentMountItemId = 0;
+        if (TryGetRecentExtendedMountFlightContext(2500, &recentMountItemId))
+        {
+            result = 1;
+            static LONG s_skillLevelBaseMountFallbackLogBudget = 24;
+            const LONG budgetAfterDecrement = InterlockedDecrement(&s_skillLevelBaseMountFallbackLogBudget);
+            if (budgetAfterDecrement >= 0)
+            {
+                WriteLogFmt("[SkillLevelHook] 7DA7D0 mount fallback query=%d lookup=%d mount=%d -> result=1",
+                            skillId,
+                            lookupSkillId,
+                            recentMountItemId);
+            }
+        }
+    }
     if (lookupSkillId != skillId)
     {
         WriteLogFmt("[SkillLevelHook] 7DA7D0 query=%d -> %d result=%d",
@@ -6697,6 +6843,24 @@ static int __fastcall hkSkillLevelCurrent(void *thisPtr, void * /*edxUnused*/, D
                             GetExceptionCode());
             }
             result = 0;
+        }
+    }
+    if (result <= 0 && IsNativeMountFlyingFamilySkillId(lookupSkillId))
+    {
+        int recentMountItemId = 0;
+        if (TryGetRecentExtendedMountFlightContext(2500, &recentMountItemId))
+        {
+            result = 1;
+            static LONG s_skillLevelCurrentMountFallbackLogBudget = 24;
+            const LONG budgetAfterDecrement = InterlockedDecrement(&s_skillLevelCurrentMountFallbackLogBudget);
+            if (budgetAfterDecrement >= 0)
+            {
+                WriteLogFmt("[SkillLevelHook] 7DBC50 mount fallback query=%d lookup=%d mount=%d flags=%d -> result=1",
+                            skillId,
+                            lookupSkillId,
+                            recentMountItemId,
+                            flags);
+            }
         }
     }
     if (lookupSkillId != skillId)
@@ -6992,6 +7156,8 @@ static LRESULT CALLBACK GameWndProc(HWND h, UINT m, WPARAM w, LPARAM l)
 #if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
     SSW_SecondChildCarrierProbe_ObserveWndProc(m, w, l);
 #endif
+
+    TryEnableD3D8HooksLate("wndproc");
 
     if (ENABLE_IMGUI_OVERLAY_PANEL)
     {
@@ -7874,6 +8040,55 @@ typedef HRESULT(__stdcall *tD3D8Reset)(void *pDevice8, void *pPresentationParame
 static tD3D8Present oD3D8Present = nullptr;
 static tD3D8Reset oD3D8Reset = nullptr;
 
+static void TryEnableD3D8HooksLate(const char *reason)
+{
+    if (g_IsD3D8Mode)
+    {
+        return;
+    }
+
+    if (oD3D8Present || oD3D8Reset)
+    {
+        g_IsD3D8Mode = true;
+        return;
+    }
+
+    static DWORD s_lastLateD3D8ProbeTick = 0;
+    const DWORD now = GetTickCount();
+    if (now - s_lastLateD3D8ProbeTick < 1000)
+    {
+        return;
+    }
+    s_lastLateD3D8ProbeTick = now;
+
+    const HMODULE d3d8Module = ::GetModuleHandleA("d3d8.dll");
+    const HMODULE d3d8ThunkModule = ::GetModuleHandleA("d3d8thk.dll");
+    if (!d3d8Module && !d3d8ThunkModule)
+    {
+        return;
+    }
+
+    WriteLogFmt("[D3D8] late probe detected modules d3d8=0x%08X d3d8thk=0x%08X reason=%s",
+                (DWORD)(uintptr_t)d3d8Module,
+                (DWORD)(uintptr_t)d3d8ThunkModule,
+                reason ? reason : "unknown");
+
+    if (!SetupD3D8Hook())
+    {
+        WriteLog("[D3D8] late hook setup failed");
+        return;
+    }
+
+    g_IsD3D8Mode = true;
+    if (ENABLE_IMGUI_OVERLAY_PANEL)
+    {
+        SuperImGuiOverlaySetVisible(false);
+        if (g_SkillWndThis)
+            EnsureDeferredInteractionHooks("late_d3d8_switch");
+    }
+    WriteLog("[D3D8] late hook setup complete; switched renderer mode to D3D8");
+}
+
 static bool TryInstallD3D8Rel32ThunkHook(BYTE *entry, void *hookFunc, void **outOriginal, const char *tag)
 {
     if (!entry || !hookFunc || !outOriginal)
@@ -8109,6 +8324,12 @@ static HRESULT __stdcall hkD3D8Reset(void *pDevice8, void *pPresentationParamete
 // 安装 D3D8 hooks
 static bool SetupD3D8Hook()
 {
+    if (oD3D8Present && oD3D8Reset)
+    {
+        WriteLog("[D3D8] Setup skipped: hooks already installed");
+        return true;
+    }
+
     WriteLog("[D3D8] Setup...");
 
     HMODULE hD3D8 = ::GetModuleHandleA("d3d8.dll");
@@ -10606,8 +10827,18 @@ static bool SetupSkillNativeIdGateHooks()
         WriteLog("[MountFlightMap] hook failed: 7CF370");
     }
 
-    // 7D4CD0 是高频 mount family 判定，跨多条技能/状态路径复用。
-    // 这里不再 inline hook，避免影响非飞行坐骑/原生技能路径稳定性。
+    oMountContextIsFlyingFamily7D4CD0 = (tMountContextIsFlyingFamilyFn)InstallInlineHook(
+        ADDR_7D4CD0, (void *)hkMountContextIsFlyingFamily7D4CD0);
+    if (oMountContextIsFlyingFamily7D4CD0)
+    {
+        ok = true;
+        WriteLogFmt("[MountFamily] OK(7D4CD0): tramp=0x%08X",
+                    (DWORD)(uintptr_t)oMountContextIsFlyingFamily7D4CD0);
+    }
+    else
+    {
+        WriteLog("[MountFamily] hook failed: 7D4CD0");
+    }
 
     oMountSoaringGate7DC1B0 = (tMountSoaringGateFn)InstallInlineHook(
         ADDR_7DC1B0, (void *)hkMountSoaringGate7DC1B0);
