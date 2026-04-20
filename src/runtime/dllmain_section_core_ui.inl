@@ -1901,16 +1901,21 @@ static void DrawSuperButtonTextureInPresentD3D8(void* pDevice8)
         return;
     }
 
-    if (!ENABLE_PRESENT_SUPERBTN_DRAW || !g_D3D8TexturesLoaded)
+    if (!g_D3D8TexturesLoaded)
         return;
 
     DWORD state = NormalizeSuperBtnVisualState(GetCurrentSuperBtnState());
     D3D8Texture* tex = GetSuperBtnTextureForStateD3D8(state);
-    int screenX = 0;
-    int screenY = 0;
-    int screenW = 0;
-    int screenH = 0;
-    if (!tex || !tex->pTexture8 || !GetButtonScreenRectByObj(g_SuperBtnObj, &screenX, &screenY, &screenW, &screenH))
+    int screenX = 0, screenY = 0, screenW = 0, screenH = 0;
+    const char* rectSource = "none";
+    if (GetExpectedButtonRectVt(&screenX, &screenY, &screenW, &screenH)) {
+        rectSource = "vt";
+    } else if (GetExpectedButtonRectCom(&screenX, &screenY, &screenW, &screenH)) {
+        rectSource = "com";
+    } else if (GetButtonScreenRectByObj(g_SuperBtnObj, &screenX, &screenY, &screenW, &screenH)) {
+        rectSource = "obj";
+    }
+    if (!tex || !tex->pTexture8 || screenW <= 0 || screenH <= 0)
         return;
 
     D3D8SavedState saved = {};
@@ -1921,9 +1926,10 @@ static void DrawSuperButtonTextureInPresentD3D8(void* pDevice8)
 
     LONG after = InterlockedDecrement(&g_PresentBtnDrawLogBudget);
     if (after >= 0) {
-        WriteLogFmt("[D3D8PresentBtnDraw] state=%u rect=(%d,%d,%d,%d) tex=0x%08X btn=0x%08X",
+        WriteLogFmt("[D3D8PresentBtnDraw] state=%u rect=(%d,%d,%d,%d) src=%s tex=0x%08X btn=0x%08X",
             state,
             screenX, screenY, screenW, screenH,
+            rectSource,
             (DWORD)(uintptr_t)tex->pTexture8,
             (DWORD)g_SuperBtnObj);
     }
@@ -2110,8 +2116,16 @@ static bool DrawSuperButtonTextureInSkillWndDraw(uintptr_t skillWndThis)
         return false;
 
     int screenX = 0, screenY = 0, screenW = 0, screenH = 0;
-    if (!GetButtonScreenRectByObj(g_SuperBtnObj, &screenX, &screenY, &screenW, &screenH))
+    const char* rectSource = "none";
+    if (GetExpectedButtonRectVt(&screenX, &screenY, &screenW, &screenH)) {
+        rectSource = "vt";
+    } else if (GetExpectedButtonRectCom(&screenX, &screenY, &screenW, &screenH)) {
+        rectSource = "com";
+    } else if (GetButtonScreenRectByObj(g_SuperBtnObj, &screenX, &screenY, &screenW, &screenH)) {
+        rectSource = "obj";
+    } else {
         return false;
+    }
 
     // ---- 状态归一化 + donor 准备（复刻 hkButtonDrawCurrentState 中 SuperBtn 逻辑）----
     DWORD origState = 0xFFFFFFFF;
@@ -2214,9 +2228,10 @@ static bool DrawSuperButtonTextureInSkillWndDraw(uintptr_t skillWndThis)
     static LONG s_logBudget = 80;
     LONG after = InterlockedDecrement(&s_logBudget);
     if (after >= 0) {
-        WriteLogFmt("[SkillBtnDraw] ok=%d origState=%u norm=%u borrowed=%d rect=(%d,%d,%d,%d) btn=0x%08X",
+        WriteLogFmt("[SkillBtnDraw] ok=%d origState=%u norm=%u borrowed=%d rect=(%d,%d,%d,%d) src=%s btn=0x%08X",
             ok ? 1 : 0, origState, normalizedState, borrowedDonorSlots ? 1 : 0,
             screenX, screenY, screenW, screenH,
+            rectSource,
             (DWORD)g_SuperBtnObj);
     }
 
@@ -2354,6 +2369,35 @@ static int __fastcall hkButtonDrawCurrentState(uintptr_t thisPtr, void* /*edxUnu
         // v16.5: 不再用 metric override 值覆盖 draw 坐标。
         // metric 返回的是 surfaceExtent - drawObjExtent（位置差值），不是绝对绘制坐标。
         // draw 的 x, y 应由游戏引擎根据按钮 move 位置自然传入。
+
+        // v20.8: 某些会话里按钮对象可点击但 draw 入参坐标漂移，导致“看不见按钮”。
+        // 当 draw 入参与当前预期按钮位置偏差过大时，仅对 SuperBtn 纠偏。
+        int expX = 0, expY = 0, expW = 0, expH = 0;
+        bool hasExp = false;
+        if (GetExpectedButtonRectVt(&expX, &expY, &expW, &expH)) {
+            hasExp = true;
+        } else if (GetExpectedButtonRectCom(&expX, &expY, &expW, &expH)) {
+            hasExp = true;
+        }
+        if (hasExp) {
+            int dx = callX - expX;
+            if (dx < 0) dx = -dx;
+            int dy = callY - expY;
+            if (dy < 0) dy = -dy;
+            if (dx > 16 || dy > 16) {
+                static LONG s_btnDrawFixBudget = 120;
+                LONG budgetAfter = InterlockedDecrement(&s_btnDrawFixBudget);
+                if (budgetAfter >= 0) {
+                    WriteLogFmt("[BtnDrawFixXY] state=%u old=(%d,%d) fix=(%d,%d) delta=(%d,%d)",
+                        state,
+                        callX, callY,
+                        expX, expY,
+                        dx, dy);
+                }
+                callX = expX;
+                callY = expY;
+            }
+        }
     }
 
     if (tag && oButtonResolveCurrentDrawObj) {
@@ -2537,14 +2581,9 @@ static int __fastcall hkButtonMetric507DF0(uintptr_t thisPtr, void* /*edxUnused*
 
     if (tag && state < 5) {
         if (strcmp(tag, "SuperBtn") == 0) {
-            int overrideValue = 0;
-            if (TryGetSuperBtnMetricOverrideValue(state, false, &overrideValue)) {
-                static LONG s_metricLogBudget = 200;
-                LONG mAfter = InterlockedDecrement(&s_metricLogBudget);
-                if (mAfter >= 0)
-                    WriteLogFmt("[BtnMetricOverride] fn=507DF0 state=%u old=%d new=%d", state, ret, overrideValue);
-                ret = overrideValue;
-            }
+            // v20.9: 关闭 SuperBtn metric override。
+            // override(10/255) 会把 BtMacro 贴图采样到错误区域，导致按钮“可点击但不可见”。
+            // 保持原始 metric 返回值（例如 329/447）。
             // v17.7: 如果 SkillWnd draw 很久没触发，在 metric 调用时主动补画一次
             // metric 在 UI tree refresh 循环内被调用，此时 D3D 状态可用
             DWORD now = GetTickCount();
@@ -2577,14 +2616,7 @@ static int __fastcall hkButtonMetric507ED0(uintptr_t thisPtr, void* /*edxUnused*
 
     if (tag && state < 5) {
         if (strcmp(tag, "SuperBtn") == 0) {
-            int overrideValue = 0;
-            if (TryGetSuperBtnMetricOverrideValue(state, true, &overrideValue)) {
-                static LONG s_metricLogBudgetED0 = 200;
-                LONG mAfter = InterlockedDecrement(&s_metricLogBudgetED0);
-                if (mAfter >= 0)
-                    WriteLogFmt("[BtnMetricOverride] fn=507ED0 state=%u old=%d new=%d", state, ret, overrideValue);
-                ret = overrideValue;
-            }
+            // v20.9: 同 507DF0，禁用 SuperBtn metric override，保留原始返回值。
         }
     }
 

@@ -1346,34 +1346,58 @@ namespace
             drawList->AddImage((ImTextureID)hover->texture, minPos, maxPos);
     }
 
-    void RenderObservedSceneFadeMask()
+    void RenderObservedSceneFadeMask(int alpha, const std::vector<IndependentBuffOverlayEntry>& activeEntries)
     {
-        if (!g_overlay8.hwnd)
+        if (!g_overlay8.hwnd || alpha <= 0)
             return;
 
-        const int alpha = SkillOverlayBridgeGetObservedSceneFadeAlpha();
-        if (alpha <= 0)
-            return;
+        std::vector<RECT> maskRects;
+        maskRects.reserve(3);
 
-        RECT clientRect = {};
-        if (!::GetClientRect(g_overlay8.hwnd, &clientRect))
+        if (g_overlay8.panelExpanded)
+        {
+            RECT panelRect = {};
+            if (TryGetIndependentBuffOverlayAnchorRect(&panelRect) && RectHasArea(panelRect))
+                maskRects.push_back(panelRect);
+        }
+
+        if (HasSuperButtonRect())
+            maskRects.push_back(g_overlay8.superButtonRect);
+
+        if (!activeEntries.empty())
+        {
+            IndependentBuffOverlayLayout layout = {};
+            if (TryBuildIndependentBuffOverlayLayout(activeEntries, &layout) &&
+                RectHasArea(layout.overlayRect))
+            {
+                maskRects.push_back(layout.overlayRect);
+            }
+        }
+
+        if (maskRects.empty())
             return;
 
         ImDrawList* drawList = ImGui::GetForegroundDrawList();
-        drawList->AddRectFilled(
-            ImVec2(0.0f, 0.0f),
-            ImVec2((float)(clientRect.right - clientRect.left), (float)(clientRect.bottom - clientRect.top)),
-            IM_COL32(0, 0, 0, alpha));
+        for (size_t i = 0; i < maskRects.size(); ++i)
+        {
+            const RECT& rc = maskRects[i];
+            drawList->AddRectFilled(
+                ImVec2((float)rc.left, (float)rc.top),
+                ImVec2((float)rc.right, (float)rc.bottom),
+                IM_COL32(0, 0, 0, alpha));
+        }
 
         static DWORD s_lastFadeMaskLogTick = 0;
         const DWORD nowTick = GetTickCount();
         if (nowTick - s_lastFadeMaskLogTick > 1000)
         {
             s_lastFadeMaskLogTick = nowTick;
-            WriteLogFmt("[ObservedSceneFade] d3d8 apply alpha=%d client=%dx%d",
+            WriteLogFmt("[ObservedSceneFade] d3d8 apply alpha=%d parts=%d panel=%d btn=%d buff=%d",
                 alpha,
-                clientRect.right - clientRect.left,
-                clientRect.bottom - clientRect.top);
+                (int)maskRects.size(),
+                (g_overlay8.panelExpanded && g_overlay8.anchorX > -9000 && g_overlay8.anchorY > -9000) ? 1 : 0,
+                HasSuperButtonRect() ? 1 : 0,
+                activeEntries.empty() ? 0 : 1);
         }
     }
 
@@ -1968,6 +1992,8 @@ void SuperD3D8OverlayRender(void* device8)
     std::vector<IndependentBuffOverlayEntry> independentBuffEntries;
     SkillOverlayBridgeGetIndependentBuffOverlayEntries(independentBuffEntries);
     const bool hasIndependentBuffOverlay = !independentBuffEntries.empty();
+    const int sceneFadeAlpha = SkillOverlayBridgeGetObservedSceneFadeAlpha();
+    const bool hasSceneFadeMask = sceneFadeAlpha > 0;
     static DWORD s_lastGateLogTick = 0;
     const DWORD gateNow = GetTickCount();
     if (hasIndependentBuffOverlay && gateNow - s_lastGateLogTick > 1000)
@@ -1982,7 +2008,10 @@ void SuperD3D8OverlayRender(void* device8)
             g_overlay8.anchorX,
             g_overlay8.anchorY);
     }
-    if (!HasSuperButtonRect() && (g_overlay8.anchorX <= -9000 || g_overlay8.anchorY <= -9000) && !hasIndependentBuffOverlay)
+    if (!HasSuperButtonRect() &&
+        (g_overlay8.anchorX <= -9000 || g_overlay8.anchorY <= -9000) &&
+        !hasIndependentBuffOverlay &&
+        !hasSceneFadeMask)
         return;
 
     ImGui::SetCurrentContext(g_overlay8.context);
@@ -2040,7 +2069,7 @@ void SuperD3D8OverlayRender(void* device8)
         RenderRetroSkillPanel(g_overlay8.state, g_overlay8.assets, nullptr, g_overlay8.mainScale, &g_overlay8.hooks);
     }
 
-    RenderObservedSceneFadeMask();
+    RenderObservedSceneFadeMask(sceneFadeAlpha, independentBuffEntries);
 
     g_overlay8.mouseHover = hasMousePt && IsPointInsidePanel(mousePt.x, mousePt.y);
     const bool shouldDrawOverlayCursor = hasMousePt && (g_overlay8.state.isDraggingSkill || g_overlay8.mouseHover || g_overlay8.mouseCapture);

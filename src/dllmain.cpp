@@ -149,7 +149,7 @@ static const int ROUTEB_CHILD_ALLOC_SIZE = 0xAE8;
 static const int SUPER_CHILD_DONOR_MODE = 1; // 9DDB30 的 a2 实际是“伪指针型 ctrlID”；3001 -> a2-750 的有效模式是 1..4，不是 2251
 static const DWORD SKILLWND_GONE_DEBOUNCE_MS = 800;
 static const bool ENABLE_NATIVE_BUTTON_INSTANCE_SKIN = true;
-static const bool ENABLE_SUPERBTN_D3D_BUTTON_MODE = true; // v18.0: D3D button with clipped visible rects
+static const bool ENABLE_SUPERBTN_D3D_BUTTON_MODE = false; // 回退到原生可见按钮，避免 D3D 按钮模式坐标漂移后“消失”
 static const bool ENABLE_POST_B9F6E0_NATIVE_TIMING_TEST = false; // 关闭 v18.1 的 post-B9F6E0 纯色块实验，回到可见按钮基线
 static const bool ENABLE_SUPERBTN_STATE_DRAWOBJ_OVERRIDE = false; // 稳定模式：停用 ExBtMacro 叶子draw object override，避免 hover 命中坏资源链
 static const bool ENABLE_SUPERBTN_DRAWOBJ_AB_FALLBACK = false; // dump 已证实 compare 按钮只适合诊断，不再参与正式显示
@@ -169,7 +169,7 @@ static const char* SAVE_STATE_PATH = "G:\\code\\c++\\SuperSkillWnd\\skill\\save_
 #if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
 static const char* BUILD_MARKER = "v20.4-2026-04-11-second-child-vt2-log";
 #else
-static const char* BUILD_MARKER = "v20.5-2026-04-14-reset-confirm-preview-fallback";
+static const char* BUILD_MARKER = "v20.8-2026-04-20-d3d8-present-btn-fallback";
 #endif
 static const wchar_t* SUPER_BTN_RES_PATH = L"UI/UIWindow2.img/Skill/main/BtMacro";
 static const wchar_t* SUPER_BTN_RES_PATH_ALT = L"/UIWindow2.img/Skill/main/BtMacro";

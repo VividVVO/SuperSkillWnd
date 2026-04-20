@@ -297,6 +297,107 @@
 ;     1. 对 near-fullscreen draw 额外记录 VARIANT vt/raw[4]
 ;     2. 为下一轮确认黑幕真实 alpha 字段保留直接日志证据
 ;     3. bridge 侧 fade candidate 允许 near-fullscreen 学习（不再只接受严格 full-viewport）
+;     4. draw object 尺寸采样调用约定修正为 __thiscall（此前 __stdcall 会导致 size 读取失败）
+;     5. 增加 [ObservedSceneFadeNoSize] 节流日志，便于定位“hook命中但尺寸不可读”
+;     6. 尺寸采样支持双签名回退：
+;        - 先尝试 HRESULT + out 参数
+;        - 再尝试“返回值即宽高”的 ret 模式（日志 [ObservedSceneFadeSizeMode]）
+;     7. 当尺寸不可读但命中 near-origin + 合法 VARIANT 时，启用 NoSizeFallback：
+;        - 以客户端全屏矩形喂给 fade candidate 学习（日志 [ObservedSceneFadeNoSizeFallback]）
+;        - 保持真实 alpha（含 255），不再硬降级为 160
+;     8. bridge 侧 fade 已改为真实加载相位状态机（2026-04-20）：
+;        - FadeToBlack(600ms) -> HoldBlack(加载中保持全黑) -> FadeToClear(600ms) -> Idle
+;        - 不再是“active -> 255 / inactive -> 0”的单纯平滑器
+;        - 窗口 / 按钮 / BUFF 共用同一相位 alpha
+;        - 当前额外并入 runtime loading signal：
+;          statusBar missing 且 gameplay context 仍在时，直接作为更早的加载开始/保持信号
+;        - 目的：避免只等到 00962B1D 这类恢复前短 burst 才开始黑
+;     9. VT_ERROR 的 HRESULT 哨兵（如 0x80020004）不再按 low-byte 误读成 alpha=4，
+;        统一视为“无有效 alpha”，交由 NoSizeFallback 采用可见默认黑幕强度。
+;    10. NoSizeFallback gate switched to real callsite allow-list（2026-04-20）：
+;        - 仅接受已确认加载链 return address：
+;          caller=0x0096259F（sub_961420 callsite=0x0096259A）
+;          caller=0x00962B1D（sub_961420 callsite=0x00962B18）
+;          caller=0x0066A296（sub_669E50  callsite=0x0066A291）
+;        - caller=0x00B9DB3E 已撤回：实测会误把普通开窗链学成 fullscreen candidate
+;        - 移除 fallback_window / userlocal_rebound 的直接放行路径
+;        - 移除 known_caller 1.6s 放行路径
+;    11. 保留 candidate 连续帧规则：
+;        - 仅当 imageObj 仍是“当前活跃 candidate 且 <450ms”时，
+;          允许 no-size 续帧采样（reason=candidate_continuation）
+;    12. overlay 激活门控追加 scene-fade 活跃态：
+;        - 即使 g_Ready 暂时为 0，只要 fade 仍在衰减/活跃，也继续驱动 overlay render
+;        - 避免“切图时 fade 已学到，但 overlay 提前停渲导致看不到遮罩”
+;    13. 黑遮罩应用域改为“窗口/按钮/BUFF 三块共享”，不再整屏 AddRectFilled：
+;        - dx9/d3d8 日志改为 [ObservedSceneFade] ... apply alpha=... parts=...
+;        - 目的：消除“鼠标 hover 按钮触发全屏闪黑”，仅让 overlay 组件随场景 fade 变黑
+;    14. fade 信号抗断帧：
+;        - bridge 保留短时 signal grace（当前 450ms）做续帧
+;        - 但相位流转改由状态机接管，不再直接拿 carry 窗口驱动 alpha
+;    15. runtime load hold 证据日志：
+;        - [ObservedSceneFadeRuntime] statusbar_missing / statusbar_restored
+;        - 用于核对“statusBar 先掉空 -> 全黑等待 -> statusBar 恢复”的真实时序
+;    16. 已移除“known_vtable”放行（误触发范围过大）：
+;        - 实测同一 objvt 会在普通 UI draw 中大量复用，导致开窗/hover 误黑
+;        - 不再允许仅凭 vtable 命中就放行 no-size fallback
+;    17. NoSize 相关日志保留 caller：
+;        - [ObservedSceneFadeNoSize]/[ObservedSceneFadeNoSizeFallback]/[ObservedSceneFadeNoSizeBlocked]
+;          均带 caller=0xXXXXXXXX，便于确认真实调用点与链路归属
+;    18. bridge 侧新增“早开始脉冲 / 晚恢复脉冲”拆分保持（2026-04-20 05:26 本地 build）：
+;        - early-start callers：
+;          caller=0x0066A296
+;          caller=0x0096259F
+;        - late-restore caller：
+;          caller=0x00962B1D
+;        - 早开始脉冲不再和当前 candidate/lastSample 共用同一生存期
+;        - 当 0066A296 / 0096259F 先命中时，bridge 会先进入 FadeToBlack
+;        - 到达 HoldBlack 后清掉陈旧 restore pulse，等待 00962B1D 的后续 pulse 再进入 FadeToClear
+;        - 目的：解决“早开始被后续 00962B1D 覆盖，最终只在游戏恢复前才开始黑”
+;    19. 2026-04-20 进一步修正（本地继续版）：
+;        - 如果 overlay 真正开始跑状态机之前，start pulse 与 restore pulse 已经先后完成，
+;          则直接丢弃为 stale_cycle，不再晚几百毫秒后重放成“首次打开就是全黑”
+;        - candidate caller=0x00962B1D 不再允许驱动：
+;          idle -> fade_to_black(reason=draw_signal_start)
+;          fade_to_clear -> fade_to_black(reason=draw_signal_reenter)
+;        - 00962B1D 仅保留 restore pulse 语义，避免它继续把恢复段误当成起黑段
+;        - 若早开始 pulse 期间 restore 已先到达，则黑入完成后直接转 fade_to_clear，
+;          不再错误进入 hold_early_start
+;        - 当前日志已证实：
+;          00A0DF70 -> sub_A0D930 -> "UI/UIWindow2.img/Skill/macro/Macroicon/"，属于普通 UI 宏图标链
+;          00ABC459 -> sub_ABAF70，属于普通 UI 绘制链
+;          两者都不应放入 loading start allow-list
+;    20. 2026-04-20 本地黑遮罩状态机继续修正（build\Debug\SS.dll 已更新，但游戏运行中未覆盖 runtime DLL）：
+;        - caller=0x004CD40A 的 blocked burst 继续保留观测与 promote 日志，
+;          但不再允许它单独驱动：
+;          idle -> fade_to_black(reason=draw_signal_start)
+;        - 它现在只用于“已有黑场时的续帧 / keep-black 证据”，
+;          避免再次出现“游戏已经全黑后 overlay 才开始黑”
+;        - HoldingBlack 等待 restore pulse 时，一旦 0x00962B1D 到达，
+;          先同时清掉 pending restore 与 pending start，再进入 fade_to_clear
+;        - 目的：消除旧的 0x0096259F / 0x0066A296 start pulse 跨到恢复段，
+;          触发 fade_to_clear -> fade_to_black(reason=early_start_reenter)
+;        - FadingToClear 里的 early_start_reenter 现在只接受 fresh start pulse：
+;          pendingStartTick >= 当前 fade_to_clear 的 phaseStartTick
+;        - 因此 restore 开始后的陈旧 start pulse 不再有资格把状态机重新拉回黑场
+;    21. 2026-04-20 06:00 后运行验证结论：
+;        - 当前运行中 MapleStory 已加载 05:58:50 build
+;        - runtime/local SHA256 一致：
+;          4074223989968598F73F6B7FACFB93750F6516B7B2C14C55AFB081E1DFA70B7D
+;        - 当前新日志已证实：
+;          caller=0x004CD40A 仍会持续 blocked/promote，但不会再触发
+;          idle -> fade_to_black
+;        - 真实命中的 start 仍然只有：
+;          caller=0x0096259F
+;        - 该次命中链路为：
+;          idle -> fade_to_black(reason=early_start_pulse)
+;          fade_to_black -> hold_black(reason=hold_early_start)
+;          hold_black -> fade_to_clear(reason=restore_timeout)
+;        - 也就是这次 0x0096259F 之后，没有等到新的 0x00962B1D restore pulse
+;        - 为继续追“其他传送不黑”的真实分支，401C90 观测已追加记录
+;          sub_961420 里其余 callsite：
+;          0x00962610 / 0x00962C91 / 0x00962DF9 / 0x00962F94 / 0x00963D17
+;        - 这些 callsite 目前只加日志，不改 fade 判定，
+;          目的：下一轮先确认到底是哪一个真实返回点负责“别的传送”的黑幕
 ;
 ;   关键原因：
 ;   - 用户要的黑幕和原鼠标都属于“游戏已经画出来的真实对象”
@@ -632,12 +733,13 @@
 ;    - userlocal 切换已改为“同 netclient 且场景活跃时重绑不清空”，避免切图即丢状态
 ;    - 但只要 statusBar 指针长期拿不到，仍可能出现“从最右开始覆盖原生BUFF”
 
-; 2. 401C90 观测链目前仍是“候选观测”
+; 2. 401C90 观测链目前仍是“候选观测 + 组件级遮罩应用”
 ;    - 已经能装 hook
 ;    - 已额外补 near-fullscreen + raw VARIANT 日志
 ;    - bridge 已允许 near-fullscreen candidate 学习
-;    - 但仍要靠运行日志确认是否稳定学到真实黑幕 imageObj / alpha 字段
-;    - 所以不能宣称黑幕遮罩已经完成
+;    - overlay 端已改为窗口/按钮/BUFF 共享遮罩，不再整屏黑
+;    - known_vtable 放行已撤回，改成短时 caller 续帧，优先抑制普通开窗误黑
+;    - 但仍要靠运行日志确认切图阶段 alpha 触发是否连续（不是偶发一帧）
 
 ; 3. 原生鼠标状态已从“候选 near-mouse draw”推进到“真实 setter/state 链”
 ;    - 已直接 hook 5F3EC0 记录当前状态号
@@ -661,3 +763,38 @@
 ;   G:\code\c++\SuperSkillWnd\.claude\rules\independent_buff_overlay_handoff_2026_04_18_night_statusbar_real_chain.md
 ;
 ; =====================================================================================
+; 2026-04-20 black-fade update:
+; - runtime reconfirmed: running DLL == local build DLL
+; - SHA256: CEC8DE102365D0C0FF79CE6F044C76C4C35615204F2DC96971EBAE0B125C71CE
+; - later runtime still shows only restore pulse 0x00962B1D, while status-bar hooks install but never hit
+; - added guarded blocked-burst promotion for near-origin caller 0x004CD40A
+; - rule: 0x004CD40A is still not globally trusted; only a short repeated burst may promote it into a fullscreen fade candidate
+; - purpose: recover an earlier real black-phase signal without reopening generic UI flash paths
+;
+; 2026-04-20 black-fade update (trusted no-size non-origin + extra caller visibility):
+; - MapleStory still running while this turn was edited (PID=52704, start=2026-04-20 06:09:45)
+; - runtime DLL cannot be safely replaced during active process; current hashes:
+;   runtime G:\code\mxd\Data\Plugins\SS\SS.dll = 1124612348AC9A392A5FC2A974FEEF5CAC70EC660E5E77DB9C45E7CB07ADA882
+;   local   G:\code\c++\SuperSkillWnd\build\Debug\SS.dll = B1E8EE651A5C0C85B2720288B4BE54A8831015FC861C4D3A97193E7D8DCE1202
+; - code change in ObserveSurfaceDrawImageCall(no-size branch):
+;   1) [ObservedSceneFadeSub961420] no_size log no longer gated by nearOrigin (x<=4,y<=4)
+;   2) trusted no-size callers (0x0096259F / 0x00962B1D / 0x0066A296) no longer require nearOrigin to enter fallback
+;   3) candidate-continuation fallback still keeps nearOrigin requirement (avoid broad false positives)
+; - intent:
+;   cover map-load paths where real start/restore callsites fire with non-(0,0) draw coords,
+;   while keeping non-trusted UI noise blocked.
+; - next runtime verification focus:
+;   [ObservedSceneFadeSub961420], [ObservedSceneFadePulse], [ObservedSceneFadePhase], [ObservedSceneFadeNoSizeFallback]
+;
+; 2026-04-20 user rollback (disable map-change black mask):
+; - per user request, "切图变黑/加载变黑遮罩" feature is turned off
+; - bridge-level hard gate: kEnableObservedSceneFadeMask = false
+; - effect:
+;   SkillOverlayBridgeObserveSceneFadeCandidate            -> no-op
+;   SkillOverlayBridgeObserveBlockedSceneFadeCandidate     -> no-op
+;   SkillOverlayBridgeGetObservedSceneFadeAlpha            -> always 0
+;   SkillOverlayBridgeHasObservedSceneFadeActivity         -> always false
+;   SkillOverlayBridgeShouldAllowSceneFadeNoSizeContinuation -> always false
+; - runtime deploy synced:
+;   G:\code\mxd\Data\Plugins\SS\SS.dll
+;   SHA256=DE8FD557C65FFCE32AE393FD80530C2F05A3A5CCF7A167E908835A2DE2D9D062

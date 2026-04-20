@@ -1078,31 +1078,125 @@ static void GetButtonSizeEstimate(int* outW, int* outH)
     if (outH) *outH = h;
 }
 
+static void ClampSuperButtonTargetPosToVisible(int* inOutX, int* inOutY, int btnW, int btnH, bool* outClamped)
+{
+    if (!inOutX || !inOutY)
+        return;
+
+    int x = *inOutX;
+    int y = *inOutY;
+    int maxX = 4096;
+    int maxY = 4096;
+
+    if (btnW <= 0 || btnW > 1024) btnW = 50;
+    if (btnH <= 0 || btnH > 1024) btnH = 16;
+
+    RECT clientRect = {};
+    if (g_GameHwnd && ::GetClientRect(g_GameHwnd, &clientRect)) {
+        int clientW = clientRect.right - clientRect.left;
+        int clientH = clientRect.bottom - clientRect.top;
+        if (clientW > 0 && clientH > 0) {
+            maxX = clientW - btnW;
+            maxY = clientH - btnH;
+            if (maxX < 0) maxX = 0;
+            if (maxY < 0) maxY = 0;
+        }
+    }
+
+    int clampedX = x;
+    int clampedY = y;
+    if (clampedX < 0) clampedX = 0;
+    if (clampedY < 0) clampedY = 0;
+    if (clampedX > maxX) clampedX = maxX;
+    if (clampedY > maxY) clampedY = maxY;
+
+    if (outClamped)
+        *outClamped = (clampedX != x) || (clampedY != y);
+    *inOutX = clampedX;
+    *inOutY = clampedY;
+}
+
+static bool IsSuperButtonTargetInVisibleRange(int x, int y, int btnW, int btnH)
+{
+    if (btnW <= 0 || btnW > 1024) btnW = 50;
+    if (btnH <= 0 || btnH > 1024) btnH = 16;
+
+    int maxX = 4096;
+    int maxY = 4096;
+    if (g_GameHwnd) {
+        RECT clientRect = {};
+        if (::GetClientRect(g_GameHwnd, &clientRect)) {
+            int clientW = clientRect.right - clientRect.left;
+            int clientH = clientRect.bottom - clientRect.top;
+            if (clientW > 0 && clientH > 0) {
+                maxX = clientW - btnW;
+                maxY = clientH - btnH;
+                if (maxX < 0) maxX = 0;
+                if (maxY < 0) maxY = 0;
+            }
+        }
+    }
+
+    return x >= 0 && y >= 0 && x <= maxX && y <= maxY;
+}
+
 static bool MoveSuperButtonToExpectedPos(const char* logTag)
 {
     if (!g_SuperBtnObj || !g_SkillWndThis)
         return false;
 
     int x = 0, y = 0, w = 0, h = 0;
-    if (!GetExpectedButtonRectCom(&x, &y, &w, &h) &&
-        !GetExpectedButtonRectVt(&x, &y, &w, &h)) {
-        return false;
+    int comX = 0, comY = 0, comW = 0, comH = 0;
+    int vtX = 0, vtY = 0, vtW = 0, vtH = 0;
+    bool hasCom = GetExpectedButtonRectCom(&comX, &comY, &comW, &comH);
+    bool hasVt = GetExpectedButtonRectVt(&vtX, &vtY, &vtW, &vtH);
+
+    const char* targetSrc = "none";
+    if (hasVt && IsSuperButtonTargetInVisibleRange(vtX, vtY, vtW, vtH)) {
+        x = vtX;
+        y = vtY;
+        w = vtW;
+        h = vtH;
+        targetSrc = "vt";
+    } else if (hasCom && IsSuperButtonTargetInVisibleRange(comX, comY, comW, comH)) {
+        x = comX;
+        y = comY;
+        w = comW;
+        h = comH;
+        targetSrc = "com";
+    } else if (hasVt) {
+        x = vtX;
+        y = vtY;
+        w = vtW;
+        h = vtH;
+        targetSrc = "vt_fallback";
+    } else if (hasCom) {
+        x = comX;
+        y = comY;
+        w = comW;
+        h = comH;
+        targetSrc = "com_fallback";
+    } else {
+        GetButtonSizeEstimate(&w, &h);
+        x = BTN_METRIC_FALLBACK_X;
+        y = BTN_METRIC_FALLBACK_Y;
+        targetSrc = "metric_fallback";
     }
 
-    if (x < 0 || y < 0 || x > 4096 || y > 4096) {
-        WriteLogFmt("[%s] skip invalid target pos=(%d,%d) btn=0x%08X",
-            logTag ? logTag : "BtnMove",
-            x, y,
-            (DWORD)g_SuperBtnObj);
-        return false;
-    }
+    const int rawX = x;
+    const int rawY = y;
+    bool clamped = false;
+    ClampSuperButtonTargetPosToVisible(&x, &y, w, h, &clamped);
 
     __try {
         ((tMoveNativeButton)ADDR_50AEB0)(reinterpret_cast<DWORD*>(g_SuperBtnObj), x, y);
-        WriteLogFmt("[%s] move btn=0x%08X pos=(%d,%d) size=(%d,%d)",
+        WriteLogFmt("[%s] move btn=0x%08X pos=(%d,%d) size=(%d,%d) src=%s raw=(%d,%d) clamp=%d",
             logTag ? logTag : "BtnMove",
             (DWORD)g_SuperBtnObj,
-            x, y, w, h);
+            x, y, w, h,
+            targetSrc,
+            rawX, rawY,
+            clamped ? 1 : 0);
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         WriteLogFmt("[%s] EXCEPTION btn=0x%08X code=0x%08X",
@@ -1134,16 +1228,6 @@ static bool GetExpectedButtonRectVt(int* outX, int* outY, int* outW, int* outH)
 {
     if (!outX || !outY || !outW || !outH) return false;
     int sx = 0, sy = 0;
-    if (g_SuperBtnObj && GetUiObjPosByVtablePlus4(g_SuperBtnObj, &sx, &sy)) {
-        int w = 0, h = 0;
-        GetButtonSizeEstimate(&w, &h);
-        *outX = sx;
-        *outY = sy;
-        *outW = w;
-        *outH = h;
-        return true;
-    }
-
     if (!g_SkillWndThis) return false;
     if (!GetSkillWndAnchorPos(g_SkillWndThis, &sx, &sy)) return false;
 

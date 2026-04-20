@@ -474,62 +474,24 @@ static bool CreateSuperButton(uintptr_t skillWndThis)
     }
 
     DWORD createdObj = 0;
-    const unsigned short *usedPath = reinterpret_cast<const unsigned short *>(SUPER_BTN_RES_PATH);
+    const unsigned short *usedPath = reinterpret_cast<const unsigned short *>(ADDR_OFF_SkillEx_BtMacro);
     bool createCallOk = CreateNativeButtonInstance(
         skillWndThis,
         usedPath,
         SUPER_BTN_ID,
         BTN_X_OFFSET,
         BTN_Y_OFFSET,
-        false,
+        true,
         &createdObj);
-
-    if (createCallOk)
-    {
-        WriteLogFmt("[NativeBtn] primary create OK path=%S obj=0x%08X",
-                    reinterpret_cast<const wchar_t *>(usedPath),
-                    createdObj);
-    }
-    else
-    {
-        usedPath = reinterpret_cast<const unsigned short *>(SUPER_BTN_RES_PATH_ALT);
-        createCallOk = CreateNativeButtonInstance(
-            skillWndThis,
-            usedPath,
-            SUPER_BTN_ID,
-            BTN_X_OFFSET,
-            BTN_Y_OFFSET,
-            false,
-            &createdObj);
-        if (createCallOk)
-        {
-            WriteLogFmt("[NativeBtn] primary alt create OK path=%S obj=0x%08X",
-                        reinterpret_cast<const wchar_t *>(usedPath),
-                        createdObj);
-        }
-    }
-
     if (!createCallOk)
     {
-        usedPath = reinterpret_cast<const unsigned short *>(ADDR_OFF_SkillEx_BtMacro);
-        createCallOk = CreateNativeButtonInstance(
-            skillWndThis,
-            usedPath,
-            SUPER_BTN_ID,
-            BTN_X_OFFSET,
-            BTN_Y_OFFSET,
-            true,
-            &createdObj);
-        if (!createCallOk)
-        {
-            WriteLogFmt("[NativeBtn] create returned null obj path=%S",
-                        reinterpret_cast<const wchar_t *>(usedPath));
-            return false;
-        }
-        WriteLogFmt("[NativeBtn] fallback BtMacro create OK path=%S obj=0x%08X",
-                    reinterpret_cast<const wchar_t *>(usedPath),
-                    createdObj);
+        WriteLogFmt("[NativeBtn] create returned null obj path=%S",
+                    reinterpret_cast<const wchar_t *>(usedPath));
+        return false;
     }
+    WriteLogFmt("[NativeBtn] forced native BtMacro create OK path=%S obj=0x%08X",
+                reinterpret_cast<const wchar_t *>(usedPath),
+                createdObj);
 
     g_SuperBtnObj = createdObj;
     if (!g_SuperBtnObj)
@@ -1908,6 +1870,7 @@ typedef int(__thiscall *tMountSoaringGateFn)(void *thisPtr, int levelContext, vo
 static tMountSoaringGateFn oMountSoaringGate7DC1B0 = nullptr;
 typedef int(__thiscall *tMountContextGetItemIdFn)(void *mountContext);
 typedef BOOL(__thiscall *tMountContextIsFlyingFamilyFn)(void *mountContext);
+static tMountContextIsFlyingFamilyFn oMountContextIsFlyingFamily7D4CD0 = nullptr;
 typedef int(__thiscall *tNativeGlyphLookupFn)(void *fontCache, unsigned int codepoint, RECT *outRectOrNull);
 static tNativeGlyphLookupFn oNativeGlyphLookup = nullptr;
 typedef int(__thiscall *tSkillLevelBaseFn)(void *thisPtr, DWORD playerObj, int skillId, void *cachePtr);
@@ -6233,9 +6196,6 @@ static void __cdecl hkSkillReleaseClassifierB2F370Dispatch(int skillId)
 
 static bool IsExtendedMountActionGateMount(int mountItemId)
 {
-    // return false;
-    return true;
-   // return false;
     // 客户端 sub_4069E0 仍只硬编码放行到 1992015，导致 1999xxx 自定义坐骑
     // 即使 WZ 带 ladder/rope 资源、服务端也认可攀爬，case 51/52 仍会直接回退。
     if (mountItemId >= 1932016 && mountItemId <= 1999999)
@@ -6247,21 +6207,62 @@ static bool IsExtendedMountActionGateMount(int mountItemId)
 
 static int ResolveExtendedMountNativeFlightSkillId(int mountItemId)
 {
-    // return 0;
-    return 80001077;
-    //return 0;
-    // 客户端原生只为 1992000..1992015 建了飞行技能映射。
-    // 对 1999xxx 自定义坐骑统一复用一条稳定 donor 飞行链，避免“服务端允许飞行，
-    // 但本地 jump+up / 二次起飞 / 80001089 链仍查不到 skillId”。
+    // 扩展骑宠统一回到 SOARING(80001089) 触发链，避免不同 item 映射到不存在/未学习
+    // 的原生飞行技能导致“上+跳无触发”。
     if (mountItemId >= 1932016 && mountItemId <= 1999999)
     {
-        return 80001077;
+        return 80001089;
     }
     return 0;
 }
 
+static bool IsNativeMountFlyingFamilySkillId(int skillId)
+{
+    return (skillId >= 80001063 && skillId <= 80001089) || skillId == 80001120;
+}
+
+static uintptr_t LookupSkillEntryBySkillDataMgr(void *skillDataMgr, int skillId)
+{
+    if (!skillDataMgr || skillId <= 0)
+    {
+        return 0;
+    }
+
+    DWORD rawSkillEntry = 0;
+    DWORD fnLookup = ADDR_7DA4B0;
+    __try
+    {
+        __asm
+        {
+            push skillId
+            mov ecx, skillDataMgr
+            call fnLookup
+            mov rawSkillEntry, eax
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        rawSkillEntry = 0;
+    }
+
+    if (!rawSkillEntry || SafeIsBadReadPtr((void *)rawSkillEntry, 0x40))
+    {
+        return 0;
+    }
+
+    return (uintptr_t)rawSkillEntry;
+}
+
 static int __cdecl hkMountActionGate4069E0(int mountItemId)
 {
+    const int nativeResult = oMountActionGate4069E0
+                                 ? oMountActionGate4069E0(mountItemId)
+                                 : 0;
+    if (nativeResult > 0)
+    {
+        return nativeResult;
+    }
+
     if (IsExtendedMountActionGateMount(mountItemId))
     {
         static LONG s_mountActionGateLogBudget = 8;
@@ -6273,16 +6274,29 @@ static int __cdecl hkMountActionGate4069E0(int mountItemId)
         return 1;
     }
 
-    return oMountActionGate4069E0
-               ? oMountActionGate4069E0(mountItemId)
-               : 0;
+    return nativeResult;
 }
 
 static int __cdecl hkMountActionGate406AB0(int mountItemId)
 {
-    const int result = oMountActionGate406AB0
-                           ? oMountActionGate406AB0(mountItemId)
-                           : 0;
+    const int nativeResult = oMountActionGate406AB0
+                                 ? oMountActionGate406AB0(mountItemId)
+                                 : 0;
+    if (nativeResult > 0)
+    {
+        return nativeResult;
+    }
+
+    if (IsExtendedMountActionGateMount(mountItemId))
+    {
+        static LONG s_mountActionGate406AB0ExtendLogBudget = 16;
+        const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountActionGate406AB0ExtendLogBudget);
+        if (budgetAfterDecrement >= 0)
+        {
+            WriteLogFmt("[MountGate] 406AB0 extend mount=%d -> allow", mountItemId);
+        }
+        return 1;
+    }
 
     if (mountItemId == 1932031 || mountItemId == 1932163)
     {
@@ -6290,15 +6304,23 @@ static int __cdecl hkMountActionGate406AB0(int mountItemId)
         const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountActionGate406AB0LogBudget);
         if (budgetAfterDecrement >= 0)
         {
-            WriteLogFmt("[MountGate] 406AB0 mount=%d -> %d", mountItemId, result);
+            WriteLogFmt("[MountGate] 406AB0 mount=%d -> %d", mountItemId, nativeResult);
         }
     }
 
-    return result;
+    return nativeResult;
 }
 
 static int __cdecl hkMountNativeFlightSkillMap7CF370(int mountItemId)
 {
+    const int nativeResult = oMountNativeFlightSkillMap7CF370
+                                 ? oMountNativeFlightSkillMap7CF370(mountItemId)
+                                 : 0;
+    if (nativeResult > 0)
+    {
+        return nativeResult;
+    }
+
     const int extendedSkillId = ResolveExtendedMountNativeFlightSkillId(mountItemId);
     if (extendedSkillId > 0)
     {
@@ -6311,21 +6333,54 @@ static int __cdecl hkMountNativeFlightSkillMap7CF370(int mountItemId)
         return extendedSkillId;
     }
 
-    const int result = oMountNativeFlightSkillMap7CF370
-                           ? oMountNativeFlightSkillMap7CF370(mountItemId)
-                           : 0;
-
     if (mountItemId == 1932031 || mountItemId == 1932163)
     {
         static LONG s_mountNativeFlightObserveLogBudget = 12;
         const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountNativeFlightObserveLogBudget);
         if (budgetAfterDecrement >= 0)
         {
-            WriteLogFmt("[MountFlightMap] 7CF370 native mount=%d -> skill=%d", mountItemId, result);
+            WriteLogFmt("[MountFlightMap] 7CF370 native mount=%d -> skill=%d", mountItemId, nativeResult);
         }
     }
 
-    return result;
+    return nativeResult;
+}
+
+static int __fastcall hkMountContextIsFlyingFamily7D4CD0(void *mountContext, void * /*edxUnused*/)
+{
+    if (!mountContext)
+    {
+        return 0;
+    }
+
+    const BOOL nativeResult = oMountContextIsFlyingFamily7D4CD0
+                                  ? oMountContextIsFlyingFamily7D4CD0(mountContext)
+                                  : FALSE;
+    if (nativeResult)
+    {
+        return 1;
+    }
+
+    tMountContextGetItemIdFn getItemIdFn =
+        reinterpret_cast<tMountContextGetItemIdFn>(ADDR_7D4CA0);
+    if (!getItemIdFn)
+    {
+        return 0;
+    }
+
+    const int mountItemId = getItemIdFn(mountContext);
+    if (!IsExtendedMountActionGateMount(mountItemId))
+    {
+        return 0;
+    }
+
+    static LONG s_mountFamilyExtendLogBudget = 20;
+    const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountFamilyExtendLogBudget);
+    if (budgetAfterDecrement >= 0)
+    {
+        WriteLogFmt("[MountFamily] 7D4CD0 extend mount=%d -> flying_family=1", mountItemId);
+    }
+    return 1;
 }
 
 static int __fastcall hkMountSoaringGate7DC1B0(
@@ -6340,23 +6395,116 @@ static int __fastcall hkMountSoaringGate7DC1B0(
                      ? oMountSoaringGate7DC1B0(thisPtr, levelContext, mountContext, skillId, skillEntryOut)
                      : 0;
 
-    if (result > 0 || skillId != 80001089 || !mountContext)
+    if (!mountContext)
+    {
+        return result;
+    }
+
+    tMountContextGetItemIdFn getItemIdFn =
+        reinterpret_cast<tMountContextGetItemIdFn>(ADDR_7D4CA0);
+    if (!getItemIdFn)
+    {
+        return result;
+    }
+
+    const int mountItemId = getItemIdFn(mountContext);
+    const bool isExtendedMount = IsExtendedMountActionGateMount(mountItemId);
+    const int mappedNativeFlightSkillId = ResolveExtendedMountNativeFlightSkillId(mountItemId);
+    const uintptr_t originalSkillEntry =
+        (skillEntryOut && *skillEntryOut) ? reinterpret_cast<uintptr_t>(*skillEntryOut) : 0;
+
+    if (mountItemId == 1932163 || mountItemId == 1992018 || mountItemId == 1992020)
+    {
+        static LONG s_mountSoaringObserveLogBudget = 40;
+        const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountSoaringObserveLogBudget);
+        if (budgetAfterDecrement >= 0)
+        {
+            WriteLogFmt("[MountSoaringGate] OBS mount=%d skill=%d native=%d entry_in=0x%08X",
+                        mountItemId,
+                        skillId,
+                        result,
+                        (DWORD)originalSkillEntry);
+        }
+    }
+
+    if (result > 0)
+    {
+        return result;
+    }
+
+    if (isExtendedMount)
+    {
+        uintptr_t mappedSkillEntry = 0;
+        if (skillEntryOut && *skillEntryOut)
+        {
+            mappedSkillEntry = reinterpret_cast<uintptr_t>(*skillEntryOut);
+        }
+        if (!mappedSkillEntry)
+        {
+            mappedSkillEntry = LookupSkillEntryBySkillDataMgr(thisPtr, skillId);
+        }
+        if (!mappedSkillEntry)
+        {
+            mappedSkillEntry = SkillOverlayBridgeLookupSkillEntryPointer(skillId);
+        }
+        if (!mappedSkillEntry && mappedNativeFlightSkillId > 0)
+        {
+            mappedSkillEntry = LookupSkillEntryBySkillDataMgr(thisPtr, mappedNativeFlightSkillId);
+        }
+        if (!mappedSkillEntry && mappedNativeFlightSkillId > 0)
+        {
+            mappedSkillEntry = SkillOverlayBridgeLookupSkillEntryPointer(mappedNativeFlightSkillId);
+        }
+
+        if (skillEntryOut && !*skillEntryOut)
+        {
+            if (mappedSkillEntry)
+            {
+                *skillEntryOut = reinterpret_cast<unsigned int *>(mappedSkillEntry);
+            }
+        }
+
+        if (IsNativeMountFlyingFamilySkillId(skillId) || mappedSkillEntry != 0)
+        {
+            static LONG s_mountMappedGateLogBudget = 20;
+            const LONG mappedBudgetAfterDecrement = InterlockedDecrement(&s_mountMappedGateLogBudget);
+            if (mappedBudgetAfterDecrement >= 0)
+            {
+                WriteLogFmt("[MountSoaringGate] 7DC1B0 extend mount=%d skill=%d donor=%d entry=0x%08X -> allow",
+                            mountItemId,
+                            skillId,
+                            mappedNativeFlightSkillId,
+                            (DWORD)mappedSkillEntry);
+            }
+            return 1;
+        }
+
+        static LONG s_mountMappedRejectLogBudget = 12;
+        const LONG rejectBudgetAfterDecrement = InterlockedDecrement(&s_mountMappedRejectLogBudget);
+        if (rejectBudgetAfterDecrement >= 0)
+        {
+            WriteLogFmt("[MountSoaringGate] 7DC1B0 extend mount=%d skill=%d donor=%d entry=0 -> keep native=%d",
+                        mountItemId,
+                        skillId,
+                        mappedNativeFlightSkillId,
+                        result);
+        }
+    }
+
+    if (skillId != 80001089)
     {
         return result;
     }
 
     tMountContextIsFlyingFamilyFn isFlyingFamilyFn =
         reinterpret_cast<tMountContextIsFlyingFamilyFn>(ADDR_7D4CD0);
-    tMountContextGetItemIdFn getItemIdFn =
-        reinterpret_cast<tMountContextGetItemIdFn>(ADDR_7D4CA0);
-    if (!isFlyingFamilyFn || !getItemIdFn || !isFlyingFamilyFn(mountContext))
+    const bool nativeFlyingFamily = (isFlyingFamilyFn != nullptr) && (isFlyingFamilyFn(mountContext) != FALSE);
+    if (!nativeFlyingFamily && !isExtendedMount)
     {
         return result;
     }
 
-    const int mountItemId = getItemIdFn(mountContext);
-    const int mappedNativeFlightSkillId = ResolveExtendedMountNativeFlightSkillId(mountItemId);
-    if (mappedNativeFlightSkillId <= 0)
+    if (mappedNativeFlightSkillId <= 0 && !isExtendedMount)
     {
         return result;
     }
@@ -7893,6 +8041,13 @@ static HRESULT __stdcall hkD3D8Present(void *pDevice8,
                 RefreshGameCursorImmediately();
             }
             g_LastOverlaySuppressMouse = suppressMouse;
+        }
+
+        d3d8Stage = "draw_button_present_fallback";
+        if (g_Ready && g_NativeBtnCreated && g_SkillWndThis)
+        {
+            DrawSuperButtonTextureInPresentD3D8(pDevice8);
+            DrawSuperButtonCursorInPresentD3D8(pDevice8);
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
@@ -10450,6 +10605,9 @@ static bool SetupSkillNativeIdGateHooks()
     {
         WriteLog("[MountFlightMap] hook failed: 7CF370");
     }
+
+    // 7D4CD0 是高频 mount family 判定，跨多条技能/状态路径复用。
+    // 这里不再 inline hook，避免影响非飞行坐骑/原生技能路径稳定性。
 
     oMountSoaringGate7DC1B0 = (tMountSoaringGateFn)InstallInlineHook(
         ADDR_7DC1B0, (void *)hkMountSoaringGate7DC1B0);
