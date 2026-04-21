@@ -3054,6 +3054,15 @@ namespace
         const DWORD now = GetTickCount();
         if (now - g_activeNativeRelease.armedTick > kNativeReleaseContextTimeoutMs)
         {
+            if (g_activeNativeRelease.firstRewriteTick == 0)
+            {
+                WriteLogFmt("[SkillPacket] native-route timeout-no-packet custom=%d donor=%d route=%s releaseClass=%s age=%u",
+                    g_activeNativeRelease.customSkillId,
+                    g_activeNativeRelease.classifierProxySkillId,
+                    PacketRouteToString(g_activeNativeRelease.packetRoute),
+                    ReleaseClassToString(g_activeNativeRelease.releaseClass),
+                    (unsigned int)(now - g_activeNativeRelease.armedTick));
+            }
             ClearActiveNativeReleaseContext();
             return false;
         }
@@ -5546,8 +5555,8 @@ namespace
         if (!IsActiveNativeReleaseContextFresh())
             return false;
 
-        const int customSkillId = g_activeNativeRelease.customSkillId;
-        if (customSkillId <= 0)
+        const int activeCustomSkillId = g_activeNativeRelease.customSkillId;
+        if (activeCustomSkillId <= 0)
         {
             ClearActiveNativeReleaseContext();
             return false;
@@ -5555,7 +5564,7 @@ namespace
 
         const bool sameRoute = (g_activeNativeRelease.packetRoute == packetRoute);
         const bool matchesPrimaryObserved =
-            (observedSkillId == customSkillId) ||
+            (observedSkillId == activeCustomSkillId) ||
             (g_activeNativeRelease.classifierProxySkillId > 0 &&
              observedSkillId == g_activeNativeRelease.classifierProxySkillId);
 
@@ -5573,14 +5582,16 @@ namespace
                 return false;
         }
 
-        int customLevel = GetTrackedSkillLevel(customSkillId);
+        const int targetSkillId = activeCustomSkillId;
+
+        int customLevel = GetTrackedSkillLevel(targetSkillId);
         if (customLevel <= 0)
             customLevel = 1;
         if (customLevel > 255)
             customLevel = 255;
 
-        if (observedSkillId != customSkillId)
-            WritePacketInt(packet, skillIdOffset, customSkillId);
+        if (observedSkillId != targetSkillId)
+            WritePacketInt(packet, skillIdOffset, targetSkillId);
 
         if (skillLevelOffset >= 0 && packetLen > skillLevelOffset)
             packet[skillLevelOffset] = (BYTE)customLevel;
@@ -5599,7 +5610,7 @@ namespace
             followupRoute ? 1 : 0,
             ReleaseClassToString(g_activeNativeRelease.releaseClass),
             observedSkillId,
-            customSkillId,
+            targetSkillId,
             customLevel,
             packetLen,
             g_activeNativeRelease.remainingRewriteBudget,
@@ -6579,6 +6590,12 @@ void SkillOverlayBridgeSetObservedNativeCursorState(int state)
 int SkillOverlayBridgeGetObservedNativeCursorState()
 {
     return g_observedNativeCursorState;
+}
+
+void SkillOverlayBridgeObserveExtendedMountSoaringIntent(int mountItemId, int skillId)
+{
+    (void)mountItemId;
+    (void)skillId;
 }
 
 void SkillOverlayBridgeBeginFrameObservation()

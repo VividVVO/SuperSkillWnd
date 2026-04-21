@@ -351,6 +351,7 @@ const DWORD ADDR_4020B0         = 0x004020B0;  // game free (__thiscall ecx=ADDR
 // 004069E0: 坐骑特殊动作白名单（0042C300 的 case 51/52 会先经过这里）
 // 00406AB0: 坐骑隐藏动作白名单（0042C300 的 case 51/52 第二层表驱动白名单）
 // 007CF370: 飞行骑宠 itemId -> 原生飞行技能 ID 映射
+// 00A9AAA0: 飞行家族判定（上+跳/二次起飞链会调用，原生仅放行 0xC7 家族）
 const DWORD ADDR_UserLocal      = 0x00F59FC0;  // 原生技能栏双击释放时作为 B2F370 的 this/ECX
 const DWORD ADDR_B2F370         = 0x00B2F370;
 const DWORD ADDR_B31349         = 0x00B31349;
@@ -363,6 +364,7 @@ const DWORD ADDR_4069E0         = 0x004069E0;
 const DWORD ADDR_406AB0         = 0x00406AB0;
 const DWORD ADDR_7CF370         = 0x007CF370;
 const DWORD ADDR_7DC1B0         = 0x007DC1B0;
+const DWORD ADDR_A9AAA0         = 0x00A9AAA0;
 const DWORD ADDR_7D4CA0         = 0x007D4CA0;
 const DWORD ADDR_7D4CD0         = 0x007D4CD0;
 // sub_856C60 stat finalize cap: speed clamps to maxBase+140, jump clamps to 123.
