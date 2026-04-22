@@ -2006,21 +2006,23 @@ void SuperD3D8OverlayRender(void* device8)
     if (!g_overlay8.superButtonPressed)
         SetSuperButtonHoverState(hasMousePt && IsPointInsideSuperButton(mousePt.x, mousePt.y));
 
+    int hoveredBuffSkillId = 0;
+    const bool hoveredIndependentBuff =
+        hasIndependentBuffOverlay &&
+        hasMousePt &&
+        TryFindIndependentBuffOverlaySkillIdAtPoint(mousePt.x, mousePt.y, &hoveredBuffSkillId);
+
     const bool rightButtonDown = ((::GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0);
-    if (gameForeground && hasIndependentBuffOverlay && hasMousePt)
+    if (gameForeground && hoveredIndependentBuff)
     {
-        int hoveredBuffSkillId = 0;
-        if (TryFindIndependentBuffOverlaySkillIdAtPoint(mousePt.x, mousePt.y, &hoveredBuffSkillId))
+        if (rightButtonDown && !g_independentBuffRightButtonWasDown && hoveredBuffSkillId > 0)
         {
-            if (rightButtonDown && !g_independentBuffRightButtonWasDown && hoveredBuffSkillId > 0)
-            {
-                WriteLogFmt("[IndependentBuffOverlay] polled cancel request skillId=%d via render d3d8 pt=(%d,%d)",
-                    hoveredBuffSkillId,
-                    mousePt.x,
-                    mousePt.y);
-                SkillOverlayBridgeCancelIndependentBuff(hoveredBuffSkillId);
-                independentBuffEntries.clear();
-            }
+            WriteLogFmt("[IndependentBuffOverlay] polled cancel request skillId=%d via render d3d8 pt=(%d,%d)",
+                hoveredBuffSkillId,
+                mousePt.x,
+                mousePt.y);
+            SkillOverlayBridgeCancelIndependentBuff(hoveredBuffSkillId);
+            independentBuffEntries.clear();
         }
     }
     g_independentBuffRightButtonWasDown = rightButtonDown;
@@ -2049,13 +2051,17 @@ void SuperD3D8OverlayRender(void* device8)
         const ImVec2 savedMousePos = io.MousePos;
         io.MousePos = ImVec2((float)mousePt.x, (float)mousePt.y);
         const int observedNativeCursorState = SkillOverlayBridgeGetObservedNativeCursorState();
+        const bool overlayCursorHover = g_overlay8.superButtonHover;
+        const bool overlayCursorPressed =
+            g_overlay8.superButtonPressed ||
+            (hoveredIndependentBuff && AreAnyPhysicalMouseButtonsDown());
 
         RenderRetroSkillCursorOverlay(
             g_overlay8.state,
             g_overlay8.assets,
             g_overlay8.mainScale,
-            g_overlay8.superButtonHover,
-            g_overlay8.superButtonPressed,
+            overlayCursorHover,
+            overlayCursorPressed,
             g_overlay8.superButtonHoverStartTick,
             g_overlay8.superButtonHoverInstantUseNormal1,
             observedNativeCursorState);

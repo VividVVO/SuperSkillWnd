@@ -2162,12 +2162,6 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
                     }
                 }
 
-                // 右键点击技能 icon -> 使用技能
-                if (ImGui::IsItemClicked(1) && !state.isDraggingSkill && skill.canUse && skill.level > 0)
-                {
-                    fireSkillUse((int)i, skill);
-                }
-
                 ImGui::PopID();
             }
 

@@ -350,6 +350,12 @@ namespace
     const unsigned short kClientCancelBuffPacketOpcode = 0x94;
     const int kBuffMaskIntCount = 8;
     const int kBuffMaskByteCount = kBuffMaskIntCount * sizeof(int);
+    const int kSingleStatGiveBuffReasonOffset = kBuffMaskByteCount;
+    const int kSingleStatGiveBuffSkillIdOffset = kSingleStatGiveBuffReasonOffset + 2;
+    const int kSingleStatGiveBuffDurationOffset = kSingleStatGiveBuffSkillIdOffset + 4;
+    const int kMountGiveBuffPaddingOffset = kBuffMaskByteCount + 2;
+    const int kMountGiveBuffItemIdOffset = kMountGiveBuffPaddingOffset + 1;
+    const int kMountGiveBuffSkillIdOffset = kMountGiveBuffItemIdOffset + 4;
 
     uintptr_t g_nativeInjectedEntriesPtr = 0;
     uintptr_t g_nativeOriginalEntriesPtr = 0;
@@ -3602,6 +3608,44 @@ namespace
         return (packetValue & value) == value;
     }
 
+    bool IsMonsterRidingGiveBuffPayload(const BYTE* payload, int payloadLen)
+    {
+        return PacketMaskHasValue(payload, payloadLen, 8, 0x08000000u) &&
+               payloadLen >= kMountGiveBuffSkillIdOffset + static_cast<int>(sizeof(int));
+    }
+
+    bool TryReadMonsterRidingGiveBuffData(
+        const BYTE* payload,
+        int payloadLen,
+        int& outMountItemId,
+        int& outSkillId)
+    {
+        outMountItemId = 0;
+        outSkillId = 0;
+        if (!IsMonsterRidingGiveBuffPayload(payload, payloadLen))
+            return false;
+
+        outMountItemId = ReadPacketInt(payload, kMountGiveBuffItemIdOffset);
+        outSkillId = ReadPacketInt(payload, kMountGiveBuffSkillIdOffset);
+        return outMountItemId > 0 && outSkillId > 0;
+    }
+
+    int ResolveMountBuffDisplaySkillId(int observedSkillId)
+    {
+        if (observedSkillId <= 0)
+            return 0;
+
+        const int displaySkillId = SkillOverlayBridgeResolveNativeLevelLookupSkillId(observedSkillId);
+        if (displaySkillId > 0 &&
+            displaySkillId != observedSkillId &&
+            GameLookupSkillEntryPointer(displaySkillId))
+        {
+            return displaySkillId;
+        }
+
+        return 0;
+    }
+
     bool RewritePacketMaskValue(
         BYTE* payload,
         int payloadLen,
@@ -3810,11 +3854,15 @@ namespace
             return;
 
         int packetSkillId = 0;
-        if (payloadLen >= kBuffMaskByteCount + 2 + 4)
-            packetSkillId = ReadPacketInt(payload, kBuffMaskByteCount + 2);
         int durationMs = 0;
-        if (payloadLen >= kBuffMaskByteCount + 2 + 4 + 4)
-            durationMs = ReadPacketInt(payload, kBuffMaskByteCount + 2 + 4);
+        int mountItemId = 0;
+        if (!TryReadMonsterRidingGiveBuffData(payload, payloadLen, mountItemId, packetSkillId))
+        {
+            if (payloadLen >= kSingleStatGiveBuffSkillIdOffset + static_cast<int>(sizeof(int)))
+                packetSkillId = ReadPacketInt(payload, kSingleStatGiveBuffSkillIdOffset);
+            if (payloadLen >= kSingleStatGiveBuffDurationOffset + static_cast<int>(sizeof(int)))
+                durationMs = ReadPacketInt(payload, kSingleStatGiveBuffDurationOffset);
+        }
         if (packetSkillId <= 0 || packetSkillId > kIndependentBuffMaxReasonableSkillId)
         {
             WriteLogFmt("[IndependentBuffNativeVisible] suppress invalid skillId=%d payloadLen=%d",
@@ -4386,20 +4434,20 @@ namespace
     bool TryReadSingleStatGiveBuffSkillId(const BYTE* payload, int payloadLen, int& outSkillId)
     {
         outSkillId = 0;
-        if (!payload || payloadLen < kBuffMaskByteCount + 2 + 4)
+        if (!payload || payloadLen < kSingleStatGiveBuffSkillIdOffset + static_cast<int>(sizeof(int)))
             return false;
 
-        outSkillId = ReadPacketInt(payload, kBuffMaskByteCount + 2);
+        outSkillId = ReadPacketInt(payload, kSingleStatGiveBuffSkillIdOffset);
         return outSkillId > 0;
     }
 
     bool TryReadSingleStatGiveBuffDurationMs(const BYTE* payload, int payloadLen, int& outDurationMs)
     {
         outDurationMs = 0;
-        if (!payload || payloadLen < kBuffMaskByteCount + 2 + 4 + 4)
+        if (!payload || payloadLen < kSingleStatGiveBuffDurationOffset + static_cast<int>(sizeof(int)))
             return false;
 
-        outDurationMs = ReadPacketInt(payload, kBuffMaskByteCount + 2 + 4);
+        outDurationMs = ReadPacketInt(payload, kSingleStatGiveBuffDurationOffset);
         if (outDurationMs < 0)
             outDurationMs = 0;
         return true;
@@ -8412,6 +8460,25 @@ void SkillOverlayBridgeInspectOutgoingPacket(void* packetData, int packetLen, ui
         }
     }
 
+    void TryRewriteMountBuffGivePacket(BYTE* payload, int payloadLen, uintptr_t callerRetAddr)
+    {
+        int mountItemId = 0;
+        int packetSkillId = 0;
+        if (!TryReadMonsterRidingGiveBuffData(payload, payloadLen, mountItemId, packetSkillId))
+            return;
+
+        const int displaySkillId = ResolveMountBuffDisplaySkillId(packetSkillId);
+        if (displaySkillId <= 0 || displaySkillId == packetSkillId)
+            return;
+
+        WritePacketInt(payload, kMountGiveBuffSkillIdOffset, displaySkillId);
+        WriteLogFmt("[MountBuffDisplay] rewrite mountItem=%d packetSkillId=%d displaySkillId=%d caller=0x%08X",
+            mountItemId,
+            packetSkillId,
+            displaySkillId,
+            (DWORD)(uintptr_t)callerRetAddr);
+    }
+
 void SkillOverlayBridgeInspectIncomingPacket(void* inPacket, int opcode, uintptr_t callerRetAddr)
 {
     if (!inPacket)
@@ -8426,6 +8493,7 @@ void SkillOverlayBridgeInspectIncomingPacket(void* inPacket, int opcode, uintptr
             if (opcode == (int)kGiveBuffPacketOpcode)
             {
                 TryRewriteIndependentBuffGivePacket(payload, payloadLen, callerRetAddr);
+                TryRewriteMountBuffGivePacket(payload, payloadLen, callerRetAddr);
                 RegisterNativeVisibleBuffStatesFromPayload(payload, payloadLen);
             }
             else

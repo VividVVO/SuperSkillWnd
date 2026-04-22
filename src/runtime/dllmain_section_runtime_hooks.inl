@@ -6247,15 +6247,22 @@ static bool IsExtendedMountActionGateMount(int mountItemId)
     return false;
 }
 
+static bool IsExtendedMountServerValidatedSoaringMount(int mountItemId)
+{
+    // 扩展 193x 坐骑统一放进 80001089 / family gate 链，最终能否飞行交给服务端判定。
+    // 原生 1992xxx 飞行家族保持客户端原行为，避免回归已稳定的原生骑宠链。
+    return mountItemId >= 1932016 && mountItemId < 1992000;
+}
+
 static int ResolveExtendedMountNativeFlightSkillId(int mountItemId)
 {
     // 客户端原生只为 1992000..1992015 建了飞行技能映射。
     // 对 1999xxx 自定义坐骑统一复用一条稳定 donor 飞行链，避免“服务端允许飞行，
     // 但本地 jump+up / 二次起飞 / 80001089 链仍查不到 skillId”。
-    if (mountItemId == 1932031 || mountItemId == 1932163)
+    if (IsExtendedMountServerValidatedSoaringMount(mountItemId))
     {
-        // 这两个 1932xxx 坐骑走的是我们补通后的 Soaring 家族 gate；
-        // 继续映射到 80001077 会让本地飞行上下文和真实 80001089 释放链分叉。
+        // 扩展 193x 坐骑统一走 80001089；即使最终服务端不允许飞，也要先把客户端
+        // 的原生 Soaring gate / 发包链接通，避免在本地提前死在 80001077 donor 分叉。
         return 80001089;
     }
     if (mountItemId >= 1932016 && mountItemId <= 1999999)
@@ -6267,13 +6274,12 @@ static int ResolveExtendedMountNativeFlightSkillId(int mountItemId)
 
 static bool IsExtendedMountFamilyGateMount(int mountItemId)
 {
-    return mountItemId == 1932031 || mountItemId == 1932163;
+    return IsExtendedMountServerValidatedSoaringMount(mountItemId);
 }
 
 static bool IsExtendedMountSoaringContextMount(int mountItemId)
 {
-    return mountItemId == 1932031 ||
-           mountItemId == 1932163 ||
+    return IsExtendedMountServerValidatedSoaringMount(mountItemId) ||
            mountItemId == 1992014 ||
            mountItemId == 1992018;
 }
@@ -6508,7 +6514,7 @@ static int __cdecl hkMountActionGate406AB0(int mountItemId)
         return 1;
     }
 
-    if (mountItemId == 1932031 || mountItemId == 1932163)
+    if (IsExtendedMountServerValidatedSoaringMount(mountItemId))
     {
         static LONG s_mountActionGate406AB0LogBudget = 12;
         const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountActionGate406AB0LogBudget);
@@ -6540,7 +6546,7 @@ static int __cdecl hkMountNativeFlightSkillMap7CF370(int mountItemId)
                            ? oMountNativeFlightSkillMap7CF370(mountItemId)
                            : 0;
 
-    if (mountItemId == 1932031 || mountItemId == 1932163)
+    if (IsExtendedMountServerValidatedSoaringMount(mountItemId))
     {
         static LONG s_mountNativeFlightObserveLogBudget = 12;
         const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountNativeFlightObserveLogBudget);
@@ -6555,7 +6561,7 @@ static int __cdecl hkMountNativeFlightSkillMap7CF370(int mountItemId)
 
 static int ResolveExtendedMountNativeSoaringShadowMountItemId(int mountItemId)
 {
-    if (mountItemId == 1932031 || mountItemId == 1932163)
+    if (IsExtendedMountServerValidatedSoaringMount(mountItemId))
     {
         // 只用于 B26290 开头的 199xxxx 家族门槛；真实发包 skillId 仍保持 80001089。
         return 1992018;
