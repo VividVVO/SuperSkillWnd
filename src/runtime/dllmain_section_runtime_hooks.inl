@@ -1906,6 +1906,8 @@ typedef int(__cdecl *tMountNativeFlightSkillMapFn)(int mountItemId);
 static tMountNativeFlightSkillMapFn oMountNativeFlightSkillMap7CF370 = nullptr;
 typedef int(__thiscall *tMountSoaringGateFn)(void *thisPtr, int levelContext, void *mountContext, int skillId, unsigned int **skillEntryOut);
 static tMountSoaringGateFn oMountSoaringGate7DC1B0 = nullptr;
+typedef int(__thiscall *tMountNativeSoaringReleaseFn)(void *thisPtr, int skillId);
+static tMountNativeSoaringReleaseFn oMountNativeSoaringReleaseB26290 = nullptr;
 typedef int(__thiscall *tMountFamilyGateFn)(void *mountContext);
 static tMountFamilyGateFn oMountFamilyGateA9AAA0 = nullptr;
 typedef int(__thiscall *tMountContextGetItemIdFn)(void *mountContext);
@@ -6250,6 +6252,12 @@ static int ResolveExtendedMountNativeFlightSkillId(int mountItemId)
     // 客户端原生只为 1992000..1992015 建了飞行技能映射。
     // 对 1999xxx 自定义坐骑统一复用一条稳定 donor 飞行链，避免“服务端允许飞行，
     // 但本地 jump+up / 二次起飞 / 80001089 链仍查不到 skillId”。
+    if (mountItemId == 1932031 || mountItemId == 1932163)
+    {
+        // 这两个 1932xxx 坐骑走的是我们补通后的 Soaring 家族 gate；
+        // 继续映射到 80001077 会让本地飞行上下文和真实 80001089 释放链分叉。
+        return 80001089;
+    }
     if (mountItemId >= 1932016 && mountItemId <= 1999999)
     {
         return 80001077;
@@ -6394,6 +6402,38 @@ static bool TryResolveMountItemIdFromContextPointer(void *mountContext, int *mou
     return true;
 }
 
+static bool TryReadMountItemIdFromPlayerObject(void *playerObj, int *mountItemIdOut)
+{
+    if (!playerObj || !mountItemIdOut)
+    {
+        return false;
+    }
+
+    const uintptr_t mountItemIdAddr = reinterpret_cast<uintptr_t>(playerObj) + 0x454;
+    if (SafeIsBadReadPtr(reinterpret_cast<void *>(mountItemIdAddr), sizeof(DWORD)))
+    {
+        return false;
+    }
+
+    int mountItemId = 0;
+    __try
+    {
+        mountItemId = *reinterpret_cast<int *>(mountItemIdAddr);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+
+    if (mountItemId <= 0)
+    {
+        return false;
+    }
+
+    *mountItemIdOut = mountItemId;
+    return true;
+}
+
 static bool TryResolveExtendedMountContextForSoaring(int *mountItemIdOut, bool *fromUserLocalOut)
 {
     int mountItemId = 0;
@@ -6513,6 +6553,186 @@ static int __cdecl hkMountNativeFlightSkillMap7CF370(int mountItemId)
     return result;
 }
 
+static int ResolveExtendedMountNativeSoaringShadowMountItemId(int mountItemId)
+{
+    if (mountItemId == 1932031 || mountItemId == 1932163)
+    {
+        // 只用于 B26290 开头的 199xxxx 家族门槛；真实发包 skillId 仍保持 80001089。
+        return 1992018;
+    }
+    return 0;
+}
+
+static int __fastcall hkMountNativeSoaringReleaseB26290(
+    void *thisPtr,
+    void * /*edxUnused*/,
+    int skillId)
+{
+    int mountItemId = 0;
+    const bool hasMountItemId = TryReadMountItemIdFromPlayerObject(thisPtr, &mountItemId);
+    const int shadowMountItemId =
+        skillId == 80001089 && hasMountItemId
+            ? ResolveExtendedMountNativeSoaringShadowMountItemId(mountItemId)
+            : 0;
+    const uintptr_t mountItemIdAddr = reinterpret_cast<uintptr_t>(thisPtr) + 0x454;
+    bool patchedMountFamilyGate = false;
+
+    if (shadowMountItemId > 0 &&
+        mountItemId != shadowMountItemId &&
+        !SafeIsBadReadPtr(reinterpret_cast<void *>(mountItemIdAddr), sizeof(DWORD)))
+    {
+        __try
+        {
+            *reinterpret_cast<int *>(mountItemIdAddr) = shadowMountItemId;
+            patchedMountFamilyGate = true;
+            static LONG s_mountNativeSoaringPatchLogBudget = 24;
+            const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountNativeSoaringPatchLogBudget);
+            if (budgetAfterDecrement >= 0)
+            {
+                WriteLogFmt("[MountSoaringNative] B26290 shadow mount=%d -> %d skill=%d",
+                            mountItemId,
+                            shadowMountItemId,
+                            skillId);
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            patchedMountFamilyGate = false;
+            static LONG s_mountNativeSoaringPatchExceptionLogBudget = 8;
+            const LONG budgetAfterDecrement =
+                InterlockedDecrement(&s_mountNativeSoaringPatchExceptionLogBudget);
+            if (budgetAfterDecrement >= 0)
+            {
+                WriteLogFmt("[MountSoaringNative] B26290 shadow write exception code=0x%08X mount=%d shadow=%d skill=%d",
+                            GetExceptionCode(),
+                            mountItemId,
+                            shadowMountItemId,
+                            skillId);
+            }
+        }
+    }
+
+    int result = 0;
+    DWORD callExceptionCode = 0;
+    __try
+    {
+        result = oMountNativeSoaringReleaseB26290
+                     ? oMountNativeSoaringReleaseB26290(thisPtr, skillId)
+                     : 0;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        callExceptionCode = GetExceptionCode();
+        result = 0;
+    }
+
+    if (patchedMountFamilyGate &&
+        !SafeIsBadReadPtr(reinterpret_cast<void *>(mountItemIdAddr), sizeof(DWORD)))
+    {
+        __try
+        {
+            *reinterpret_cast<int *>(mountItemIdAddr) = mountItemId;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    if (callExceptionCode != 0)
+    {
+        static LONG s_mountNativeSoaringCallExceptionLogBudget = 8;
+        const LONG budgetAfterDecrement =
+            InterlockedDecrement(&s_mountNativeSoaringCallExceptionLogBudget);
+        if (budgetAfterDecrement >= 0)
+        {
+            WriteLogFmt("[MountSoaringNative] B26290 call exception code=0x%08X mount=%d skill=%d shadow=%d",
+                        callExceptionCode,
+                        mountItemId,
+                        skillId,
+                        patchedMountFamilyGate ? shadowMountItemId : 0);
+        }
+    }
+
+    if (skillId == 80001089 && hasMountItemId)
+    {
+        static LONG s_mountNativeSoaringResultLogBudget = 48;
+        const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountNativeSoaringResultLogBudget);
+        if (budgetAfterDecrement >= 0)
+        {
+            WriteLogFmt("[MountSoaringNative] B26290 final mount=%d skill=%d shadow=%d result=%d",
+                        mountItemId,
+                        skillId,
+                        patchedMountFamilyGate ? shadowMountItemId : 0,
+                        result);
+        }
+    }
+
+    return result;
+}
+
+static BOOL CallNativeMountContextIsFlyingFamily7D4CD0(void *mountContext)
+{
+    typedef BOOL(__thiscall *tMountContextFamilyBaseGateFn)(void *mountContext);
+    typedef void(__thiscall *tMountContextSharedRefFn)(void *sharedRefPtr);
+
+    if (!mountContext || SafeIsBadReadPtr(mountContext, sizeof(DWORD)))
+    {
+        return FALSE;
+    }
+
+    tMountContextFamilyBaseGateFn baseGateFn =
+        reinterpret_cast<tMountContextFamilyBaseGateFn>(ADDR_7D4C00);
+    tMountContextSharedRefFn sharedRefFn =
+        reinterpret_cast<tMountContextSharedRefFn>(ADDR_4010B0);
+    if (!baseGateFn || !sharedRefFn)
+    {
+        return FALSE;
+    }
+
+    __try
+    {
+        if (!baseGateFn(mountContext))
+        {
+            return FALSE;
+        }
+
+        const uintptr_t mountInfoAddr =
+            *reinterpret_cast<uintptr_t *>(reinterpret_cast<uintptr_t>(mountContext) + 0x1BF0);
+        const uintptr_t kSentinelMountInfoAddr =
+            static_cast<uintptr_t>(static_cast<intptr_t>(-24));
+        if (!mountInfoAddr || mountInfoAddr == kSentinelMountInfoAddr)
+        {
+            return FALSE;
+        }
+
+        int *mountInfo = reinterpret_cast<int *>(mountInfoAddr);
+        if (SafeIsBadReadPtr(mountInfo, 0x20))
+        {
+            return FALSE;
+        }
+
+        sharedRefFn(reinterpret_cast<void *>(mountInfoAddr + 0x18));
+        if (mountInfo[7]-- == 1)
+        {
+            mountInfo[6] = 0;
+        }
+
+        return (mountInfo[3] / 10000) == 199 ? TRUE : FALSE;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        static LONG s_mountFamilyNativeMirrorExceptionLogBudget = 8;
+        const LONG budgetAfterDecrement =
+            InterlockedDecrement(&s_mountFamilyNativeMirrorExceptionLogBudget);
+        if (budgetAfterDecrement >= 0)
+        {
+            WriteLogFmt("[MountFamily] 7D4CD0 mirror exception code=0x%08X",
+                        GetExceptionCode());
+        }
+        return FALSE;
+    }
+}
+
 static int __fastcall hkMountSoaringGate7DC1B0(
     void *thisPtr,
     void * /*edxUnused*/,
@@ -6572,10 +6792,7 @@ static int __fastcall hkMountSoaringGate7DC1B0(
         return 1;
     }
 
-    tMountContextIsFlyingFamilyFn isFlyingFamilyFn = oMountContextIsFlyingFamily7D4CD0
-                                                         ? oMountContextIsFlyingFamily7D4CD0
-                                                         : reinterpret_cast<tMountContextIsFlyingFamilyFn>(ADDR_7D4CD0);
-    if (!isFlyingFamilyFn || SafeIsBadReadPtr(mountContext, sizeof(DWORD)))
+    if (SafeIsBadReadPtr(mountContext, sizeof(DWORD)))
     {
         return result;
     }
@@ -6583,7 +6800,7 @@ static int __fastcall hkMountSoaringGate7DC1B0(
     BOOL isFlyingFamily = FALSE;
     __try
     {
-        isFlyingFamily = isFlyingFamilyFn(mountContext);
+        isFlyingFamily = CallNativeMountContextIsFlyingFamily7D4CD0(mountContext);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -6654,11 +6871,11 @@ static BOOL __fastcall hkMountContextIsFlyingFamily7D4CD0(void *thisPtr, void * 
 
     BOOL result = FALSE;
     const bool contextReadable = thisPtr && !SafeIsBadReadPtr(thisPtr, sizeof(DWORD));
-    if (oMountContextIsFlyingFamily7D4CD0 && contextReadable)
+    if (contextReadable)
     {
         __try
         {
-            result = oMountContextIsFlyingFamily7D4CD0(thisPtr);
+            result = CallNativeMountContextIsFlyingFamily7D4CD0(thisPtr);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -11019,6 +11236,30 @@ static bool SetupSkillNativeIdGateHooks()
     else
     {
         WriteLog("[MountSoaringGate] hook failed: 7DC1B0");
+    }
+
+    BYTE *pMountNativeSoaringRelease = FollowJmpChain((void *)ADDR_B26290);
+    if (pMountNativeSoaringRelease)
+    {
+        // B26290 前 4 条指令长度 = 2 + 5 + 6 = 13；无 rel32 调用，适合直接复制 trampoline。
+        oMountNativeSoaringReleaseB26290 = (tMountNativeSoaringReleaseFn)GenericInlineHook5(
+            pMountNativeSoaringRelease,
+            (void *)hkMountNativeSoaringReleaseB26290,
+            13);
+    }
+    else
+    {
+        oMountNativeSoaringReleaseB26290 = nullptr;
+    }
+    if (oMountNativeSoaringReleaseB26290)
+    {
+        ok = true;
+        WriteLogFmt("[MountSoaringNative] OK(B26290): tramp=0x%08X",
+                    (DWORD)(uintptr_t)oMountNativeSoaringReleaseB26290);
+    }
+    else
+    {
+        WriteLog("[MountSoaringNative] hook failed: B26290");
     }
 
     oMountFamilyGateA9AAA0 = (tMountFamilyGateFn)InstallInlineHook(

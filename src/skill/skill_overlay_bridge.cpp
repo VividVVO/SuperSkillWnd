@@ -3002,6 +3002,8 @@ namespace
                route.proxySkillId > 0;
     }
 
+    bool IsNativeFlyingMountSkillGateFamily(int skillId);
+
     void ClearRecentNativePresentationContext()
     {
         g_recentNativePresentation.customSkillId = 0;
@@ -3423,7 +3425,15 @@ namespace
         std::map<int, CustomSkillUseRoute>::const_iterator it = g_customRoutesBySkillId.find(skillId);
         if (it == g_customRoutesBySkillId.end())
             return false;
-        outRoute = it->second;
+        const CustomSkillUseRoute& route = it->second;
+        if (route.skillId == route.proxySkillId &&
+            route.releaseClass == CustomSkillReleaseClass_NativeClassifierProxy &&
+            route.packetRoute == CustomSkillPacketRoute_SpecialMove &&
+            IsNativeFlyingMountSkillGateFamily(route.skillId))
+        {
+            return false;
+        }
+        outRoute = route;
         return true;
     }
 
@@ -3433,7 +3443,15 @@ namespace
             g_customRoutesByProxyAndRoute.find(MakeProxyRouteKey(proxySkillId, route));
         if (it == g_customRoutesByProxyAndRoute.end())
             return false;
-        outRoute = it->second;
+        const CustomSkillUseRoute& mappedRoute = it->second;
+        if (mappedRoute.skillId == mappedRoute.proxySkillId &&
+            mappedRoute.releaseClass == CustomSkillReleaseClass_NativeClassifierProxy &&
+            mappedRoute.packetRoute == CustomSkillPacketRoute_SpecialMove &&
+            IsNativeFlyingMountSkillGateFamily(mappedRoute.skillId))
+        {
+            return false;
+        }
+        outRoute = mappedRoute;
         return true;
     }
 
@@ -3770,6 +3788,11 @@ namespace
     {
         if (skillId <= 0)
             return false;
+
+        if (IsNativeFlyingMountSkillGateFamily(skillId))
+        {
+            return true;
+        }
 
         HiddenSkillDefinition hiddenDefinition = {};
         if (FindHiddenSkillDefinition(skillId, hiddenDefinition) &&
