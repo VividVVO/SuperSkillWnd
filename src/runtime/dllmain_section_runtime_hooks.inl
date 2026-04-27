@@ -1650,7 +1650,7 @@ static int __cdecl hkSkillWndDrawHandler(uintptr_t thisPtr, int clipRegion)
     {
         static LONG s_drawHandlerCallCount = 0;
         LONG count = InterlockedIncrement(&s_drawHandlerCallCount);
-        if (count <= 20 || (count % 500 == 0))
+        if (ENABLE_HOTPATH_DIAGNOSTIC_LOGS && (count <= 20 || (count % 500 == 0)))
         {
             WriteLogFmt("[DrawHandler] #%d this=0x%08X g_this=0x%08X match=%d btn=0x%08X created=%d",
                         (int)count, (DWORD)thisPtr, (DWORD)g_SkillWndThis,
@@ -1845,6 +1845,13 @@ typedef int (__fastcall *tAbilityRedExtendedAggregateFn)(void *thisPtr, void *ed
 static tAbilityRedExtendedAggregateFn oAbilityRedExtendedAggregateFn = nullptr;
 typedef int (__fastcall *tAbilityRedMasterAggregateFn)(void *thisPtr, void *edxUnused, DWORD arg1, DWORD arg2, DWORD arg3, DWORD arg4, DWORD arg5, DWORD arg6, DWORD arg7);
 static tAbilityRedMasterAggregateFn oAbilityRedMasterAggregateFn = nullptr;
+typedef int (__cdecl *tAbilityRedMovementSpeedSourceFn)(int playerObj);
+typedef int (__cdecl *tAbilityRedMovementSpeedCapBaseFn)(int playerObj);
+typedef int (__thiscall *tAbilityRedMovementCapOverrideFn)(void *capObj);
+typedef int (__thiscall *tAbilityRedMovementValueFn)(void *thisPtr);
+typedef int (__fastcall *tAbilityRedMovementSetterFn)(void *thisPtr, int value);
+static tAbilityRedMovementSetterFn oAbilityRedMovementSpeedSetter831F00Fn = nullptr;
+static tAbilityRedMovementSetterFn oAbilityRedMovementJumpSetter832000Fn = nullptr;
 typedef int (__fastcall *tAbilityRedSiblingCalcFn)(void *thisPtr, void *edxUnused);
 static tAbilityRedSiblingCalcFn oAbilityRedSiblingCalc82F780Fn = nullptr;
 static tAbilityRedSiblingCalcFn oAbilityRedSiblingCalc82F870Fn = nullptr;
@@ -1899,11 +1906,20 @@ static void *oSkillReleaseClassifierB2F370 = nullptr;
 typedef BOOL(__cdecl *tSkillNativeIdGateFn)(int skillId);
 static tSkillNativeIdGateFn oSkillNativeIdGate7CE790 = nullptr;
 static tSkillNativeIdGateFn oSkillNativeIdGate7D0000 = nullptr;
+static tSkillNativeIdGateFn oMountedSkillWhitelist7CF270 = nullptr;
+typedef int(__thiscall *tMountedStateGateFn)(void *thisPtr);
+static tMountedStateGateFn oMountedStateGate42DE20 = nullptr;
+typedef int(__thiscall *tMountedUseFailPromptFn)(void *thisPtr, int a2);
+static tMountedUseFailPromptFn oMountedUseFailPromptAE6260 = nullptr;
 typedef int(__cdecl *tMountActionGateFn)(int mountItemId);
 static tMountActionGateFn oMountActionGate4069E0 = nullptr;
 static tMountActionGateFn oMountActionGate406AB0 = nullptr;
 typedef int(__cdecl *tMountNativeFlightSkillMapFn)(int mountItemId);
 static tMountNativeFlightSkillMapFn oMountNativeFlightSkillMap7CF370 = nullptr;
+typedef int(__thiscall *tMountedSkillContextGateFn)(void *mountContext);
+static tMountedSkillContextGateFn oMountedSkillContextGateA9BF40 = nullptr;
+static DWORD g_MountedSkillContextGateCallsiteOriginalTarget = 0;
+static DWORD g_MountedUnknownSkillReleaseBranchOriginalTarget = 0;
 typedef int(__thiscall *tMountSoaringGateFn)(void *thisPtr, int levelContext, void *mountContext, int skillId, unsigned int **skillEntryOut);
 static tMountSoaringGateFn oMountSoaringGate7DC1B0 = nullptr;
 typedef int(__thiscall *tMountNativeSoaringReleaseFn)(void *thisPtr, int skillId);
@@ -1919,6 +1935,16 @@ typedef int(__thiscall *tSkillLevelBaseFn)(void *thisPtr, DWORD playerObj, int s
 typedef int(__thiscall *tSkillLevelCurrentFn)(void *thisPtr, DWORD playerObj, int skillId, void *cachePtr, int flags);
 static tSkillLevelBaseFn oSkillLevelBase = nullptr;
 static tSkillLevelCurrentFn oSkillLevelCurrent = nullptr;
+typedef int(__thiscall *tSkillEffectFn)(void *thisPtr, int level);
+static tSkillEffectFn oSkillEffect800260 = nullptr;
+static tSkillEffectFn oSkillEffect800580 = nullptr;
+typedef int(__thiscall *tPassiveEffectGetterFn)(void *effectPtr);
+static tPassiveEffectGetterFn oPassiveEffectDamage43DE00 = nullptr;
+static tPassiveEffectGetterFn oPassiveEffectDamage43DE50 = nullptr;
+static tPassiveEffectGetterFn oPassiveEffectAttackCount5E9EE0 = nullptr;
+static tPassiveEffectGetterFn oPassiveEffectMobCount7D1990 = nullptr;
+static tPassiveEffectGetterFn oPassiveEffectAttackCount7D19E0 = nullptr;
+static tPassiveEffectGetterFn oPassiveEffectIgnore7D28E0 = nullptr;
 typedef void(__thiscall *tSkillPresentationDispatch)(void *thisPtr, int *skillData, int a3, int a4, int a5, int a6, int a7);
 static tSkillPresentationDispatch oSkillPresentationDispatch = nullptr;
 typedef void(__thiscall *tStatusBarInternalRefreshFn)(uintptr_t thisPtr);
@@ -1965,6 +1991,7 @@ static bool SetupAbilityRedLevelReadHook();
 static bool SetupAbilityRedSkillWriteHooks();
 static bool SetupAbilityRedExtendedAggregateHook();
 static bool SetupAbilityRedMasterAggregateHook();
+static bool SetupAbilityRedMovementSetterHooks();
 static bool SetupAbilityRedSiblingCalcHooks();
 static bool SetupAbilityRedDiff84C470PreSubHook();
 static bool SetupAbilityRedAdditionalDiffHooks();
@@ -1978,6 +2005,16 @@ static bool SetupPotentialTextDisplayHook();
 static bool SetupStatusBarBuffSlotHooks();
 static bool SetupSurfaceDrawImageObservationHook();
 static bool SetupNativeCursorStateHook();
+static bool SetupSkillEffectPassiveBonusHooks();
+static bool SetupMountedUnknownSkillReleaseBranchHook();
+static bool SetupMountedUseFailPromptSuppressHook();
+static bool HasRecentMountedDoubleJumpIntent(int mountItemId, DWORD maxAgeMs = 400);
+static const bool kEnableMountedDoubleJumpRuntimeHooks = true;
+static const bool kEnableMountMovementAbilityRedHooks = false;
+static const bool kEnableMountMovementCapPatches = false;
+static bool TryReadCurrentUserMountItemId(int *mountItemIdOut);
+static bool TryReadMountItemIdFromPlayerObject(void *playerObj, int *mountItemIdOut);
+static void ObserveMountedDoubleJumpNativeRelease(int mountItemId, int skillId);
 
 static uintptr_t g_LocalIndependentPotentialSkillLevelLastTarget = 0;
 static DWORD g_LocalIndependentPotentialSkillLevelLastTick = 0;
@@ -2359,6 +2396,8 @@ static void ReadAbilityRedHashContainerMeta(
 
 static bool ShouldLogAbilityRedHashLookup(DWORD returnAddr, uintptr_t thisPtr, DWORD key)
 {
+    if (!EnableAbilityRedDiagnosticLogs())
+        return false;
     if (!IsAbilityRedHashReturnAddressOfInterest(returnAddr))
         return false;
 
@@ -2380,6 +2419,8 @@ static bool ShouldLogAbilityRedHashLookup(DWORD returnAddr, uintptr_t thisPtr, D
 
 static bool ShouldLogAbilityRedHashInsert(DWORD returnAddr, uintptr_t thisPtr, DWORD key, DWORD value)
 {
+    if (!EnableAbilityRedDiagnosticLogs())
+        return false;
     if (!IsAbilityRedHashReturnAddressOfInterest(returnAddr))
         return false;
 
@@ -2403,6 +2444,8 @@ static bool ShouldLogAbilityRedHashInsert(DWORD returnAddr, uintptr_t thisPtr, D
 
 static bool ShouldLogAbilityRedExtendedAggregate(DWORD returnAddr)
 {
+    if (!EnableAbilityRedDiagnosticLogs())
+        return false;
     const DWORD now = GetTickCount();
     if (g_AbilityRedExtendedAggregateLastCaller == returnAddr &&
         now - g_AbilityRedExtendedAggregateLastTick <= 1000)
@@ -2417,6 +2460,8 @@ static bool ShouldLogAbilityRedExtendedAggregate(DWORD returnAddr)
 
 static bool ShouldLogAbilityRedMasterAggregate(DWORD returnAddr)
 {
+    if (!EnableAbilityRedDiagnosticLogs())
+        return false;
     const DWORD now = GetTickCount();
     if (g_AbilityRedMasterAggregateLastCaller == returnAddr &&
         now - g_AbilityRedMasterAggregateLastTick <= 1000)
@@ -2493,6 +2538,8 @@ static bool WriteEncryptedTripletValue(DWORD *base, size_t keyIndex, int plainVa
 
 static void LogAbilityRedDecodedSnapshot(const char *tag)
 {
+    if (!EnableAbilityRedDiagnosticLogs())
+        return;
     const DWORD now = GetTickCount();
     if (now - g_AbilityRedSnapshotLastTick <= 1000)
         return;
@@ -2845,6 +2892,8 @@ static void __cdecl hkObserveAbilityRedDisplayCandidate(
     DWORD ptrMaskAfter,
     const DWORD *ptrValuesAfter)
 {
+    if (!EnableAbilityRedDiagnosticLogs())
+        return;
     const DWORD now = GetTickCount();
     if (g_AbilityRedDisplayCandidateLastThis == thisPtr &&
         now - g_AbilityRedDisplayCandidateLastTick <= 1000)
@@ -2934,6 +2983,8 @@ static bool ShouldLogAbilityRedFinalCalculator(
     uintptr_t thisPtr,
     int activeState)
 {
+    if (!EnableAbilityRedDiagnosticLogs())
+        return false;
     if (!lastCaller || !lastThis || !lastTick || !lastActive)
         return true;
 
@@ -3141,6 +3192,163 @@ static void DecodeAbilityRedTripletAtOffset(
         *outValue = localValue;
     if (outOk)
         *outOk = localOk;
+}
+
+struct AbilityRedMovementDiagnosis
+{
+    int mountItemIdFromA4 = 0;
+    int mountItemIdFromUser = 0;
+    int speedSourceAdd = 0;
+    int speedCapBase = 0;
+    int speedCapOverride = 0;
+    int currentSpeed = 0;
+    int currentJump = 0;
+    bool mountItemIdFromA4Ok = false;
+    bool mountItemIdFromUserOk = false;
+    bool speedSourceAddOk = false;
+    bool speedCapBaseOk = false;
+    bool speedCapOverrideOk = false;
+    bool currentSpeedOk = false;
+    bool currentJumpOk = false;
+};
+
+static int ComputeAbilityRedMovementFinalCap(
+    const AbilityRedMovementDiagnosis *diag,
+    bool *outOk)
+{
+    if (outOk)
+        *outOk = false;
+    if (!diag)
+        return 0;
+
+    if (diag->speedCapOverrideOk && diag->speedCapOverride != 0)
+    {
+        if (outOk)
+            *outOk = true;
+        return diag->speedCapOverride;
+    }
+
+    if (diag->speedCapBaseOk)
+    {
+        if (outOk)
+            *outOk = true;
+        return diag->speedCapBase + 140;
+    }
+
+    return 0;
+}
+
+static void CollectAbilityRedMovementDiagnosis(
+    void *thisPtr,
+    DWORD playerObjArg,
+    DWORD capArg,
+    AbilityRedMovementDiagnosis *outDiag)
+{
+    if (!outDiag)
+        return;
+    *outDiag = AbilityRedMovementDiagnosis();
+
+    int mountItemId = 0;
+    if (TryReadMountItemIdFromPlayerObject(
+            reinterpret_cast<void *>(static_cast<uintptr_t>(playerObjArg)),
+            &mountItemId))
+    {
+        outDiag->mountItemIdFromA4 = mountItemId;
+        outDiag->mountItemIdFromA4Ok = true;
+    }
+
+    mountItemId = 0;
+    if (TryReadCurrentUserMountItemId(&mountItemId))
+    {
+        outDiag->mountItemIdFromUser = mountItemId;
+        outDiag->mountItemIdFromUserOk = true;
+    }
+
+    const tAbilityRedMovementSpeedSourceFn speedSourceFn =
+        reinterpret_cast<tAbilityRedMovementSpeedSourceFn>(ADDR_804550);
+    const tAbilityRedMovementSpeedCapBaseFn speedCapBaseFn =
+        reinterpret_cast<tAbilityRedMovementSpeedCapBaseFn>(ADDR_82C700);
+    const tAbilityRedMovementCapOverrideFn speedCapOverrideFn =
+        reinterpret_cast<tAbilityRedMovementCapOverrideFn>(ADDR_8213D0);
+    const tAbilityRedMovementValueFn currentSpeedFn =
+        reinterpret_cast<tAbilityRedMovementValueFn>(ADDR_8222B0);
+    const tAbilityRedMovementValueFn currentJumpFn =
+        reinterpret_cast<tAbilityRedMovementValueFn>(ADDR_8223F0);
+
+    __try
+    {
+        if (playerObjArg && speedSourceFn)
+        {
+            outDiag->speedSourceAdd = speedSourceFn(static_cast<int>(playerObjArg));
+            outDiag->speedSourceAddOk = true;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+
+    __try
+    {
+        if (playerObjArg && speedCapBaseFn)
+        {
+            outDiag->speedCapBase = speedCapBaseFn(static_cast<int>(playerObjArg));
+            outDiag->speedCapBaseOk = true;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+
+    __try
+    {
+        if (capArg && speedCapOverrideFn)
+        {
+            outDiag->speedCapOverride =
+                speedCapOverrideFn(reinterpret_cast<void *>(static_cast<uintptr_t>(capArg)));
+            outDiag->speedCapOverrideOk = true;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+
+    __try
+    {
+        if (thisPtr && currentSpeedFn)
+        {
+            outDiag->currentSpeed = currentSpeedFn(thisPtr);
+            outDiag->currentSpeedOk = true;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+
+    __try
+    {
+        if (thisPtr && currentJumpFn)
+        {
+            outDiag->currentJump = currentJumpFn(thisPtr);
+            outDiag->currentJumpOk = true;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+}
+
+static int __fastcall hkAbilityRedMovementSpeedSetter831F00(void *thisPtr, int value)
+{
+    return oAbilityRedMovementSpeedSetter831F00Fn
+        ? oAbilityRedMovementSpeedSetter831F00Fn(thisPtr, value)
+        : value;
+}
+
+static int __fastcall hkAbilityRedMovementJumpSetter832000(void *thisPtr, int value)
+{
+    return oAbilityRedMovementJumpSetter832000Fn
+        ? oAbilityRedMovementJumpSetter832000Fn(thisPtr, value)
+        : value;
 }
 
 static BYTE ReadAbilityRedSiblingByte(uintptr_t thisPtr, size_t byteOffset, bool *outOk)
@@ -3874,6 +4082,8 @@ static bool ShouldLogAbilityRedBakeWrite(
     int priorValue,
     int activeState)
 {
+    if (!EnableAbilityRedDiagnosticLogs())
+        return false;
     if (!lastSig || !lastTick)
         return true;
 
@@ -4334,6 +4544,8 @@ static int __fastcall hkAbilityRedMasterAggregateFunction(
     int tripletAfter[(sizeof(tripletOffsets) / sizeof(tripletOffsets[0]))] = {};
     bool tripletBeforeOk[(sizeof(tripletOffsets) / sizeof(tripletOffsets[0]))] = {};
     bool tripletAfterOk[(sizeof(tripletOffsets) / sizeof(tripletOffsets[0]))] = {};
+    AbilityRedMovementDiagnosis movementBefore = {};
+    AbilityRedMovementDiagnosis movementAfter = {};
     ReadAbilityRedMasterAggregateBuffer(arg3, before3, ARRAYSIZE(before3));
     ReadAbilityRedMasterAggregateBuffer(arg4, before4, ARRAYSIZE(before4));
     ReadAbilityRedMasterAggregateBuffer(arg5, before5, ARRAYSIZE(before5));
@@ -4351,6 +4563,7 @@ static int __fastcall hkAbilityRedMasterAggregateFunction(
     DecodeAbilityRedMasterDefenseValues(arg7, &before7Wdef, &before7Mdef, &before7WdefOk, &before7MdefOk);
     for (size_t i = 0; i < ARRAYSIZE(tripletOffsets); ++i)
         DecodeAbilityRedTripletAtOffset(reinterpret_cast<uintptr_t>(thisPtr), tripletOffsets[i], &tripletBefore[i], &tripletBeforeOk[i]);
+    CollectAbilityRedMovementDiagnosis(thisPtr, arg2, arg4, &movementBefore);
 
     const int resultValue = oAbilityRedMasterAggregateFn
         ? oAbilityRedMasterAggregateFn(thisPtr, edxUnused, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
@@ -4378,9 +4591,13 @@ static int __fastcall hkAbilityRedMasterAggregateFunction(
     DecodeAbilityRedMasterDefenseValues(arg7, &after7Wdef, &after7Mdef, &after7WdefOk, &after7MdefOk);
     for (size_t i = 0; i < ARRAYSIZE(tripletOffsets); ++i)
         DecodeAbilityRedTripletAtOffset(reinterpret_cast<uintptr_t>(thisPtr), tripletOffsets[i], &tripletAfter[i], &tripletAfterOk[i]);
+    CollectAbilityRedMovementDiagnosis(thisPtr, arg2, arg4, &movementAfter);
 
     if (ShouldLogAbilityRedMasterAggregate(callerRet))
     {
+        bool movementFinalCapOk = false;
+        const int movementFinalCap = ComputeAbilityRedMovementFinalCap(&movementAfter, &movementFinalCapOk);
+
         WriteLogFmt(
             "[AbilityRedMaster] 856C60 caller=0x%08X this=0x%08X args=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X] result=%d active=%d",
             callerRet,
@@ -4432,6 +4649,21 @@ static int __fastcall hkAbilityRedMasterAggregateFunction(
             tripletBefore[10], tripletBeforeOk[10] ? 1 : 0, tripletAfter[10], tripletAfterOk[10] ? 1 : 0,
             tripletBefore[11], tripletBeforeOk[11] ? 1 : 0, tripletAfter[11], tripletAfterOk[11] ? 1 : 0,
             tripletBefore[12], tripletBeforeOk[12] ? 1 : 0, tripletAfter[12], tripletAfterOk[12] ? 1 : 0);
+
+        WriteLogFmt(
+            "[AbilityRedMaster] 856C60 move a4=0x%08X a6=0x%08X mount[a4=%d/%d user=%d/%d] speedAdd=%d/%d capBase=%d/%d override=%d/%d finalCap=%d/%d speed=%d/%d->%d/%d jump=%d/%d->%d/%d",
+            arg2,
+            arg4,
+            movementAfter.mountItemIdFromA4, movementAfter.mountItemIdFromA4Ok ? 1 : 0,
+            movementAfter.mountItemIdFromUser, movementAfter.mountItemIdFromUserOk ? 1 : 0,
+            movementAfter.speedSourceAdd, movementAfter.speedSourceAddOk ? 1 : 0,
+            movementAfter.speedCapBase, movementAfter.speedCapBaseOk ? 1 : 0,
+            movementAfter.speedCapOverride, movementAfter.speedCapOverrideOk ? 1 : 0,
+            movementFinalCap, movementFinalCapOk ? 1 : 0,
+            movementBefore.currentSpeed, movementBefore.currentSpeedOk ? 1 : 0,
+            movementAfter.currentSpeed, movementAfter.currentSpeedOk ? 1 : 0,
+            movementBefore.currentJump, movementBefore.currentJumpOk ? 1 : 0,
+            movementAfter.currentJump, movementAfter.currentJumpOk ? 1 : 0);
     }
 
     return resultValue;
@@ -4665,6 +4897,8 @@ static void __cdecl hkObserveAbilityRedDisplayCallsite(
     DWORD ignoreDefensePtr,
     DWORD retAddr)
 {
+    if (!EnableAbilityRedDiagnosticLogs())
+        return;
     const DWORD now = GetTickCount();
     if (now - g_AbilityRedDisplayCallsiteLastTick <= 1000)
         return;
@@ -4729,6 +4963,8 @@ __declspec(naked) static void hkAbilityRedDisplayCallsiteNaked()
 
 static void __cdecl hkObserveAbilityRedLevelReadFrame(DWORD *frame)
 {
+    if (!EnableAbilityRedDiagnosticLogs())
+        return;
     if (!frame)
         return;
 
@@ -4937,6 +5173,8 @@ static void __cdecl hkObserveAbilityRedSkillWrite(
     DWORD carrierA,
     DWORD carrierB)
 {
+    if (!EnableAbilityRedDiagnosticLogs())
+        return;
     const DWORD now = GetTickCount();
     if (now - g_AbilityRedSkillWriteLastTick <= 1000)
         return;
@@ -5188,7 +5426,8 @@ static int __stdcall hkLocalIndependentPotentialSkillLevelDisplayFunction(int a1
     static DWORD s_lastSkillLevelCallLogTick = 0;
     const DWORD now = GetTickCount();
     const int delta88 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x88);
-    if (now - s_lastSkillLevelCallLogTick > 1000)
+    if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+        now - s_lastSkillLevelCallLogTick > 1000)
     {
         s_lastSkillLevelCallLogTick = now;
         WriteLogFmt("[IndependentBuffLocalDisplayCall] AE0A70 a1=0x%08X a2=%d out=0x%08X delta88=%d active=%d",
@@ -5220,7 +5459,8 @@ static LONG __cdecl hkLocalIndependentPotentialPercentQuadDisplayFunction(
     const int d4C = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x4C);
     const int d50 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x50);
     const int d54 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x54);
-    if (now - s_lastPercentQuadCallLogTick > 1000)
+    if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+        now - s_lastPercentQuadCallLogTick > 1000)
     {
         s_lastPercentQuadCallLogTick = now;
         WriteLogFmt("[IndependentBuffLocalDisplayCall] 8538C0 a1=0x%08X a2=%d outs=[0x%08X,0x%08X,0x%08X,0x%08X] deltas=[%d,%d,%d,%d] active=%d",
@@ -5263,7 +5503,8 @@ static LONG __fastcall hkLocalIndependentPotentialPercentFullDisplayFunction(
     const int d54 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x54);
     const int d58 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x58);
     const int d5C = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x5C);
-    if (now - s_lastPercentFullCallLogTick > 1000)
+    if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+        now - s_lastPercentFullCallLogTick > 1000)
     {
         s_lastPercentFullCallLogTick = now;
         WriteLogFmt("[IndependentBuffLocalDisplayCall] 853E10 this=0x%08X exc=0x%08X a3=%d out=0x%08X deltas=[%d,%d,%d,%d,%d,%d] active=%d",
@@ -5301,7 +5542,8 @@ static LONG __fastcall hkLocalIndependentPotentialFlatBasicDisplayFunction(
     const int d14 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x14);
     const int d20 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x20);
     const int d24 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0x24);
-    if (now - s_lastFlatBasicCallLogTick > 1000)
+    if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+        now - s_lastFlatBasicCallLogTick > 1000)
     {
         s_lastFlatBasicCallLogTick = now;
         WriteLogFmt("[IndependentBuffLocalDisplayCall] 853B00 this=0x%08X exc=0x%08X a3=%d deltas=[%d,%d,%d,%d,%d,%d] active=%d",
@@ -5344,7 +5586,8 @@ static LONG __fastcall hkLocalIndependentPotentialFlatExtendedDisplayFunction(
     const int dCC = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0xCC);
     const int dD0 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0xD0);
     const int dD4 = SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(0xD4);
-    if (now - s_lastFlatExtendedCallLogTick > 1000)
+    if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+        now - s_lastFlatExtendedCallLogTick > 1000)
     {
         s_lastFlatExtendedCallLogTick = now;
         WriteLogFmt("[IndependentBuffLocalDisplayCall] 856830 this=0x%08X exc=0x%08X a3=%d deltas=[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d] active=%d",
@@ -6234,6 +6477,29 @@ static void __cdecl hkSkillReleaseClassifierB2F370Dispatch(int skillId)
     {
         WriteLogFmt("[SkillReleaseHook] B2F370 override skillId=%d -> %d", skillId, overrideSkillId);
     }
+
+    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    {
+        return;
+    }
+
+    int mountItemId = 0;
+    if (skillId > 0 &&
+        TryReadCurrentUserMountItemId(&mountItemId) &&
+        HasRecentMountedDoubleJumpIntent(mountItemId) &&
+        SkillOverlayBridgeCanUseMountedDoubleJumpSkill(mountItemId, skillId))
+    {
+        ObserveMountedDoubleJumpNativeRelease(mountItemId, skillId);
+        static LONG s_mountedDoubleJumpNativeReleaseObserveLogBudget = 24;
+        const LONG budgetAfterDecrement =
+            InterlockedDecrement(&s_mountedDoubleJumpNativeReleaseObserveLogBudget);
+        if (budgetAfterDecrement >= 0)
+        {
+            WriteLogFmt("[MountDoubleJump] B2F370 observe native release mount=%d skill=%d",
+                        mountItemId,
+                        skillId);
+        }
+    }
 }
 
 static bool IsExtendedMountActionGateMount(int mountItemId)
@@ -6286,6 +6552,11 @@ static bool IsExtendedMountSoaringContextMount(int mountItemId)
 
 static volatile LONG g_recentExtendedMountContextItemId = 0;
 static volatile LONG g_recentExtendedMountContextTick = 0;
+static volatile LONG g_recentMountedDoubleJumpIntentItemId = 0;
+static volatile LONG g_recentMountedDoubleJumpIntentTick = 0;
+static volatile LONG g_recentMountedDoubleJumpNativeReleaseItemId = 0;
+static volatile LONG g_recentMountedDoubleJumpNativeReleaseSkillId = 0;
+static volatile LONG g_recentMountedDoubleJumpNativeReleaseTick = 0;
 
 static void ObserveExtendedMountContext(int mountItemId)
 {
@@ -6295,6 +6566,188 @@ static void ObserveExtendedMountContext(int mountItemId)
     }
     InterlockedExchange(&g_recentExtendedMountContextItemId, mountItemId);
     InterlockedExchange(&g_recentExtendedMountContextTick, static_cast<LONG>(GetTickCount()));
+}
+
+static void ObserveMountedDoubleJumpIntent(int mountItemId)
+{
+    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    {
+        return;
+    }
+
+    if (mountItemId <= 0)
+    {
+        return;
+    }
+    InterlockedExchange(&g_recentMountedDoubleJumpIntentItemId, mountItemId);
+    InterlockedExchange(&g_recentMountedDoubleJumpIntentTick, static_cast<LONG>(GetTickCount()));
+}
+
+static void ObserveMountedDoubleJumpNativeRelease(int mountItemId, int skillId)
+{
+    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    {
+        return;
+    }
+
+    if (mountItemId <= 0 || skillId <= 0)
+    {
+        return;
+    }
+
+    InterlockedExchange(&g_recentMountedDoubleJumpNativeReleaseItemId, mountItemId);
+    InterlockedExchange(&g_recentMountedDoubleJumpNativeReleaseSkillId, skillId);
+    InterlockedExchange(&g_recentMountedDoubleJumpNativeReleaseTick, static_cast<LONG>(GetTickCount()));
+}
+
+static bool HasRecentMountedDoubleJumpIntent(int mountItemId, DWORD maxAgeMs)
+{
+    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    {
+        return false;
+    }
+
+    if (SkillOverlayBridgeHasRecentMountedDoubleJumpRouteArm(mountItemId, maxAgeMs))
+    {
+        return true;
+    }
+
+    const LONG recentMountItemId =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpIntentItemId, 0, 0);
+    if (recentMountItemId <= 0)
+    {
+        return false;
+    }
+
+    if (mountItemId > 0 && recentMountItemId != mountItemId)
+    {
+        return false;
+    }
+
+    const LONG recentTick =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpIntentTick, 0, 0);
+    if (recentTick <= 0)
+    {
+        return false;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    const DWORD ageMs = nowTick - static_cast<DWORD>(recentTick);
+    return ageMs <= maxAgeMs;
+}
+
+static bool TryResolveRecentMountedDoubleJumpNativeRelease(
+    int expectedSkillId,
+    int *mountItemIdOut,
+    DWORD maxAgeMs = 450)
+{
+    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    {
+        return false;
+    }
+
+    if (expectedSkillId <= 0)
+    {
+        return false;
+    }
+
+    const LONG recentSkillId =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpNativeReleaseSkillId, 0, 0);
+    if (recentSkillId <= 0 || recentSkillId != expectedSkillId)
+    {
+        return false;
+    }
+
+    const LONG recentMountItemId =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpNativeReleaseItemId, 0, 0);
+    if (recentMountItemId <= 0)
+    {
+        return false;
+    }
+
+    const LONG recentTick =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpNativeReleaseTick, 0, 0);
+    if (recentTick <= 0)
+    {
+        return false;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    const DWORD ageMs = nowTick - static_cast<DWORD>(recentTick);
+    if (ageMs > maxAgeMs ||
+        !HasRecentMountedDoubleJumpIntent(static_cast<int>(recentMountItemId), maxAgeMs))
+    {
+        return false;
+    }
+
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = static_cast<int>(recentMountItemId);
+    }
+    return true;
+}
+
+static bool TryResolveRecentMountedDoubleJumpNativeReleaseRuntimeSkill(
+    int runtimeSkillId,
+    int *mountItemIdOut,
+    int *mountedDoubleJumpSkillIdOut,
+    DWORD maxAgeMs = 450)
+{
+    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    {
+        return false;
+    }
+
+    if (runtimeSkillId <= 0)
+    {
+        return false;
+    }
+
+    const LONG recentSkillId =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpNativeReleaseSkillId, 0, 0);
+    if (recentSkillId <= 0)
+    {
+        return false;
+    }
+
+    const LONG recentMountItemId =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpNativeReleaseItemId, 0, 0);
+    if (recentMountItemId <= 0)
+    {
+        return false;
+    }
+
+    const LONG recentTick =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpNativeReleaseTick, 0, 0);
+    if (recentTick <= 0)
+    {
+        return false;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    const DWORD ageMs = nowTick - static_cast<DWORD>(recentTick);
+    if (ageMs > maxAgeMs ||
+        !HasRecentMountedDoubleJumpIntent(static_cast<int>(recentMountItemId), maxAgeMs))
+    {
+        return false;
+    }
+
+    if (!SkillOverlayBridgeCanUseMountedDoubleJumpRuntimeSkill(
+            static_cast<int>(recentMountItemId),
+            runtimeSkillId))
+    {
+        return false;
+    }
+
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = static_cast<int>(recentMountItemId);
+    }
+    if (mountedDoubleJumpSkillIdOut)
+    {
+        *mountedDoubleJumpSkillIdOut = static_cast<int>(recentSkillId);
+    }
+    return true;
 }
 
 static bool TryGetRecentExtendedMountContext(int *mountItemIdOut)
@@ -6440,6 +6893,147 @@ static bool TryReadMountItemIdFromPlayerObject(void *playerObj, int *mountItemId
     return true;
 }
 
+static bool ShouldSuppressMountedDoubleJumpUseFailPrompt(
+    void *thisPtr,
+    int *mountItemIdOut,
+    int *mountedDoubleJumpSkillIdOut)
+{
+    if (!kEnableMountedDoubleJumpRuntimeHooks || !thisPtr)
+    {
+        return false;
+    }
+
+    int mountItemId = 0;
+    if (!TryReadMountItemIdFromPlayerObject(thisPtr, &mountItemId))
+    {
+        return false;
+    }
+
+    const int mountedDoubleJumpSkillId =
+        SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId);
+    if (mountedDoubleJumpSkillId <= 0)
+    {
+        return false;
+    }
+
+    if (!HasRecentMountedDoubleJumpIntent(mountItemId, 1200))
+    {
+        return false;
+    }
+
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = mountItemId;
+    }
+    if (mountedDoubleJumpSkillIdOut)
+    {
+        *mountedDoubleJumpSkillIdOut = mountedDoubleJumpSkillId;
+    }
+    return true;
+}
+
+static bool ShouldMountedDoubleJumpBypassReturnZero(DWORD returnAddr)
+{
+    return returnAddr == 0x00B1BBAA ||
+           returnAddr == 0x00B1C1C5;
+}
+
+static bool ShouldMountedDoubleJumpBypassReturnOne(DWORD returnAddr)
+{
+    return returnAddr == 0x00ADF02B ||
+           returnAddr == 0x00B1BFA7 ||
+           returnAddr == 0x00B1CCC7 ||
+           returnAddr == 0x00B1D0B8;
+}
+
+static int __fastcall hkMountedStateGate42DE20(void *thisPtr, void * /*edxUnused*/)
+{
+    int result = oMountedStateGate42DE20
+                     ? oMountedStateGate42DE20(thisPtr)
+                     : 0;
+    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    {
+        return result;
+    }
+    if (result <= 0)
+    {
+        return result;
+    }
+
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+
+    int mountItemId = 0;
+    if (!TryReadMountItemIdFromPlayerObject(thisPtr, &mountItemId) &&
+        !TryReadCurrentUserMountItemId(&mountItemId))
+    {
+        return result;
+    }
+
+    const int mountedDoubleJumpSkillId =
+        SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId);
+    if (mountedDoubleJumpSkillId <= 0)
+    {
+        return result;
+    }
+
+    // 42DE20 is an early mounted-state gate. We still do not manufacture
+    // intent here; we only consume the route intent that was armed earlier
+    // by the real mounted double-jump path. In practice, different caller
+    // sites can hit this same gate during the first mounted double-jump, so
+    // a narrow caller whitelist still leaks one or more "搭乘中无法使用"
+    // prompts. Keep the bypass scoped by fresh mounted double-jump intent
+    // instead of by a fragile caller list.
+    if (!HasRecentMountedDoubleJumpIntent(mountItemId, 250))
+    {
+        return result;
+    }
+
+    const int forcedResult =
+        ShouldMountedDoubleJumpBypassReturnOne(callerRet) ? 1 : 0;
+
+    return forcedResult;
+}
+
+static int __fastcall hkMountedUseFailPromptAE6260(
+    void *thisPtr,
+    void * /*edxUnused*/,
+    int a2)
+{
+    int mountItemId = 0;
+    int mountedDoubleJumpSkillId = 0;
+    if (ShouldSuppressMountedDoubleJumpUseFailPrompt(
+            thisPtr,
+            &mountItemId,
+            &mountedDoubleJumpSkillId))
+    {
+        return 1;
+    }
+
+    return oMountedUseFailPromptAE6260
+               ? oMountedUseFailPromptAE6260(thisPtr, a2)
+               : 0;
+}
+
+static bool SetupMountedUseFailPromptSuppressHook()
+{
+    if (oMountedUseFailPromptAE6260)
+    {
+        return true;
+    }
+
+    oMountedUseFailPromptAE6260 = (tMountedUseFailPromptFn)InstallInlineHook(
+        ADDR_AE6260, (void *)hkMountedUseFailPromptAE6260);
+    if (!oMountedUseFailPromptAE6260)
+    {
+        WriteLog("[MountDoubleJump] hook failed: AE6260");
+        return false;
+    }
+
+    WriteLogFmt("[MountDoubleJump] OK(AE6260): tramp=0x%08X",
+                (DWORD)(uintptr_t)oMountedUseFailPromptAE6260);
+    return true;
+}
+
 static bool TryResolveExtendedMountContextForSoaring(int *mountItemIdOut, bool *fromUserLocalOut)
 {
     int mountItemId = 0;
@@ -6577,7 +7171,7 @@ static int __fastcall hkMountNativeSoaringReleaseB26290(
     int mountItemId = 0;
     const bool hasMountItemId = TryReadMountItemIdFromPlayerObject(thisPtr, &mountItemId);
     const int shadowMountItemId =
-        skillId == 80001089 && hasMountItemId
+        skillId == 80001089 && hasMountItemId && !HasRecentMountedDoubleJumpIntent(mountItemId)
             ? ResolveExtendedMountNativeSoaringShadowMountItemId(mountItemId)
             : 0;
     const uintptr_t mountItemIdAddr = reinterpret_cast<uintptr_t>(thisPtr) + 0x454;
@@ -6766,6 +7360,10 @@ static int __fastcall hkMountSoaringGate7DC1B0(
     }
 
     ObserveExtendedMountContext(mountItemId);
+    if (HasRecentMountedDoubleJumpIntent(mountItemId))
+    {
+        return result;
+    }
     const int mappedNativeFlightSkillId = ResolveExtendedMountNativeFlightSkillId(mountItemId);
     if (mappedNativeFlightSkillId <= 0)
     {
@@ -6862,7 +7460,11 @@ static BOOL __fastcall hkMountContextIsFlyingFamily7D4CD0(void *thisPtr, void * 
         ObserveExtendedMountContext(mountItemId);
     }
 
-    if (IsExtendedMountFamilyGateMount(mountItemId))
+    const bool suppressExtendedSoaringForDoubleJump =
+        HasRecentMountedDoubleJumpIntent(mountItemId);
+
+    if (!suppressExtendedSoaringForDoubleJump &&
+        IsExtendedMountFamilyGateMount(mountItemId))
     {
         static LONG s_mountFamilyPreBypassLogBudget = 24;
         const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountFamilyPreBypassLogBudget);
@@ -6898,6 +7500,11 @@ static BOOL __fastcall hkMountContextIsFlyingFamily7D4CD0(void *thisPtr, void * 
     if (result)
     {
         return TRUE;
+    }
+
+    if (suppressExtendedSoaringForDoubleJump)
+    {
+        return result;
     }
 
     if (!IsExtendedMountSoaringContextMount(mountItemId))
@@ -6977,6 +7584,11 @@ static int __fastcall hkMountFamilyGateA9AAA0(void *thisPtr, void * /*edxUnused*
         return result;
     }
 
+    if (HasRecentMountedDoubleJumpIntent(mountItemId))
+    {
+        return result;
+    }
+
     if (!IsExtendedMountFamilyGateMount(mountItemId))
     {
         return result;
@@ -7019,6 +7631,11 @@ static BOOL ResolveRecentMountSoaringSkillGateAllow(
         return FALSE;
     }
 
+    if (HasRecentMountedDoubleJumpIntent(mountItemId))
+    {
+        return FALSE;
+    }
+
     if (resolvedMountItemIdOut)
     {
         *resolvedMountItemIdOut = mountItemId;
@@ -7028,6 +7645,280 @@ static BOOL ResolveRecentMountSoaringSkillGateAllow(
         *fromUserLocalOut = fromUserLocal;
     }
     return TRUE;
+}
+
+static BOOL ResolveMountedDoubleJumpSkillGateAllow(
+    int originalSkillId,
+    int mappedSkillId,
+    int *resolvedMountItemIdOut)
+{
+    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    {
+        return FALSE;
+    }
+
+    if (originalSkillId <= 0 && mappedSkillId <= 0)
+    {
+        return FALSE;
+    }
+
+    int mountItemId = 0;
+    if (!TryReadCurrentUserMountItemId(&mountItemId))
+    {
+        return FALSE;
+    }
+
+    if (!SkillOverlayBridgeCanUseMountedDoubleJumpRuntimeSkill(mountItemId, originalSkillId) &&
+        !SkillOverlayBridgeCanUseMountedDoubleJumpRuntimeSkill(mountItemId, mappedSkillId))
+    {
+        return FALSE;
+    }
+
+    if (resolvedMountItemIdOut)
+    {
+        *resolvedMountItemIdOut = mountItemId;
+    }
+    return TRUE;
+}
+
+static BOOL ResolveMountedDoubleJumpNativeReleaseAllowBySkill(
+    int skillId,
+    int *resolvedMountItemIdOut)
+{
+    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    {
+        return FALSE;
+    }
+
+    int mountItemId = 0;
+    if (!TryResolveRecentMountedDoubleJumpNativeReleaseRuntimeSkill(
+            skillId,
+            &mountItemId,
+            nullptr))
+    {
+        return FALSE;
+    }
+
+    int currentMountItemId = 0;
+    if (TryReadCurrentUserMountItemId(&currentMountItemId) &&
+        currentMountItemId > 0 &&
+        currentMountItemId != mountItemId)
+    {
+        return FALSE;
+    }
+
+    if (!SkillOverlayBridgeCanUseMountedDoubleJumpRuntimeSkill(mountItemId, skillId))
+    {
+        return FALSE;
+    }
+
+    if (resolvedMountItemIdOut)
+    {
+        *resolvedMountItemIdOut = mountItemId;
+    }
+    return TRUE;
+}
+
+static BOOL ResolveMountedDoubleJumpNativeReleaseAllowByMountContext(
+    void *mountContext,
+    int *resolvedMountItemIdOut)
+{
+    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    {
+        return FALSE;
+    }
+
+    const LONG recentSkillId =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpNativeReleaseSkillId, 0, 0);
+    if (recentSkillId <= 0)
+    {
+        return FALSE;
+    }
+
+    int mountItemId = 0;
+    if (!TryResolveRecentMountedDoubleJumpNativeRelease(
+            static_cast<int>(recentSkillId),
+            &mountItemId))
+    {
+        return FALSE;
+    }
+
+    int contextMountItemId = 0;
+    if (!mountContext ||
+        !TryResolveMountItemIdFromContextPointer(mountContext, &contextMountItemId) ||
+        contextMountItemId <= 0 ||
+        contextMountItemId != mountItemId)
+    {
+        return FALSE;
+    }
+
+    if (!SkillOverlayBridgeCanUseMountedDoubleJumpRuntimeSkill(
+            mountItemId,
+            static_cast<int>(recentSkillId)))
+    {
+        return FALSE;
+    }
+
+    if (resolvedMountItemIdOut)
+    {
+        *resolvedMountItemIdOut = mountItemId;
+    }
+    return TRUE;
+}
+
+static BOOL __cdecl hkMountedSkillWhitelist7CF270(int skillId)
+{
+    BOOL result = oMountedSkillWhitelist7CF270
+                      ? oMountedSkillWhitelist7CF270(skillId)
+                      : FALSE;
+    if (result)
+    {
+        return result;
+    }
+
+    int resolvedMountItemId = 0;
+    if (!ResolveMountedDoubleJumpNativeReleaseAllowBySkill(
+            skillId,
+            &resolvedMountItemId))
+    {
+        return result;
+    }
+
+    static LONG s_mountedSkillWhitelistForceAllowLogBudget = 24;
+    const LONG budgetAfterDecrement =
+        InterlockedDecrement(&s_mountedSkillWhitelistForceAllowLogBudget);
+    if (budgetAfterDecrement >= 0)
+    {
+        WriteLogFmt("[MountDoubleJump] 7CF270 native release force allow skill=%d mount=%d",
+                    skillId,
+                    resolvedMountItemId);
+    }
+    return TRUE;
+}
+
+static int __fastcall hkMountedSkillContextGateA9BF40(
+    void *thisPtr,
+    void * /*edxUnused*/)
+{
+    int result = oMountedSkillContextGateA9BF40
+                     ? oMountedSkillContextGateA9BF40(thisPtr)
+                     : 0;
+    if (result > 0)
+    {
+        return result;
+    }
+
+    int resolvedMountItemId = 0;
+    if (!ResolveMountedDoubleJumpNativeReleaseAllowByMountContext(
+            thisPtr,
+            &resolvedMountItemId))
+    {
+        return result;
+    }
+
+    static LONG s_mountedSkillContextGateForceAllowLogBudget = 24;
+    const LONG budgetAfterDecrement =
+        InterlockedDecrement(&s_mountedSkillContextGateForceAllowLogBudget);
+    if (budgetAfterDecrement >= 0)
+    {
+        WriteLogFmt("[MountDoubleJump] A9BF40 native release force allow mount=%d",
+                    resolvedMountItemId);
+    }
+    return 1;
+}
+
+static int __fastcall hkMountedSkillContextGateCallsiteB3009F(
+    void *mountContext,
+    void * /*edxUnused*/)
+{
+    int result = 0;
+    const DWORD originalTarget = g_MountedSkillContextGateCallsiteOriginalTarget
+                                     ? g_MountedSkillContextGateCallsiteOriginalTarget
+                                     : ADDR_A9BF40;
+    if (originalTarget)
+    {
+        result =
+            ((tMountedSkillContextGateFn)(uintptr_t)originalTarget)(mountContext);
+    }
+    int resolvedMountItemId = 0;
+    const bool isMountedDoubleJumpRuntimeContext =
+        ResolveMountedDoubleJumpNativeReleaseAllowByMountContext(
+            mountContext,
+            &resolvedMountItemId) != FALSE;
+    if (result > 0)
+    {
+        static LONG s_mountedSkillContextGateCallsiteNativeAllowLogBudget = 24;
+        const LONG budgetAfterDecrement =
+            InterlockedDecrement(&s_mountedSkillContextGateCallsiteNativeAllowLogBudget);
+        if (isMountedDoubleJumpRuntimeContext && budgetAfterDecrement >= 0)
+        {
+            const LONG recentSkillId =
+                InterlockedCompareExchange(&g_recentMountedDoubleJumpNativeReleaseSkillId, 0, 0);
+            WriteLogFmt("[MountDoubleJump] B3009F callsite native allow mount=%d skill=%d result=%d",
+                        resolvedMountItemId,
+                        static_cast<int>(recentSkillId),
+                        result);
+        }
+        return result;
+    }
+
+    if (!isMountedDoubleJumpRuntimeContext)
+    {
+        return result;
+    }
+
+    static LONG s_mountedSkillContextGateCallsiteForceAllowLogBudget = 24;
+    const LONG budgetAfterDecrement =
+        InterlockedDecrement(&s_mountedSkillContextGateCallsiteForceAllowLogBudget);
+    if (budgetAfterDecrement >= 0)
+    {
+        const LONG recentSkillId =
+            InterlockedCompareExchange(&g_recentMountedDoubleJumpNativeReleaseSkillId, 0, 0);
+        WriteLogFmt("[MountDoubleJump] B3009F callsite force allow mount=%d skill=%d",
+                    resolvedMountItemId,
+                    static_cast<int>(recentSkillId));
+    }
+
+    return 1;
+}
+
+static DWORD __cdecl hkMountedUnknownSkillReleaseBranchTargetB300AC(int skillId)
+{
+    int resolvedMountItemId = 0;
+    int mountedDoubleJumpSkillId = 0;
+    if (TryResolveRecentMountedDoubleJumpNativeReleaseRuntimeSkill(
+            skillId,
+            &resolvedMountItemId,
+            &mountedDoubleJumpSkillId))
+    {
+        static LONG s_mountedUnknownSkillReleaseBranchRerouteLogBudget = 24;
+        const LONG budgetAfterDecrement =
+            InterlockedDecrement(&s_mountedUnknownSkillReleaseBranchRerouteLogBudget);
+        if (budgetAfterDecrement >= 0)
+        {
+            WriteLogFmt("[MountDoubleJump] B300AC reroute skill=%d custom=%d mount=%d -> full-release(0x%08X)",
+                        skillId,
+                        mountedDoubleJumpSkillId,
+                        resolvedMountItemId,
+                        ADDR_B300E3);
+        }
+        return ADDR_B300E3;
+    }
+
+    return g_MountedUnknownSkillReleaseBranchOriginalTarget
+               ? g_MountedUnknownSkillReleaseBranchOriginalTarget
+               : ADDR_B30240;
+}
+
+__declspec(naked) static void hkMountedUnknownSkillReleaseBranchB300AC()
+{
+    __asm
+    {
+        push esi
+        call hkMountedUnknownSkillReleaseBranchTargetB300AC
+        add esp, 4
+        jmp eax
+    }
 }
 
 static BOOL __cdecl hkSkillNativeIdGate7CE790(int skillId)
@@ -7045,6 +7936,27 @@ static BOOL __cdecl hkSkillNativeIdGate7CE790(int skillId)
         {
             WriteLogFmt("[SkillGate] 7CE790 force allow skill=%d mapped=%d",
                         skillId, mappedSkillId);
+        }
+    }
+    if (!result)
+    {
+        int resolvedMountItemId = 0;
+        if (ResolveMountedDoubleJumpSkillGateAllow(
+                skillId,
+                mappedSkillId,
+                &resolvedMountItemId))
+        {
+            result = TRUE;
+            static LONG s_skillGate7CE790MountedDoubleJumpForceAllowLogBudget = 24;
+            const LONG budgetAfterDecrement =
+                InterlockedDecrement(&s_skillGate7CE790MountedDoubleJumpForceAllowLogBudget);
+            if (budgetAfterDecrement >= 0)
+            {
+                WriteLogFmt("[MountDoubleJump] 7CE790 force allow skill=%d mapped=%d mount=%d",
+                            skillId,
+                            mappedSkillId,
+                            resolvedMountItemId);
+            }
         }
     }
     if (!result)
@@ -7115,6 +8027,27 @@ static BOOL __cdecl hkSkillNativeIdGate7D0000(int skillId)
         {
             WriteLogFmt("[SkillGate] 7D0000 force allow skill=%d mapped=%d",
                         skillId, mappedSkillId);
+        }
+    }
+    if (!result)
+    {
+        int resolvedMountItemId = 0;
+        if (ResolveMountedDoubleJumpSkillGateAllow(
+                skillId,
+                mappedSkillId,
+                &resolvedMountItemId))
+        {
+            result = TRUE;
+            static LONG s_skillGate7D0000MountedDoubleJumpForceAllowLogBudget = 24;
+            const LONG budgetAfterDecrement =
+                InterlockedDecrement(&s_skillGate7D0000MountedDoubleJumpForceAllowLogBudget);
+            if (budgetAfterDecrement >= 0)
+            {
+                WriteLogFmt("[MountDoubleJump] 7D0000 force allow skill=%d mapped=%d mount=%d",
+                            skillId,
+                            mappedSkillId,
+                            resolvedMountItemId);
+            }
         }
     }
     if (!result)
@@ -7209,6 +8142,24 @@ static int __fastcall hkSkillLevelBase(void *thisPtr, void * /*edxUnused*/, DWOR
         WriteLogFmt("[SkillLevelHook] 7DA7D0 query=%d -> %d result=%d",
                     skillId, lookupSkillId, result);
     }
+    if (result <= 0)
+    {
+        int resolvedMountItemId = 0;
+        if (ResolveMountedDoubleJumpSkillGateAllow(skillId, lookupSkillId, &resolvedMountItemId))
+        {
+            result = 1;
+            static LONG s_skillLevelBaseMountedDoubleJumpFallbackLogBudget = 24;
+            const LONG budgetAfterDecrement =
+                InterlockedDecrement(&s_skillLevelBaseMountedDoubleJumpFallbackLogBudget);
+            if (budgetAfterDecrement >= 0)
+            {
+                WriteLogFmt("[MountDoubleJump] 7DA7D0 fallback query=%d lookup=%d mount=%d -> result=1",
+                            skillId,
+                            lookupSkillId,
+                            resolvedMountItemId);
+            }
+        }
+    }
     if (result <= 0 && (skillId == 80001089 || lookupSkillId == 80001089))
     {
         int resolvedMountItemId = 0;
@@ -7290,8 +8241,33 @@ static int __fastcall hkSkillLevelCurrent(void *thisPtr, void * /*edxUnused*/, D
     }
     if (lookupSkillId != skillId)
     {
-        WriteLogFmt("[SkillLevelHook] 7DBC50 query=%d -> %d flags=%d result=%d",
-                    skillId, lookupSkillId, flags, result);
+        static DWORD s_lastCurrentRemapLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (ENABLE_HOTPATH_DIAGNOSTIC_LOGS && nowTick - s_lastCurrentRemapLogTick > 1000)
+        {
+            s_lastCurrentRemapLogTick = nowTick;
+            WriteLogFmt("[SkillLevelHook] 7DBC50 query=%d -> %d flags=%d result=%d",
+                        skillId, lookupSkillId, flags, result);
+        }
+    }
+    if (result <= 0)
+    {
+        int resolvedMountItemId = 0;
+        if (ResolveMountedDoubleJumpSkillGateAllow(skillId, lookupSkillId, &resolvedMountItemId))
+        {
+            result = 1;
+            static LONG s_skillLevelCurrentMountedDoubleJumpFallbackLogBudget = 24;
+            const LONG budgetAfterDecrement =
+                InterlockedDecrement(&s_skillLevelCurrentMountedDoubleJumpFallbackLogBudget);
+            if (budgetAfterDecrement >= 0)
+            {
+                WriteLogFmt("[MountDoubleJump] 7DBC50 fallback query=%d lookup=%d flags=%d mount=%d -> result=1",
+                            skillId,
+                            lookupSkillId,
+                            flags,
+                            resolvedMountItemId);
+            }
+        }
     }
     if (result <= 0 && (skillId == 80001089 || lookupSkillId == 80001089))
     {
@@ -7315,16 +8291,215 @@ static int __fastcall hkSkillLevelCurrent(void *thisPtr, void * /*edxUnused*/, D
     }
     if (skillId == 80001089 || lookupSkillId == 80001089)
     {
-        static LONG s_skillLevelCurrentFinalSoaringLogBudget = 48;
-        const LONG budgetAfterDecrement = InterlockedDecrement(&s_skillLevelCurrentFinalSoaringLogBudget);
-        if (budgetAfterDecrement >= 0)
+        static DWORD s_lastCurrentFinalSoaringLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (ENABLE_HOTPATH_DIAGNOSTIC_LOGS && nowTick - s_lastCurrentFinalSoaringLogTick > 1000)
         {
+            s_lastCurrentFinalSoaringLogTick = nowTick;
             WriteLogFmt("[SkillLevelHook] 7DBC50 final query=%d lookup=%d flags=%d result=%d",
                         skillId, lookupSkillId, flags, result);
         }
     }
     SkillOverlayBridgeObserveLevelResult(lookupSkillId, result, false);
     return result;
+}
+
+static bool SetupMountedSkillContextGateCallsiteHook()
+{
+    if (g_MountedSkillContextGateCallsiteOriginalTarget)
+    {
+        return true;
+    }
+
+    BYTE *pCallsite = (BYTE *)(uintptr_t)ADDR_B3009F;
+    if (!pCallsite || SafeIsBadReadPtr(pCallsite, 5) || pCallsite[0] != 0xE8)
+    {
+        WriteLog("[MountDoubleJump] B3009F callsite missing/unexpected");
+        return false;
+    }
+
+    g_MountedSkillContextGateCallsiteOriginalTarget =
+        (DWORD)(uintptr_t)(pCallsite + 5 + *(int *)(pCallsite + 1));
+    if (g_MountedSkillContextGateCallsiteOriginalTarget != ADDR_A9BF40)
+    {
+        WriteLogFmt("[MountDoubleJump] B3009F callsite target unexpected: 0x%08X",
+                    g_MountedSkillContextGateCallsiteOriginalTarget);
+        g_MountedSkillContextGateCallsiteOriginalTarget = 0;
+        return false;
+    }
+
+    DWORD oldProtect = 0;
+    if (!VirtualProtect(pCallsite, 5, PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        WriteLog("[MountDoubleJump] B3009F callsite VirtualProtect failed");
+        g_MountedSkillContextGateCallsiteOriginalTarget = 0;
+        return false;
+    }
+
+    pCallsite[0] = 0xE8;
+    *(int *)(pCallsite + 1) =
+        (int)((uintptr_t)hkMountedSkillContextGateCallsiteB3009F - (uintptr_t)pCallsite - 5);
+
+    VirtualProtect(pCallsite, 5, oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), pCallsite, 5);
+
+    WriteLogFmt("[MountDoubleJump] OK(B3009F): original=0x%08X patchedCall=0x%08X",
+                g_MountedSkillContextGateCallsiteOriginalTarget,
+                (DWORD)(uintptr_t)hkMountedSkillContextGateCallsiteB3009F);
+    return true;
+}
+
+static bool SetupMountedUnknownSkillReleaseBranchHook()
+{
+    if (g_MountedUnknownSkillReleaseBranchOriginalTarget)
+    {
+        return true;
+    }
+
+    BYTE *pBranch = (BYTE *)(uintptr_t)ADDR_B300AC;
+    if (!pBranch || SafeIsBadReadPtr(pBranch, 5) || pBranch[0] != 0xE9)
+    {
+        WriteLog("[MountDoubleJump] B300AC branch missing/unexpected");
+        return false;
+    }
+
+    g_MountedUnknownSkillReleaseBranchOriginalTarget =
+        (DWORD)(uintptr_t)(pBranch + 5 + *(int *)(pBranch + 1));
+    if (g_MountedUnknownSkillReleaseBranchOriginalTarget != ADDR_B30240)
+    {
+        WriteLogFmt("[MountDoubleJump] B300AC branch target unexpected: 0x%08X",
+                    g_MountedUnknownSkillReleaseBranchOriginalTarget);
+        g_MountedUnknownSkillReleaseBranchOriginalTarget = 0;
+        return false;
+    }
+
+    DWORD oldProtect = 0;
+    if (!VirtualProtect(pBranch, 5, PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        WriteLog("[MountDoubleJump] B300AC branch VirtualProtect failed");
+        g_MountedUnknownSkillReleaseBranchOriginalTarget = 0;
+        return false;
+    }
+
+    pBranch[0] = 0xE9;
+    *(int *)(pBranch + 1) =
+        (int)((uintptr_t)hkMountedUnknownSkillReleaseBranchB300AC - (uintptr_t)pBranch - 5);
+
+    VirtualProtect(pBranch, 5, oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), pBranch, 5);
+
+    WriteLogFmt("[MountDoubleJump] OK(B300AC): original=0x%08X patchedJmp=0x%08X",
+                g_MountedUnknownSkillReleaseBranchOriginalTarget,
+                (DWORD)(uintptr_t)hkMountedUnknownSkillReleaseBranchB300AC);
+    return true;
+}
+
+static int __fastcall hkSkillEffect800260(void *thisPtr, void * /*edxUnused*/, int level)
+{
+    int result = 0;
+    if (oSkillEffect800260)
+    {
+        __try
+        {
+            result = oSkillEffect800260(thisPtr, level);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            static DWORD s_lastSkillEffect800260ExceptionLogTick = 0;
+            const DWORD nowTick = GetTickCount();
+            if (nowTick - s_lastSkillEffect800260ExceptionLogTick > 1000)
+            {
+                s_lastSkillEffect800260ExceptionLogTick = nowTick;
+                WriteLogFmt("[SuperPassiveEffectHook] 800260 EXCEPTION entry=0x%08X level=%d code=0x%08X",
+                    (DWORD)(uintptr_t)thisPtr,
+                    level,
+                    GetExceptionCode());
+            }
+            result = 0;
+        }
+    }
+
+    if (result > 0)
+        SkillOverlayBridgeApplyConfiguredPassiveEffectBonuses((uintptr_t)thisPtr, level, (uintptr_t)result, "800260");
+    return result;
+}
+
+static int __fastcall hkSkillEffect800580(void *thisPtr, void * /*edxUnused*/, int level)
+{
+    int result = 0;
+    if (oSkillEffect800580)
+    {
+        __try
+        {
+            result = oSkillEffect800580(thisPtr, level);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            static DWORD s_lastSkillEffect800580ExceptionLogTick = 0;
+            const DWORD nowTick = GetTickCount();
+            if (nowTick - s_lastSkillEffect800580ExceptionLogTick > 1000)
+            {
+                s_lastSkillEffect800580ExceptionLogTick = nowTick;
+                WriteLogFmt("[SuperPassiveEffectHook] 800580 EXCEPTION entry=0x%08X level=%d code=0x%08X",
+                    (DWORD)(uintptr_t)thisPtr,
+                    level,
+                    GetExceptionCode());
+            }
+            result = 0;
+        }
+    }
+
+    if (result > 0)
+        SkillOverlayBridgeApplyConfiguredPassiveEffectBonuses((uintptr_t)thisPtr, level, (uintptr_t)result, "800580");
+    return result;
+}
+
+static int __fastcall hkPassiveEffectDamage43DE00(void *thisPtr, void * /*edxUnused*/)
+{
+    int result = 0;
+    if (oPassiveEffectDamage43DE00)
+        result = oPassiveEffectDamage43DE00(thisPtr);
+    return SkillOverlayBridgeOverridePassiveEffectGetterValue((uintptr_t)thisPtr, result, "damage", "43DE00");
+}
+
+static int __fastcall hkPassiveEffectDamage43DE50(void *thisPtr, void * /*edxUnused*/)
+{
+    int result = 0;
+    if (oPassiveEffectDamage43DE50)
+        result = oPassiveEffectDamage43DE50(thisPtr);
+    return SkillOverlayBridgeOverridePassiveEffectGetterValue((uintptr_t)thisPtr, result, "damage", "43DE50");
+}
+
+static int __fastcall hkPassiveEffectAttackCount5E9EE0(void *thisPtr, void * /*edxUnused*/)
+{
+    int result = 0;
+    if (oPassiveEffectAttackCount5E9EE0)
+        result = oPassiveEffectAttackCount5E9EE0(thisPtr);
+    return SkillOverlayBridgeOverridePassiveEffectGetterValue((uintptr_t)thisPtr, result, "attackCount", "5E9EE0");
+}
+
+static int __fastcall hkPassiveEffectMobCount7D1990(void *thisPtr, void * /*edxUnused*/)
+{
+    int result = 0;
+    if (oPassiveEffectMobCount7D1990)
+        result = oPassiveEffectMobCount7D1990(thisPtr);
+    return SkillOverlayBridgeOverridePassiveEffectGetterValue((uintptr_t)thisPtr, result, "mobCount", "7D1990");
+}
+
+static int __fastcall hkPassiveEffectAttackCount7D19E0(void *thisPtr, void * /*edxUnused*/)
+{
+    int result = 0;
+    if (oPassiveEffectAttackCount7D19E0)
+        result = oPassiveEffectAttackCount7D19E0(thisPtr);
+    return SkillOverlayBridgeOverridePassiveEffectGetterValue((uintptr_t)thisPtr, result, "attackCount", "7D19E0");
+}
+
+static int __fastcall hkPassiveEffectIgnore7D28E0(void *thisPtr, void * /*edxUnused*/)
+{
+    int result = 0;
+    if (oPassiveEffectIgnore7D28E0)
+        result = oPassiveEffectIgnore7D28E0(thisPtr);
+    return SkillOverlayBridgeOverridePassiveEffectGetterValue((uintptr_t)thisPtr, result, "ignoreMobpdpR", "7D28E0");
 }
 
 __declspec(naked) static void hkSkillReleaseClassifierRootNaked()
@@ -9104,8 +10279,15 @@ static bool SetupPacketHook()
         localHookAnyOk = true;
     if (SetupAbilityRedExtendedAggregateHook())
         localHookAnyOk = true;
-    if (SetupAbilityRedMasterAggregateHook())
-        localHookAnyOk = true;
+    if (kEnableMountMovementAbilityRedHooks)
+    {
+        if (SetupAbilityRedMasterAggregateHook())
+            localHookAnyOk = true;
+    }
+    else
+    {
+        WriteLog("[AbilityRedMaster] 856C60 hook disabled for mount movement rollback");
+    }
     if (SetupAbilityRedSiblingCalcHooks())
         localHookAnyOk = true;
     if (SetupAbilityRedDiff84C470PreSubHook())
@@ -10076,6 +11258,87 @@ static bool SetupAbilityRedMasterAggregateHook()
         (DWORD)(uintptr_t)oAbilityRedMasterAggregateFn,
         copyLen);
     return true;
+}
+
+static bool SetupAbilityRedMovementSetterHooks()
+{
+    bool anyOk = false;
+
+    if (!oAbilityRedMovementSpeedSetter831F00Fn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_831F00);
+        if (!pTarget)
+        {
+            WriteLog("[MoveSetter] 831F00 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oAbilityRedMovementSpeedSetter831F00Fn =
+                (tAbilityRedMovementSetterFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkAbilityRedMovementSpeedSetter831F00,
+                    copyLen);
+            if (!oAbilityRedMovementSpeedSetter831F00Fn)
+            {
+                WriteLog("[MoveSetter] 831F00 hook failed");
+            }
+            else
+            {
+                anyOk = true;
+                WriteLogFmt("[MoveSetter] OK(831F00): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oAbilityRedMovementSpeedSetter831F00Fn,
+                    copyLen);
+            }
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    if (!oAbilityRedMovementJumpSetter832000Fn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_832000);
+        if (!pTarget)
+        {
+            WriteLog("[MoveSetter] 832000 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oAbilityRedMovementJumpSetter832000Fn =
+                (tAbilityRedMovementSetterFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkAbilityRedMovementJumpSetter832000,
+                    copyLen);
+            if (!oAbilityRedMovementJumpSetter832000Fn)
+            {
+                WriteLog("[MoveSetter] 832000 hook failed");
+            }
+            else
+            {
+                anyOk = true;
+                WriteLogFmt("[MoveSetter] OK(832000): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oAbilityRedMovementJumpSetter832000Fn,
+                    copyLen);
+            }
+        }
+    }
+    else
+    {
+        anyOk = true;
+    }
+
+    return anyOk;
 }
 
 static bool SetupAbilityRedSiblingCalcHooks()
@@ -11180,6 +12443,65 @@ static bool SetupSkillNativeIdGateHooks()
         WriteLog("[SkillGate] hook failed: 7D0000");
     }
 
+    if (kEnableMountedDoubleJumpRuntimeHooks)
+    {
+        oMountedSkillWhitelist7CF270 = (tSkillNativeIdGateFn)InstallInlineHook(
+            ADDR_7CF270, (void *)hkMountedSkillWhitelist7CF270);
+        if (oMountedSkillWhitelist7CF270)
+        {
+            ok = true;
+            WriteLogFmt("[MountDoubleJump] OK(7CF270): tramp=0x%08X",
+                        (DWORD)(uintptr_t)oMountedSkillWhitelist7CF270);
+        }
+        else
+        {
+            WriteLog("[MountDoubleJump] hook failed: 7CF270");
+        }
+
+        // A9BF40 的入口前 8 字节包含 rel32 call(7D4C00)。
+        // 现有 InstallInlineHook trampoline 只做“原字节搬运”，不会重定位这类相对调用，
+        // 一旦真正走原函数 trampoline，会在骑宠召唤/动作链里直接跑飞崩溃。
+        // 这里继续禁用入口 hook，改为只 patch B2F370 内 00B3009F 那一个 callsite。
+        oMountedSkillContextGateA9BF40 = nullptr;
+        WriteLog("[MountDoubleJump] hook disabled: A9BF40 rel32-call trampoline unsafe");
+        if (SetupMountedSkillContextGateCallsiteHook())
+        {
+            ok = true;
+        }
+        if (SetupMountedUnknownSkillReleaseBranchHook())
+        {
+            ok = true;
+        }
+        if (SetupMountedUseFailPromptSuppressHook())
+        {
+            ok = true;
+        }
+
+        oMountedStateGate42DE20 = (tMountedStateGateFn)InstallInlineHook(
+            ADDR_42DE20, (void *)hkMountedStateGate42DE20);
+        if (oMountedStateGate42DE20)
+        {
+            ok = true;
+            WriteLogFmt("[MountDoubleJump] OK(42DE20): tramp=0x%08X",
+                        (DWORD)(uintptr_t)oMountedStateGate42DE20);
+        }
+        else
+        {
+            WriteLog("[MountDoubleJump] hook failed: 42DE20");
+        }
+
+    }
+    else
+    {
+        oMountedSkillWhitelist7CF270 = nullptr;
+        oMountedSkillContextGateA9BF40 = nullptr;
+        oMountedStateGate42DE20 = nullptr;
+        oMountedUseFailPromptAE6260 = nullptr;
+        g_MountedSkillContextGateCallsiteOriginalTarget = 0;
+        g_MountedUnknownSkillReleaseBranchOriginalTarget = 0;
+        WriteLog("[MountDoubleJump] runtime hooks disabled");
+    }
+
     // 坐骑攀爬/绳索动作在 0042C300 case 51/52 前会先过 4069E0 白名单。
     // 这里把扩展骑宠补进去，避免只改服务端后出现“能飞但不能爬”的半支持状态。
     oMountActionGate4069E0 = (tMountActionGateFn)InstallInlineHook(
@@ -11281,8 +12603,15 @@ static bool SetupSkillNativeIdGateHooks()
         WriteLog("[MountFamilyGate] hook failed: A9AAA0");
     }
 
-    if (ApplyMountMovementCapPatches())
-        ok = true;
+    if (kEnableMountMovementCapPatches)
+    {
+        if (ApplyMountMovementCapPatches())
+            ok = true;
+    }
+    else
+    {
+        WriteLog("[RuntimePatch] mount movement cap patches disabled for rollback");
+    }
 
     return ok;
 }
@@ -11313,6 +12642,170 @@ static bool SetupSkillLevelLookupHooks()
     else
     {
         WriteLog("[SkillLevelHook] hook failed: 7DBC50");
+    }
+
+    if (SetupSkillEffectPassiveBonusHooks())
+        ok = true;
+    else
+        WriteLog("[SuperPassiveEffectHook] effect hooks failed (non-fatal)");
+
+    return ok;
+}
+
+static bool SetupSkillEffectPassiveBonusHooks()
+{
+    bool ok = false;
+
+    if (!oSkillEffect800260)
+    {
+        oSkillEffect800260 = (tSkillEffectFn)InstallInlineHook(
+            ADDR_800260, (void *)hkSkillEffect800260);
+        if (oSkillEffect800260)
+        {
+            ok = true;
+            WriteLogFmt("[SuperPassiveEffectHook] OK(800260): tramp=0x%08X", (DWORD)(uintptr_t)oSkillEffect800260);
+        }
+        else
+        {
+            WriteLog("[SuperPassiveEffectHook] hook failed: 800260");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oSkillEffect800580)
+    {
+        oSkillEffect800580 = (tSkillEffectFn)InstallInlineHook(
+            ADDR_800580, (void *)hkSkillEffect800580);
+        if (oSkillEffect800580)
+        {
+            ok = true;
+            WriteLogFmt("[SuperPassiveEffectHook] OK(800580): tramp=0x%08X", (DWORD)(uintptr_t)oSkillEffect800580);
+        }
+        else
+        {
+            WriteLog("[SuperPassiveEffectHook] hook failed: 800580");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oPassiveEffectDamage43DE00)
+    {
+        oPassiveEffectDamage43DE00 = (tPassiveEffectGetterFn)InstallInlineHook(
+            ADDR_43DE00, (void *)hkPassiveEffectDamage43DE00);
+        if (oPassiveEffectDamage43DE00)
+        {
+            ok = true;
+            WriteLogFmt("[SuperPassiveGetterHook] OK(43DE00 damage): tramp=0x%08X", (DWORD)(uintptr_t)oPassiveEffectDamage43DE00);
+        }
+        else
+        {
+            WriteLog("[SuperPassiveGetterHook] hook failed: 43DE00 damage");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oPassiveEffectDamage43DE50)
+    {
+        oPassiveEffectDamage43DE50 = (tPassiveEffectGetterFn)InstallInlineHook(
+            ADDR_43DE50, (void *)hkPassiveEffectDamage43DE50);
+        if (oPassiveEffectDamage43DE50)
+        {
+            ok = true;
+            WriteLogFmt("[SuperPassiveGetterHook] OK(43DE50 damageAlt): tramp=0x%08X", (DWORD)(uintptr_t)oPassiveEffectDamage43DE50);
+        }
+        else
+        {
+            WriteLog("[SuperPassiveGetterHook] hook failed: 43DE50 damageAlt");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oPassiveEffectAttackCount5E9EE0)
+    {
+        oPassiveEffectAttackCount5E9EE0 = (tPassiveEffectGetterFn)InstallInlineHook(
+            ADDR_5E9EE0, (void *)hkPassiveEffectAttackCount5E9EE0);
+        if (oPassiveEffectAttackCount5E9EE0)
+        {
+            ok = true;
+            WriteLogFmt("[SuperPassiveGetterHook] OK(5E9EE0 attackCount): tramp=0x%08X", (DWORD)(uintptr_t)oPassiveEffectAttackCount5E9EE0);
+        }
+        else
+        {
+            WriteLog("[SuperPassiveGetterHook] hook failed: 5E9EE0 attackCount");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oPassiveEffectMobCount7D1990)
+    {
+        oPassiveEffectMobCount7D1990 = (tPassiveEffectGetterFn)InstallInlineHook(
+            ADDR_7D1990, (void *)hkPassiveEffectMobCount7D1990);
+        if (oPassiveEffectMobCount7D1990)
+        {
+            ok = true;
+            WriteLogFmt("[SuperPassiveGetterHook] OK(7D1990 mobCount): tramp=0x%08X", (DWORD)(uintptr_t)oPassiveEffectMobCount7D1990);
+        }
+        else
+        {
+            WriteLog("[SuperPassiveGetterHook] hook failed: 7D1990 mobCount");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oPassiveEffectAttackCount7D19E0)
+    {
+        oPassiveEffectAttackCount7D19E0 = (tPassiveEffectGetterFn)InstallInlineHook(
+            ADDR_7D19E0, (void *)hkPassiveEffectAttackCount7D19E0);
+        if (oPassiveEffectAttackCount7D19E0)
+        {
+            ok = true;
+            WriteLogFmt("[SuperPassiveGetterHook] OK(7D19E0 attackCount): tramp=0x%08X", (DWORD)(uintptr_t)oPassiveEffectAttackCount7D19E0);
+        }
+        else
+        {
+            WriteLog("[SuperPassiveGetterHook] hook failed: 7D19E0 attackCount");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oPassiveEffectIgnore7D28E0)
+    {
+        oPassiveEffectIgnore7D28E0 = (tPassiveEffectGetterFn)InstallInlineHook(
+            ADDR_7D28E0, (void *)hkPassiveEffectIgnore7D28E0);
+        if (oPassiveEffectIgnore7D28E0)
+        {
+            ok = true;
+            WriteLogFmt("[SuperPassiveGetterHook] OK(7D28E0 ignoreMobpdpR): tramp=0x%08X", (DWORD)(uintptr_t)oPassiveEffectIgnore7D28E0);
+        }
+        else
+        {
+            WriteLog("[SuperPassiveGetterHook] hook failed: 7D28E0 ignoreMobpdpR");
+        }
+    }
+    else
+    {
+        ok = true;
     }
 
     return ok;

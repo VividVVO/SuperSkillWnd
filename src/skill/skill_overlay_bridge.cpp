@@ -11,6 +11,7 @@
 #include <array>
 #include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <string>
 #include <vector>
@@ -246,6 +247,38 @@ namespace
         PassiveValueSpec mobCount;
     };
 
+    struct PassiveEffectPatchSnapshot
+    {
+        bool initialized = false;
+        int skillId = 0;
+        int level = 0;
+        int originalDamageLocal = 0;
+        int originalDamage = 0;
+        int originalDamageAlt = 0;
+        int originalMobCount = 0;
+        int originalAttackCount = 0;
+        int originalAttackCountAlt = 0;
+        int originalIgnoreMobpdpR = 0;
+        bool hasDamageLocal = false;
+        bool hasDamage = false;
+        bool hasDamageAlt = false;
+        bool hasMobCount = false;
+        bool hasAttackCount = false;
+        bool hasAttackCountAlt = false;
+        bool hasIgnoreMobpdpR = false;
+        int lastDamageBonus = 0;
+        int lastMobCountBonus = 0;
+        int lastAttackCountBonus = 0;
+        int lastIgnoreMobpdpRBonus = 0;
+    };
+
+    struct PassiveEffectRuntimeContext
+    {
+        int skillId = 0;
+        int level = 0;
+        DWORD lastSeenTick = 0;
+    };
+
     struct SuperSkillDefinition
     {
         enum IndependentDisplayMode
@@ -266,6 +299,11 @@ namespace
         int superSpCarrierSkillId = 0;
         bool allowNativeUpgradeFallback = true;
         int behaviorSkillId = 0;
+        int mountItemId = 0;
+        bool mountedDoubleJumpEnabled = false;
+        int mountedDoubleJumpSkillId = 0;
+        std::vector<int> visibleJobIds;
+        std::string visibleJobLabel;
         bool independentBuffEnabled = false;
         int independentSourceSkillId = 0;
         int independentCarrierMaskPosition = 0;
@@ -322,6 +360,9 @@ namespace
     std::map<unsigned long long, ActiveIndependentBuffRewriteState> g_activeIndependentBuffRewriteStates;
     ActiveNativeReleaseContext g_activeNativeRelease;
     RecentNativePresentationContext g_recentNativePresentation;
+    volatile LONG g_recentMountedDoubleJumpRouteArmItemId = 0;
+    volatile LONG g_recentMountedDoubleJumpRouteArmTick = 0;
+    const bool kEnableMountedDoubleJumpRouteArm = true;
     bool g_loggedMissingRouteConfig = false;
     bool g_loggedDuplicateRoutes = false;
     bool g_loggedMissingSuperSkillConfig = false;
@@ -330,11 +371,15 @@ namespace
     bool g_loggedDuplicateNativeInjections = false;
     DWORD g_lastMissingConfigRetryTick = 0;
     int g_defaultSuperSpCarrierSkillId = 0;
+    int g_lastResolvedPlayerJobId = 0;
+    bool g_hasLastResolvedPlayerJobId = false;
+    int g_lastOverlayConfiguredJobId = -1;
     const DWORD kMissingConfigRetryIntervalMs = 3000;
     const DWORD kNativeReleaseContextTimeoutMs = 1200;
     const DWORD kNativeReleaseFollowupWindowMs = 450;
     const int kNativeReleaseRewriteBudget = 3;
     const DWORD kNativePresentationContextTimeoutMs = 1200;
+    const DWORD kMountedDoubleJumpRouteArmTimeoutMs = 400;
     const DWORD kIndependentBuffRefreshCancelIgnoreMs = 3000;
     const DWORD kIndependentBuffClientCancelWindowMs = 1500;
     const size_t kNativeSkillRowCloneBytes = 0x800;
@@ -345,9 +390,12 @@ namespace
     const unsigned short kSuperSkillResetPreviewPacketOpcode = 1142;
     const unsigned short kIndependentBuffVirtualGivePacketOpcode = 1143;
     const unsigned short kIndependentBuffVirtualCancelPacketOpcode = 1144;
+    const unsigned short kSuperSkillLevelSyncPacketOpcode = 1145;
     const unsigned short kGiveBuffPacketOpcode = 0x25;
     const unsigned short kCancelBuffPacketOpcode = 0x26;
     const unsigned short kClientCancelBuffPacketOpcode = 0x94;
+    const unsigned short kServerCloseRangeAttackPacketOpcode = 0x105;
+    const unsigned short kServerEnergyAttackPacketOpcode = 0x108;
     const int kBuffMaskIntCount = 8;
     const int kBuffMaskByteCount = kBuffMaskIntCount * sizeof(int);
     const int kSingleStatGiveBuffReasonOffset = kBuffMaskByteCount;
@@ -546,9 +594,11 @@ namespace
     // 游戏等级刷新控制
     DWORD g_lastRefreshTick = 0;
     DWORD g_fastRefreshUntilTick = 0;
+    DWORD g_superSkillResetLevelSyncUntilTick = 0;
     const DWORD kRefreshIntervalMs = 150;
     const DWORD kPendingRefreshIntervalMs = 30;
     const DWORD kPendingRefreshWindowMs = 2000;
+    const DWORD kSuperSkillResetLevelSyncWindowMs = 5000;
     DWORD g_lastUnmappedRouteLogTick = 0;
     unsigned short g_lastUnmappedRouteOpcode = 0;
     bool g_initialGameLevelLoaded = false;  // 是否已经成功从游戏加载过等级
@@ -556,9 +606,22 @@ namespace
     std::map<int, bool> g_overlayLearnedVisibilityBySkillId;
     std::map<int, int> g_observedCurrentLevelsBySkillId;
     std::map<int, int> g_observedBaseLevelsBySkillId;
+    std::map<int, int> g_observedActualCurrentLevelsBySkillId;
+    std::map<int, int> g_observedActualBaseLevelsBySkillId;
+    std::map<int, int> g_persistentNonNativeSuperSkillLevelsBySkillId;
+    std::map<uintptr_t, PassiveEffectPatchSnapshot> g_passiveEffectPatchSnapshotsByEffectPtr;
+    std::map<uintptr_t, PassiveEffectRuntimeContext> g_passiveEffectRuntimeContextsByEffectPtr;
+    std::map<int, DWORD> g_passiveEffectDamageWriteTickBySkillId;
+    std::map<int, DWORD> g_passiveEffectDamageGetterTickBySkillId;
+    std::map<int, DWORD> g_passiveEffectAttackCountGetterTickBySkillId;
+    std::map<int, DWORD> g_recentPassiveAttackProbeTickBySkillId;
+    const DWORD kPassiveEffectDamageWriteSuppressPacketRewriteMs = 5000;
+    const DWORD kRecentPassiveAttackProbeWindowMs = 1500;
     volatile LONG g_superSkillResetPreviewRevision = 0;
     volatile LONG g_superSkillResetPreviewSpentSp = 0;
     volatile LONG g_superSkillResetPreviewCostMeso = 0;
+    volatile LONG g_superSkillResetPreviewCurrentMeso = 0;
+    volatile LONG g_superSkillResetPreviewHasCurrentMeso = 0;
     volatile LONG g_superSkillResetPreviewReceiveHookReady = 0;
     DWORD g_lastObservedLevelContext = 0;
     DWORD g_lastObservedSkillDataMgr = 0;
@@ -600,6 +663,12 @@ namespace
         DWORD armedTick = 0;
     };
 
+    struct PendingOptimisticSuperSkillLevelHold
+    {
+        int expectedLevel = 0;
+        DWORD expireTick = 0;
+    };
+
     struct NativeDistributeSpPacket
     {
         DWORD writeOffset = 0;
@@ -611,6 +680,8 @@ namespace
 
     PendingSuperSkillUpgradePacketRewrite g_pendingSuperSkillUpgradePacketRewrite;
     const DWORD kPendingSuperSkillUpgradeRewriteWindowMs = 1200;
+    std::map<int, PendingOptimisticSuperSkillLevelHold> g_pendingOptimisticSuperSkillLevelHoldBySkillId;
+    const DWORD kPendingOptimisticSuperSkillLevelHoldWindowMs = 1800;
 
     void RefreshSkillNativeState(SkillItem& item);
     bool ReadTextFile(const char* path, std::string& out);
@@ -624,10 +695,33 @@ namespace
     bool FindHiddenSkillDefinition(int skillId, HiddenSkillDefinition& outDefinition);
     bool FindNativeSkillInjectionDefinition(int skillId, NativeSkillInjectionDefinition& outDefinition);
     bool IsKnownSuperSkillCarrierSkillId(int skillId);
+    void NormalizeVisibleJobIds(std::vector<int>& visibleJobIds);
+    bool FindMountedDoubleJumpDefinitionByMountItemId(int mountItemId, SuperSkillDefinition& outDefinition);
+    bool TryApplyMountedDoubleJumpStableProxyOverride(
+        CustomSkillUseRoute& route,
+        bool armRouteIntent);
     int GetObservedBaseSkillLevel(int skillId);
     int GetObservedCurrentSkillLevel(int skillId);
     bool HasObservedBaseSkillLevel(int skillId);
     bool HasObservedCurrentSkillLevel(int skillId);
+    int GetObservedActualBaseSkillLevel(int skillId);
+    int GetObservedActualCurrentSkillLevel(int skillId);
+    bool HasObservedActualBaseSkillLevel(int skillId);
+    bool HasObservedActualCurrentSkillLevel(int skillId);
+    int GetRuntimeAppliedSkillLevel(int skillId);
+    bool IsTrackedNonNativeSuperSkill(int skillId, SkillItem** outItem = nullptr);
+    bool IsSuperSkillResetLevelSyncWindowActive();
+    bool ShouldSuppressNonNativeSuperSkillLevelFallback(int skillId);
+    void ClearTrackedNonNativeSuperSkillLevel(int skillId, const char* reason);
+    void ApplyAuthoritativeSuperSkillLevelSync(int skillId, int level, const char* reason);
+    void RecordPersistentSuperSkillLevel(int skillId, int level, const char* reason);
+    bool TryGetPersistentSuperSkillLevel(int skillId, int& outLevel);
+    void ClearPersistentSuperSkillLevels(const char* reason);
+    bool ClearIndependentBuffRuntimeStateForDefinition(const SuperSkillDefinition& definition, const char* reason);
+    void ClearAllPendingOptimisticSuperSkillLevelHolds(const char* reason);
+    void ClearPendingOptimisticSuperSkillLevelHold(int skillId);
+    bool TryGetFreshPendingOptimisticSuperSkillLevelHold(int skillId, PendingOptimisticSuperSkillLevelHold& outHold);
+    void ApplyOptimisticSuperSkillUpgradeObservation(int skillId, int carrierSkillId, int nextSkillLevel, int nextCarrierPoints);
     void ClearPendingSuperSkillUpgradePacketRewrite();
     bool IsPendingSuperSkillUpgradePacketRewriteFresh();
     void LoadSuperSkillRegistry();
@@ -883,6 +977,149 @@ namespace
         return true;
     }
 
+    bool TryReadEncryptedShortValue(uintptr_t encodedAddress, short& outValue)
+    {
+        outValue = 0;
+
+        unsigned char enc0 = 0;
+        unsigned char enc1 = 0;
+        unsigned char key0 = 0;
+        unsigned char key1 = 0;
+        unsigned int check = 0;
+        if (!SafeReadValue(encodedAddress + 0, enc0) ||
+            !SafeReadValue(encodedAddress + 1, enc1) ||
+            !SafeReadValue(encodedAddress + 2, key0) ||
+            !SafeReadValue(encodedAddress + 3, key1) ||
+            !SafeReadValue(encodedAddress + 4, check))
+        {
+            return false;
+        }
+
+        unsigned int rolling = 0xBAADF00Du;
+        unsigned short plainValue = 0;
+        unsigned char* plainBytes = reinterpret_cast<unsigned char*>(&plainValue);
+        const unsigned char encBytes[2] = { enc0, enc1 };
+        const unsigned char keyBytes[2] = { key0, key1 };
+
+        for (int i = 0; i < 2; ++i)
+        {
+            plainBytes[i] = static_cast<unsigned char>(encBytes[i] ^ keyBytes[i]);
+            rolling = static_cast<unsigned int>(keyBytes[i]) + RotR32(rolling ^ encBytes[i], 5);
+        }
+
+        if (rolling != check)
+            return false;
+
+        outValue = static_cast<short>(plainValue);
+        return true;
+    }
+
+    bool TryReadCurrentJobIdFromContext(uintptr_t context, int& outJobId)
+    {
+        outJobId = 0;
+        if (!context)
+            return false;
+
+        short decodedJobId = 0;
+        if (!TryReadEncryptedShortValue(context + 33, decodedJobId))
+            return false;
+
+        const int jobId = static_cast<int>(decodedJobId);
+        if (jobId < 0 || jobId > 9999)
+            return false;
+
+        outJobId = jobId;
+        return true;
+    }
+
+    bool TryReadCurrentPlayerJobId(int& outJobId)
+    {
+        outJobId = 0;
+
+        const DWORD liveContext = TryGetLiveSkillContext();
+        if (TryReadCurrentJobIdFromContext(liveContext, outJobId))
+        {
+            g_lastResolvedPlayerJobId = outJobId;
+            g_hasLastResolvedPlayerJobId = true;
+            return true;
+        }
+
+        DWORD userLocal = 0;
+        uintptr_t characterStat = 0;
+        if (SafeReadValue(ADDR_UserLocal, userLocal) &&
+            userLocal &&
+            SafeReadValue(static_cast<uintptr_t>(userLocal) + 8392u, characterStat) &&
+            TryReadCurrentJobIdFromContext(characterStat, outJobId))
+        {
+            g_lastResolvedPlayerJobId = outJobId;
+            g_hasLastResolvedPlayerJobId = true;
+            return true;
+        }
+
+        return false;
+    }
+
+    bool TryGetCurrentOrCachedPlayerJobId(int& outJobId)
+    {
+        if (TryReadCurrentPlayerJobId(outJobId))
+            return true;
+        if (!g_hasLastResolvedPlayerJobId)
+        {
+            outJobId = 0;
+            return false;
+        }
+
+        outJobId = g_lastResolvedPlayerJobId;
+        return true;
+    }
+
+    void AppendCandidateIndexText(std::string& text, size_t keyIndex, int decodedValue, size_t& count, size_t maxCount)
+    {
+        if (count >= maxCount)
+            return;
+        if (!text.empty())
+            text += ",";
+        char buf[32] = {};
+        std::snprintf(buf, sizeof(buf), "%u:%d", static_cast<unsigned int>(keyIndex), decodedValue);
+        text += buf;
+        ++count;
+    }
+
+    void RememberRecentPassiveAttackProbe(int skillId)
+    {
+        if (skillId <= 0)
+            return;
+        g_recentPassiveAttackProbeTickBySkillId[skillId] = GetTickCount();
+    }
+
+    bool TryGetRecentPassiveAttackProbeSkillId(int& outSkillId)
+    {
+        outSkillId = 0;
+        if (g_recentPassiveAttackProbeTickBySkillId.empty())
+            return false;
+
+        const DWORD nowTick = GetTickCount();
+        DWORD newestTick = 0;
+        for (std::map<int, DWORD>::iterator it = g_recentPassiveAttackProbeTickBySkillId.begin();
+             it != g_recentPassiveAttackProbeTickBySkillId.end();)
+        {
+            if (nowTick - it->second > kRecentPassiveAttackProbeWindowMs)
+            {
+                it = g_recentPassiveAttackProbeTickBySkillId.erase(it);
+                continue;
+            }
+
+            if (it->second >= newestTick)
+            {
+                newestTick = it->second;
+                outSkillId = it->first;
+            }
+            ++it;
+        }
+
+        return outSkillId > 0;
+    }
+
     bool TryResolveLiveAbilityTripletMapping(int localOffset, DWORD*& outBase, size_t& outKeyIndex)
     {
         outBase = nullptr;
@@ -1042,10 +1279,21 @@ namespace
     {
         DWORD context = GetSkillContext();
         DWORD mgr = GetSkillDataMgr();
+        const bool suppressResetFallback = ShouldSuppressNonNativeSuperSkillLevelFallback(skillId);
         if (!context || !mgr)
         {
+            if (suppressResetFallback)
+            {
+                ClearTrackedNonNativeSuperSkillLevel(skillId, "game-current-noctx-reset-sync");
+                return 0;
+            }
+
             std::map<int, int>::const_iterator observedIt = g_observedCurrentLevelsBySkillId.find(skillId);
-            return (observedIt != g_observedCurrentLevelsBySkillId.end()) ? observedIt->second : 0;
+            if (observedIt != g_observedCurrentLevelsBySkillId.end())
+                return observedIt->second;
+
+            int persistentLevel = 0;
+            return TryGetPersistentSuperSkillLevel(skillId, persistentLevel) ? persistentLevel : 0;
         }
 
         int result = 0;
@@ -1067,6 +1315,7 @@ namespace
         }
         if (result > 0)
         {
+            RecordPersistentSuperSkillLevel(skillId, result, "game-current");
             if (IsKnownSuperSkillCarrierSkillId(skillId))
             {
                 std::map<int, int>::iterator observedIt = g_observedCurrentLevelsBySkillId.find(skillId);
@@ -1086,9 +1335,22 @@ namespace
         }
         else
         {
-            std::map<int, int>::const_iterator observedIt = g_observedCurrentLevelsBySkillId.find(skillId);
-            if (observedIt != g_observedCurrentLevelsBySkillId.end())
-                result = observedIt->second;
+            if (suppressResetFallback)
+            {
+                ClearTrackedNonNativeSuperSkillLevel(skillId, "game-current-reset-sync");
+            }
+            else
+            {
+                std::map<int, int>::const_iterator observedIt = g_observedCurrentLevelsBySkillId.find(skillId);
+                if (observedIt != g_observedCurrentLevelsBySkillId.end())
+                    result = observedIt->second;
+                else
+                {
+                    int persistentLevel = 0;
+                    if (TryGetPersistentSuperSkillLevel(skillId, persistentLevel))
+                        result = persistentLevel;
+                }
+            }
         }
         return result;
     }
@@ -1098,10 +1360,21 @@ namespace
     {
         DWORD context = GetSkillContext();
         DWORD mgr = GetSkillDataMgr();
+        const bool suppressResetFallback = ShouldSuppressNonNativeSuperSkillLevelFallback(skillId);
         if (!context || !mgr)
         {
+            if (suppressResetFallback)
+            {
+                ClearTrackedNonNativeSuperSkillLevel(skillId, "game-base-noctx-reset-sync");
+                return 0;
+            }
+
             std::map<int, int>::const_iterator observedIt = g_observedBaseLevelsBySkillId.find(skillId);
-            return (observedIt != g_observedBaseLevelsBySkillId.end()) ? observedIt->second : 0;
+            if (observedIt != g_observedBaseLevelsBySkillId.end())
+                return observedIt->second;
+
+            int persistentLevel = 0;
+            return TryGetPersistentSuperSkillLevel(skillId, persistentLevel) ? persistentLevel : 0;
         }
 
         int result = 0;
@@ -1122,6 +1395,7 @@ namespace
         }
         if (result > 0)
         {
+            RecordPersistentSuperSkillLevel(skillId, result, "game-base");
             if (IsKnownSuperSkillCarrierSkillId(skillId))
             {
                 std::map<int, int>::iterator observedIt = g_observedBaseLevelsBySkillId.find(skillId);
@@ -1141,9 +1415,22 @@ namespace
         }
         else
         {
-            std::map<int, int>::const_iterator observedIt = g_observedBaseLevelsBySkillId.find(skillId);
-            if (observedIt != g_observedBaseLevelsBySkillId.end())
-                result = observedIt->second;
+            if (suppressResetFallback)
+            {
+                ClearTrackedNonNativeSuperSkillLevel(skillId, "game-base-reset-sync");
+            }
+            else
+            {
+                std::map<int, int>::const_iterator observedIt = g_observedBaseLevelsBySkillId.find(skillId);
+                if (observedIt != g_observedBaseLevelsBySkillId.end())
+                    result = observedIt->second;
+                else
+                {
+                    int persistentLevel = 0;
+                    if (TryGetPersistentSuperSkillLevel(skillId, persistentLevel))
+                        result = persistentLevel;
+                }
+            }
         }
         return result;
     }
@@ -1264,7 +1551,9 @@ namespace
                     newLevel = 0;
 
                 // 对非原生超级技能，本地等级由 plus 独立管理，
-                // 只在游戏等级更高时同步（避免覆盖本地升级结果）
+                // 只在游戏等级更高时同步（避免覆盖本地升级结果）。
+                // 注意：非原生超级技能在游戏原生查询里经常长期返回 0，
+                // 不能在 reset 请求刚发出时就把这些 0 当作权威结果回写到本地。
                 if (item.isSuperSkill && !item.hasNativeUpgradeState)
                 {
                     if (newLevel > item.level)
@@ -1435,8 +1724,90 @@ namespace
         return false;
     }
 
+    void NormalizeVisibleJobIds(std::vector<int>& visibleJobIds)
+    {
+        visibleJobIds.erase(
+            std::remove_if(
+                visibleJobIds.begin(),
+                visibleJobIds.end(),
+                [](int jobId) { return jobId < 0; }),
+            visibleJobIds.end());
+        std::sort(visibleJobIds.begin(), visibleJobIds.end());
+        visibleJobIds.erase(
+            std::unique(visibleJobIds.begin(), visibleJobIds.end()),
+            visibleJobIds.end());
+    }
+
+    bool DoesSuperSkillMatchCurrentJob(const SuperSkillDefinition& definition)
+    {
+        if (definition.visibleJobIds.empty())
+            return true;
+
+        int currentJobId = 0;
+        if (!TryGetCurrentOrCachedPlayerJobId(currentJobId))
+            return true;
+
+        return std::find(
+                   definition.visibleJobIds.begin(),
+                   definition.visibleJobIds.end(),
+                   currentJobId) != definition.visibleJobIds.end();
+    }
+
+    bool FindMountedDoubleJumpDefinitionByMountItemId(int mountItemId, SuperSkillDefinition& outDefinition)
+    {
+        if (mountItemId <= 0)
+            return false;
+
+        bool hasFallback = false;
+        SuperSkillDefinition fallbackDefinition = {};
+        for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
+             it != g_superSkillsBySkillId.end();
+             ++it)
+        {
+            const SuperSkillDefinition& definition = it->second;
+            if (definition.mountItemId != mountItemId ||
+                !definition.mountedDoubleJumpEnabled ||
+                definition.mountedDoubleJumpSkillId <= 0)
+            {
+                continue;
+            }
+            if (!DoesSuperSkillMatchCurrentJob(definition))
+                continue;
+            if (GameGetSkillLevel(definition.skillId) > 0)
+            {
+                outDefinition = definition;
+                return true;
+            }
+            if (!hasFallback)
+            {
+                fallbackDefinition = definition;
+                hasFallback = true;
+            }
+        }
+
+        if (!hasFallback)
+            return false;
+
+        outDefinition = fallbackDefinition;
+        return true;
+    }
+
+    std::string BuildSuperSkillDisplayName(const std::string& skillName, const SuperSkillDefinition& definition)
+    {
+        if (definition.visibleJobLabel.empty())
+            return skillName;
+
+        std::string displayName = skillName;
+        if (!displayName.empty())
+            displayName += " ";
+        displayName += definition.visibleJobLabel;
+        return displayName;
+    }
+
     bool ShouldShowSuperSkillInOverlay(int skillId, const SuperSkillDefinition& definition)
     {
+        if (!DoesSuperSkillMatchCurrentJob(definition))
+            return false;
         if (!definition.showInSuperWhenLearned)
             return true;
         return GameGetSkillLevel(skillId) > 0;
@@ -1562,6 +1933,9 @@ namespace
 
     bool ShouldHideSuperSkillInNativeList(int skillId, const SuperSkillDefinition& definition)
     {
+        if (!DoesSuperSkillMatchCurrentJob(definition))
+            return true;
+
         if (!definition.hideFromNativeSkillWnd)
             return false;
 
@@ -1785,103 +2159,7 @@ namespace
 
     void ApplyConfiguredPassiveBonusTooltipAugments(RetroSkillRuntimeState& state)
     {
-        if (g_superSkillsBySkillId.empty())
-            return;
-
-        std::map<int, SkillEntry*> entryBySkillId;
-        std::map<int, int> currentLevelBySkillId;
-
-        for (size_t i = 0; i < state.passiveSkills.size(); ++i)
-        {
-            SkillEntry& entry = state.passiveSkills[i];
-            entryBySkillId[entry.skillId] = &entry;
-            currentLevelBySkillId[entry.skillId] = entry.level;
-        }
-        for (size_t i = 0; i < state.activeSkills.size(); ++i)
-        {
-            SkillEntry& entry = state.activeSkills[i];
-            entryBySkillId[entry.skillId] = &entry;
-            currentLevelBySkillId[entry.skillId] = entry.level;
-        }
-
-        std::map<int, PassiveBonusAggregate> aggregateByTargetSkillId;
-
-        for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
-             it != g_superSkillsBySkillId.end();
-             ++it)
-        {
-            const SuperSkillDefinition& definition = it->second;
-            if (definition.passiveBonuses.empty())
-                continue;
-
-            SkillEntry* sourceEntry = nullptr;
-            std::map<int, SkillEntry*>::iterator sourceEntryIt = entryBySkillId.find(definition.skillId);
-            if (sourceEntryIt != entryBySkillId.end())
-                sourceEntry = sourceEntryIt->second;
-
-            int currentSourceLevel = 0;
-            std::map<int, int>::const_iterator levelIt = currentLevelBySkillId.find(definition.skillId);
-            if (levelIt != currentLevelBySkillId.end())
-                currentSourceLevel = levelIt->second;
-
-            int sourceMaxLevel = 1;
-            if (sourceEntry && sourceEntry->maxLevel > 0)
-                sourceMaxLevel = sourceEntry->maxLevel;
-            else
-                SkillLocalDataGetMaxLevel(definition.skillId, sourceMaxLevel);
-
-            int nextSourceLevel = currentSourceLevel > 0 ? currentSourceLevel + 1 : 1;
-            if (nextSourceLevel > sourceMaxLevel)
-                nextSourceLevel = sourceMaxLevel;
-
-            for (size_t bonusIndex = 0; bonusIndex < definition.passiveBonuses.size(); ++bonusIndex)
-            {
-                const PassiveBonusDefinition& bonus = definition.passiveBonuses[bonusIndex];
-
-                if (sourceEntry)
-                {
-                    std::string line;
-                    if (TryBuildPassiveBonusSummaryLine(bonus, currentSourceLevel > 0 ? currentSourceLevel : 1, line))
-                    {
-                        AppendTooltipLine(sourceEntry->tooltipCurrentDetail, line);
-                        AppendTooltipLine(sourceEntry->tooltipDescription, line);
-                        AppendTooltipLine(sourceEntry->tooltipPreview, line);
-                    }
-                    if (TryBuildPassiveBonusSummaryLine(bonus, nextSourceLevel, line))
-                        AppendTooltipLine(sourceEntry->tooltipNextDetail, line);
-                }
-
-                if (currentSourceLevel <= 0)
-                    continue;
-
-                for (size_t targetIndex = 0; targetIndex < bonus.targetSkillIds.size(); ++targetIndex)
-                {
-                    const int targetSkillId = bonus.targetSkillIds[targetIndex];
-                    if (targetSkillId <= 0)
-                        continue;
-                    PassiveBonusAggregate& aggregate = aggregateByTargetSkillId[targetSkillId];
-                    ApplyPassiveBonusAggregate(bonus, currentSourceLevel, aggregate);
-                }
-            }
-        }
-
-        for (std::map<int, PassiveBonusAggregate>::const_iterator it = aggregateByTargetSkillId.begin();
-             it != aggregateByTargetSkillId.end();
-             ++it)
-        {
-            std::map<int, SkillEntry*>::iterator entryIt = entryBySkillId.find(it->first);
-            if (entryIt == entryBySkillId.end() || !entryIt->second)
-                continue;
-
-            const std::string line = BuildPassiveAggregateTooltipLine(it->second);
-            if (line.empty())
-                continue;
-
-            AppendTooltipLine(entryIt->second->tooltipCurrentDetail, line);
-            AppendTooltipLine(entryIt->second->tooltipNextDetail, line);
-            AppendTooltipLine(entryIt->second->tooltipDescription, line);
-            AppendTooltipLine(entryIt->second->tooltipPreview, line);
-        }
+        (void)state;
     }
 
     const char* PacketRouteToString(CustomSkillPacketRoute route)
@@ -2466,6 +2744,26 @@ namespace
         return false;
     }
 
+    void LoadVisibleJobRulesFromJson(const std::string& json, SuperSkillDefinition& definition)
+    {
+        definition.visibleJobIds.clear();
+        definition.visibleJobLabel.clear();
+
+        ParseJsonIntArray(json, "visibleJobIds", definition.visibleJobIds);
+        if (definition.visibleJobIds.empty())
+        {
+            int singleJobId = 0;
+            if (ParseJsonInt(json, "visibleJobId", singleJobId) &&
+                singleJobId >= 0)
+            {
+                definition.visibleJobIds.push_back(singleJobId);
+            }
+        }
+
+        ParseJsonString(json, "visibleJobLabel", definition.visibleJobLabel);
+        NormalizeVisibleJobIds(definition.visibleJobIds);
+    }
+
     bool ParsePassiveValueSpec(const std::string& json, const char* key, PassiveValueSpec& outSpec)
     {
         outSpec = PassiveValueSpec{};
@@ -2508,6 +2806,21 @@ namespace
         return false;
     }
 
+    bool TryReadPassiveValueSpecAny(
+        const std::string& json,
+        const char* const* keys,
+        size_t keyCount,
+        PassiveValueSpec& outSpec)
+    {
+        for (size_t i = 0; i < keyCount; ++i)
+        {
+            if (keys[i] && ParsePassiveValueSpec(json, keys[i], outSpec))
+                return true;
+        }
+        outSpec = PassiveValueSpec{};
+        return false;
+    }
+
     bool ParsePassiveBonusDefinition(
         const std::string& json,
         int defaultSourceSkillId,
@@ -2532,10 +2845,28 @@ namespace
                 outBonus.targetSkillIds.push_back(targetSkillId);
         }
 
-        TryReadPassiveValueSpec(json, "damagePercent", "damageIncrease", outBonus.damagePercent);
-        TryReadPassiveValueSpec(json, "ignoreDefensePercent", "ignoreDefenseIncrease", outBonus.ignoreDefensePercent);
-        TryReadPassiveValueSpec(json, "attackCount", nullptr, outBonus.attackCount);
-        TryReadPassiveValueSpec(json, "mobCount", nullptr, outBonus.mobCount);
+        const char* const damageKeys[] =
+        {
+            "damagePercent", "damage", "damageIncrease", "damR", "damRate", "dam"
+        };
+        const char* const ignoreKeys[] =
+        {
+            "ignoreMobpdpR", "ignoreMob", "ignoreDefensePercent",
+            "ignoreDefenseIncrease", "ignoreTargetDEF", "ignoreDefense", "pdr"
+        };
+        const char* const attackCountKeys[] =
+        {
+            "attackCount", "hitCount"
+        };
+        const char* const mobCountKeys[] =
+        {
+            "mobCount", "targetCount"
+        };
+
+        TryReadPassiveValueSpecAny(json, damageKeys, ARRAYSIZE(damageKeys), outBonus.damagePercent);
+        TryReadPassiveValueSpecAny(json, ignoreKeys, ARRAYSIZE(ignoreKeys), outBonus.ignoreDefensePercent);
+        TryReadPassiveValueSpecAny(json, attackCountKeys, ARRAYSIZE(attackCountKeys), outBonus.attackCount);
+        TryReadPassiveValueSpecAny(json, mobCountKeys, ARRAYSIZE(mobCountKeys), outBonus.mobCount);
 
         if (outBonus.sourceSkillId <= 0 || outBonus.targetSkillIds.empty())
             return false;
@@ -2630,6 +2961,7 @@ namespace
         g_independentBuffSceneDetachSinceTick = 0;
         g_independentBuffOwnerMissingSinceTick = 0;
         g_defaultSuperSpCarrierSkillId = 0;
+        g_lastOverlayConfiguredJobId = -1;
     }
 
     bool FindSuperSkillDefinition(int skillId, SuperSkillDefinition& outDefinition)
@@ -2750,6 +3082,10 @@ namespace
             ParseJsonInt(skillJson, "superSpCarrierSkillId", definition.superSpCarrierSkillId);
             ParseJsonBool(skillJson, "allowNativeUpgradeFallback", definition.allowNativeUpgradeFallback);
             ParseJsonInt(skillJson, "behaviorSkillId", definition.behaviorSkillId);
+            ParseJsonInt(skillJson, "mountItemId", definition.mountItemId);
+            ParseJsonBool(skillJson, "mountedDoubleJumpEnabled", definition.mountedDoubleJumpEnabled);
+            ParseJsonInt(skillJson, "mountedDoubleJumpSkillId", definition.mountedDoubleJumpSkillId);
+            LoadVisibleJobRulesFromJson(skillJson, definition);
             ParseJsonBool(skillJson, "independentBuffEnabled", definition.independentBuffEnabled);
             ParseJsonInt(skillJson, "independentSourceSkillId", definition.independentSourceSkillId);
             if (definition.independentSourceSkillId <= 0)
@@ -2838,6 +3174,8 @@ namespace
                 definition.superSpCost = 1;
             if (definition.superSpCarrierSkillId <= 0)
                 definition.superSpCarrierSkillId = g_defaultSuperSpCarrierSkillId;
+            if (definition.mountedDoubleJumpEnabled && definition.mountedDoubleJumpSkillId <= 0)
+                definition.mountedDoubleJumpSkillId = 3101003;
             if (definition.independentSourceSkillId <= 0)
                 definition.independentSourceSkillId = definition.behaviorSkillId > 0 ? definition.behaviorSkillId : definition.skillId;
             if (definition.independentNativeDisplaySkillId <= 0)
@@ -3324,8 +3662,44 @@ namespace
                           ReleaseClassToString(route.releaseClass));
                   }
 
-                if (ShouldUseStableMountSpecialMoveProxy(route) &&
-                    route.proxySkillId != kStableMountSpecialMoveProxySkillId)
+                const bool usesConfiguredMonsterRidingBehaviorProxy =
+                    hasSuperDefinition &&
+                    superDefinition.mountItemId > 0 &&
+                    route.packetRoute == CustomSkillPacketRoute_SpecialMove &&
+                    route.releaseClass == CustomSkillReleaseClass_NativeClassifierProxy &&
+                    route.proxySkillId > 0 &&
+                    route.proxySkillId == superDefinition.behaviorSkillId &&
+                    route.proxySkillId == 80001004;
+
+                const bool shouldRestoreMonsterRidingBehaviorProxy =
+                    hasSuperDefinition &&
+                    superDefinition.mountItemId > 0 &&
+                    superDefinition.behaviorSkillId == 80001004 &&
+                    route.packetRoute == CustomSkillPacketRoute_SpecialMove &&
+                    route.releaseClass == CustomSkillReleaseClass_NativeClassifierProxy &&
+                    route.proxySkillId > 0 &&
+                    route.proxySkillId != superDefinition.behaviorSkillId;
+
+                if (usesConfiguredMonsterRidingBehaviorProxy)
+                {
+                    WriteLogFmt("[SkillRoute] keep configured mount behavior proxy custom=%d donor=%d route=%s",
+                        route.skillId,
+                        route.proxySkillId,
+                        PacketRouteToString(route.packetRoute));
+                }
+                else if (shouldRestoreMonsterRidingBehaviorProxy)
+                {
+                    const int configuredProxySkillId = route.proxySkillId;
+                    route.borrowDonorVisual = false;
+                    route.proxySkillId = superDefinition.behaviorSkillId;
+                    WriteLogFmt("[SkillRoute] restore mount behavior proxy custom=%d donor=%d -> %d route=%s",
+                        route.skillId,
+                        configuredProxySkillId,
+                        route.proxySkillId,
+                        PacketRouteToString(route.packetRoute));
+                }
+                else if (ShouldUseStableMountSpecialMoveProxy(route) &&
+                         route.proxySkillId != kStableMountSpecialMoveProxySkillId)
                 {
                     const int configuredProxySkillId = route.proxySkillId;
                     if (route.visualSkillId <= 0)
@@ -3470,9 +3844,68 @@ namespace
     {
         SkillManager* manager = GetBridgeManager();
         SkillItem* item = FindManagerSkillItem(manager, skillId);
-        if (item)
+        if (item && item->level > 0)
+        {
+            RecordPersistentSuperSkillLevel(skillId, item->level, "manager-item");
             return item->level;
-        return GameGetSkillLevel(skillId);
+        }
+
+        int persistentLevel = 0;
+        if (TryGetPersistentSuperSkillLevel(skillId, persistentLevel))
+            return persistentLevel;
+
+        const int gameLevel = GameGetSkillLevel(skillId);
+        if (gameLevel > 0)
+            RecordPersistentSuperSkillLevel(skillId, gameLevel, "tracked-game");
+        return gameLevel;
+    }
+
+    int GetObservedActualBaseSkillLevel(int skillId)
+    {
+        std::map<int, int>::const_iterator it = g_observedActualBaseLevelsBySkillId.find(skillId);
+        if (it == g_observedActualBaseLevelsBySkillId.end())
+            return 0;
+        return it->second;
+    }
+
+    int GetObservedActualCurrentSkillLevel(int skillId)
+    {
+        std::map<int, int>::const_iterator it = g_observedActualCurrentLevelsBySkillId.find(skillId);
+        if (it == g_observedActualCurrentLevelsBySkillId.end())
+            return 0;
+        return it->second;
+    }
+
+    bool HasObservedActualBaseSkillLevel(int skillId)
+    {
+        return g_observedActualBaseLevelsBySkillId.find(skillId) != g_observedActualBaseLevelsBySkillId.end();
+    }
+
+    bool HasObservedActualCurrentSkillLevel(int skillId)
+    {
+        return g_observedActualCurrentLevelsBySkillId.find(skillId) != g_observedActualCurrentLevelsBySkillId.end();
+    }
+
+    int GetRuntimeAppliedSkillLevel(int skillId)
+    {
+        if (skillId <= 0)
+            return 0;
+
+        const int actualCurrentLevel = GetObservedActualCurrentSkillLevel(skillId);
+        const int actualBaseLevel = GetObservedActualBaseSkillLevel(skillId);
+        if (actualCurrentLevel > 0 || actualBaseLevel > 0)
+            return (actualCurrentLevel > actualBaseLevel) ? actualCurrentLevel : actualBaseLevel;
+
+        SkillManager* manager = GetBridgeManager();
+        SkillItem* item = FindManagerSkillItem(manager, skillId);
+        if (item && item->level > 0)
+            return item->level;
+
+        int persistentLevel = 0;
+        if (TryGetPersistentSuperSkillLevel(skillId, persistentLevel))
+            return persistentLevel;
+
+        return 0;
     }
 
     int GetObservedBaseSkillLevel(int skillId)
@@ -3499,6 +3932,256 @@ namespace
     bool HasObservedCurrentSkillLevel(int skillId)
     {
         return g_observedCurrentLevelsBySkillId.find(skillId) != g_observedCurrentLevelsBySkillId.end();
+    }
+
+    bool IsTrackedNonNativeSuperSkill(int skillId, SkillItem** outItem)
+    {
+        SkillManager* manager = GetBridgeManager();
+        SkillItem* item = FindManagerSkillItem(manager, skillId);
+        if (outItem)
+            *outItem = item;
+
+        SuperSkillDefinition definition = {};
+        if (!FindSuperSkillDefinition(skillId, definition))
+            return false;
+
+        return !item || !item->hasNativeUpgradeState;
+    }
+
+    bool IsSuperSkillResetLevelSyncWindowActive()
+    {
+        return g_superSkillResetLevelSyncUntilTick != 0 &&
+            static_cast<LONG>(g_superSkillResetLevelSyncUntilTick - GetTickCount()) > 0;
+    }
+
+    bool ShouldSuppressNonNativeSuperSkillLevelFallback(int skillId)
+    {
+        if (!IsSuperSkillResetLevelSyncWindowActive())
+            return false;
+
+        if (!IsTrackedNonNativeSuperSkill(skillId))
+            return false;
+
+        PendingOptimisticSuperSkillLevelHold optimisticHold;
+        return !TryGetFreshPendingOptimisticSuperSkillLevelHold(skillId, optimisticHold);
+    }
+
+    void ClearTrackedNonNativeSuperSkillLevel(int skillId, const char* reason)
+    {
+        if (g_superSkillsBySkillId.empty())
+            LoadSuperSkillRegistry();
+
+        SuperSkillDefinition definition = {};
+        const bool clearedIndependentRuntimeState =
+            FindSuperSkillDefinition(skillId, definition) &&
+            definition.independentBuffEnabled &&
+            ClearIndependentBuffRuntimeStateForDefinition(
+                definition,
+                reason ? reason : "level-clear");
+
+        SkillItem* item = nullptr;
+        if (!IsTrackedNonNativeSuperSkill(skillId, &item))
+        {
+            if (clearedIndependentRuntimeState)
+                ForceRefreshIndependentBuffUi(reason ? reason : "level-clear");
+            return;
+        }
+
+        const int previousItemLevel = item ? item->level : 0;
+        const int previousObservedBase = GetObservedBaseSkillLevel(skillId);
+        const int previousObservedCurrent = GetObservedCurrentSkillLevel(skillId);
+        int previousPersistentLevel = 0;
+        std::map<int, int>::iterator persistentIt = g_persistentNonNativeSuperSkillLevelsBySkillId.find(skillId);
+        if (persistentIt != g_persistentNonNativeSuperSkillLevelsBySkillId.end())
+        {
+            previousPersistentLevel = persistentIt->second;
+            g_persistentNonNativeSuperSkillLevelsBySkillId.erase(persistentIt);
+        }
+
+        g_observedBaseLevelsBySkillId.erase(skillId);
+        g_observedCurrentLevelsBySkillId.erase(skillId);
+        g_observedActualBaseLevelsBySkillId.erase(skillId);
+        g_observedActualCurrentLevelsBySkillId.erase(skillId);
+        g_pendingOptimisticSuperSkillLevelHoldBySkillId.erase(skillId);
+
+        if (item)
+            item->level = 0;
+
+        const bool hadTrackedLevel =
+            previousItemLevel > 0 ||
+            previousObservedBase > 0 ||
+            previousObservedCurrent > 0 ||
+            previousPersistentLevel > 0;
+        if (hadTrackedLevel)
+        {
+            static LONG s_resetZeroSyncClearLogBudget = 32;
+            const LONG budgetAfterDecrement = InterlockedDecrement(&s_resetZeroSyncClearLogBudget);
+            if (budgetAfterDecrement >= 0)
+            {
+                WriteLogFmt("[SkillLevelBridge] reset-zero sync clear skillId=%d reason=%s item=%d persistent=%d base=%d current=%d",
+                    skillId,
+                    reason ? reason : "unknown",
+                    previousItemLevel,
+                    previousPersistentLevel,
+                    previousObservedBase,
+                    previousObservedCurrent);
+            }
+        }
+
+        if (clearedIndependentRuntimeState)
+            ForceRefreshIndependentBuffUi(reason ? reason : "level-clear");
+    }
+
+    void RecordPersistentSuperSkillLevel(int skillId, int level, const char* reason)
+    {
+        if (skillId <= 0 || level <= 0)
+            return;
+
+        SuperSkillDefinition definition = {};
+        if (!FindSuperSkillDefinition(skillId, definition))
+            return;
+
+        std::map<int, int>::iterator it = g_persistentNonNativeSuperSkillLevelsBySkillId.find(skillId);
+        const int previousLevel = (it != g_persistentNonNativeSuperSkillLevelsBySkillId.end()) ? it->second : 0;
+        if (previousLevel >= level)
+            return;
+
+        g_persistentNonNativeSuperSkillLevelsBySkillId[skillId] = level;
+        WriteLogFmt("[SkillLevelBridge] persistent hold skillId=%d level=%d reason=%s prev=%d",
+            skillId,
+            level,
+            reason ? reason : "unknown",
+            previousLevel);
+    }
+
+    bool TryGetPersistentSuperSkillLevel(int skillId, int& outLevel)
+    {
+        outLevel = 0;
+        if (skillId <= 0)
+            return false;
+
+        std::map<int, int>::const_iterator it = g_persistentNonNativeSuperSkillLevelsBySkillId.find(skillId);
+        if (it == g_persistentNonNativeSuperSkillLevelsBySkillId.end() || it->second <= 0)
+            return false;
+
+        outLevel = it->second;
+        return true;
+    }
+
+    void ClearPersistentSuperSkillLevels(const char* reason)
+    {
+        if (g_superSkillsBySkillId.empty())
+            LoadSuperSkillRegistry();
+
+        if (!g_persistentNonNativeSuperSkillLevelsBySkillId.empty())
+        {
+            WriteLogFmt("[SkillLevelBridge] clear persistent levels count=%d reason=%s",
+                (int)g_persistentNonNativeSuperSkillLevelsBySkillId.size(),
+                reason ? reason : "unknown");
+        }
+        ClearAllPendingOptimisticSuperSkillLevelHolds(reason);
+        g_persistentNonNativeSuperSkillLevelsBySkillId.clear();
+
+        SkillManager* manager = GetBridgeManager();
+        bool clearedAnyIndependentRuntimeState = false;
+        for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
+             it != g_superSkillsBySkillId.end();
+             ++it)
+        {
+            const SuperSkillDefinition& definition = it->second;
+            const int skillId = it->first;
+            if (definition.independentBuffEnabled &&
+                ClearIndependentBuffRuntimeStateForDefinition(
+                    definition,
+                    reason ? reason : "clear-persistent"))
+            {
+                clearedAnyIndependentRuntimeState = true;
+            }
+
+            g_observedBaseLevelsBySkillId.erase(skillId);
+            g_observedCurrentLevelsBySkillId.erase(skillId);
+            g_observedActualBaseLevelsBySkillId.erase(skillId);
+            g_observedActualCurrentLevelsBySkillId.erase(skillId);
+
+            SkillItem* item = FindManagerSkillItem(manager, skillId);
+            if (item)
+                item->level = 0;
+        }
+
+        if (clearedAnyIndependentRuntimeState)
+            ForceRefreshIndependentBuffUi(reason ? reason : "clear-persistent");
+    }
+
+    void ApplyAuthoritativeSuperSkillLevelSync(int skillId, int level, const char* reason)
+    {
+        if (skillId <= 0)
+            return;
+
+        if (g_superSkillsBySkillId.empty())
+            LoadSuperSkillRegistry();
+
+        SuperSkillDefinition definition = {};
+        if (!FindSuperSkillDefinition(skillId, definition))
+            return;
+
+        if (level <= 0)
+        {
+            ClearTrackedNonNativeSuperSkillLevel(skillId, reason ? reason : "sync-zero");
+            return;
+        }
+
+        g_observedActualBaseLevelsBySkillId[skillId] = level;
+        g_observedActualCurrentLevelsBySkillId[skillId] = level;
+        g_observedBaseLevelsBySkillId[skillId] = level;
+        g_observedCurrentLevelsBySkillId[skillId] = level;
+        RecordPersistentSuperSkillLevel(skillId, level, reason ? reason : "sync");
+        ClearPendingOptimisticSuperSkillLevelHold(skillId);
+
+        SkillItem* item = FindManagerSkillItem(GetBridgeManager(), skillId);
+        if (item)
+        {
+            item->level = level;
+            if (item->level < 0)
+                item->level = 0;
+            if (item->maxLevel > 0 && item->level > item->maxLevel)
+                item->level = item->maxLevel;
+            RefreshSkillNativeState(*item);
+        }
+
+        WriteLogFmt("[SuperSkill] level sync apply skillId=%d level=%d item=%d reason=%s",
+            skillId,
+            level,
+            item ? item->level : -1,
+            reason ? reason : "unknown");
+    }
+
+    bool TryResolvePersistentNonNativeSuperSkillLevel(int skillId, int observedLevel, int currentItemLevel, int& outLevel)
+    {
+        outLevel = 0;
+        if (skillId <= 0 || observedLevel > 0)
+            return false;
+        if (ShouldSuppressNonNativeSuperSkillLevelFallback(skillId))
+            return false;
+
+        SuperSkillDefinition definition = {};
+        if (!FindSuperSkillDefinition(skillId, definition))
+            return false;
+
+        int keepLevel = currentItemLevel;
+        const int observedBaseLevel = GetObservedBaseSkillLevel(skillId);
+        const int observedCurrentLevel = GetObservedCurrentSkillLevel(skillId);
+        int persistentLevel = 0;
+        if (TryGetPersistentSuperSkillLevel(skillId, persistentLevel) && persistentLevel > keepLevel)
+            keepLevel = persistentLevel;
+        if (observedBaseLevel > keepLevel)
+            keepLevel = observedBaseLevel;
+        if (observedCurrentLevel > keepLevel)
+            keepLevel = observedCurrentLevel;
+        if (keepLevel <= 0)
+            return false;
+
+        outLevel = keepLevel;
+        return true;
     }
 
     bool ShouldLogObservedSkillPacket(int skillId)
@@ -3630,10 +4313,52 @@ namespace
         return outMountItemId > 0 && outSkillId > 0;
     }
 
-    int ResolveMountBuffDisplaySkillId(int observedSkillId)
+    bool TryResolveMountedSuperSkillDisplaySkillIdFromActiveContext(
+        int mountItemId,
+        int observedSkillId,
+        int& outDisplaySkillId)
+    {
+        outDisplaySkillId = 0;
+        if (mountItemId <= 0 || observedSkillId <= 0 || !IsActiveNativeReleaseContextFresh())
+            return false;
+        if (g_activeNativeRelease.customSkillId <= 0)
+            return false;
+
+        SuperSkillDefinition definition = {};
+        if (!FindSuperSkillDefinition(g_activeNativeRelease.customSkillId, definition))
+            return false;
+        if (definition.mountItemId <= 0 || definition.mountItemId != mountItemId)
+            return false;
+
+        const bool matchesBehaviorSkillId =
+            definition.behaviorSkillId > 0 &&
+            observedSkillId == definition.behaviorSkillId;
+        const bool matchesClassifierProxySkillId =
+            g_activeNativeRelease.classifierProxySkillId > 0 &&
+            observedSkillId == g_activeNativeRelease.classifierProxySkillId;
+        if (!matchesBehaviorSkillId && !matchesClassifierProxySkillId)
+            return false;
+        if (!GameLookupSkillEntryPointer(definition.skillId))
+            return false;
+
+        outDisplaySkillId = definition.skillId;
+        return true;
+    }
+
+    int ResolveMountBuffDisplaySkillId(int mountItemId, int observedSkillId)
     {
         if (observedSkillId <= 0)
             return 0;
+
+        int activeContextDisplaySkillId = 0;
+        if (TryResolveMountedSuperSkillDisplaySkillIdFromActiveContext(
+                mountItemId,
+                observedSkillId,
+                activeContextDisplaySkillId) &&
+            activeContextDisplaySkillId != observedSkillId)
+        {
+            return activeContextDisplaySkillId;
+        }
 
         const int displaySkillId = SkillOverlayBridgeResolveNativeLevelLookupSkillId(observedSkillId);
         if (displaySkillId > 0 &&
@@ -4275,9 +5000,9 @@ namespace
             return;
 
         int sourceSkillId = definition.independentSourceSkillId > 0 ? definition.independentSourceSkillId : definition.skillId;
-        int sourceSkillLevel = GetTrackedSkillLevel(definition.skillId);
+        int sourceSkillLevel = GetRuntimeAppliedSkillLevel(definition.skillId);
         if (sourceSkillLevel <= 0 && sourceSkillId != definition.skillId)
-            sourceSkillLevel = GetTrackedSkillLevel(sourceSkillId);
+            sourceSkillLevel = GetRuntimeAppliedSkillLevel(sourceSkillId);
         if (sourceSkillId <= 0 || sourceSkillLevel <= 0)
             return;
 
@@ -4630,6 +5355,103 @@ namespace
         return changed;
     }
 
+    bool ClearIndependentBuffRuntimeStateForDefinition(const SuperSkillDefinition& definition, const char* reason)
+    {
+        if (definition.skillId <= 0)
+            return false;
+
+        const bool clearedLocalState = CancelIndependentBuffLocalState(definition);
+
+        std::vector<int> relatedSkillIds;
+        relatedSkillIds.reserve(4);
+        auto appendRelatedSkillId = [&relatedSkillIds](int skillId)
+        {
+            if (skillId <= 0)
+                return;
+
+            for (size_t i = 0; i < relatedSkillIds.size(); ++i)
+            {
+                if (relatedSkillIds[i] == skillId)
+                    return;
+            }
+            relatedSkillIds.push_back(skillId);
+        };
+        auto matchesRelatedSkillId = [&relatedSkillIds](int skillId)
+        {
+            if (skillId <= 0)
+                return false;
+
+            for (size_t i = 0; i < relatedSkillIds.size(); ++i)
+            {
+                if (relatedSkillIds[i] == skillId)
+                    return true;
+            }
+            return false;
+        };
+
+        appendRelatedSkillId(definition.skillId);
+        appendRelatedSkillId(definition.independentNativeDisplaySkillId);
+        appendRelatedSkillId(definition.behaviorSkillId);
+
+        CustomSkillUseRoute route = {};
+        if (FindRouteByCustomSkillId(definition.skillId, route))
+            appendRelatedSkillId(route.proxySkillId);
+
+        bool changed = clearedLocalState;
+        int clearedVirtualStates = 0;
+        for (std::map<int, IndependentBuffOverlayState>::iterator it = g_independentBuffVirtualStates.begin();
+             it != g_independentBuffVirtualStates.end();)
+        {
+            const IndependentBuffOverlayState& state = it->second;
+            if (matchesRelatedSkillId(it->first) ||
+                matchesRelatedSkillId(state.skillId) ||
+                matchesRelatedSkillId(state.iconSkillId))
+            {
+                it = g_independentBuffVirtualStates.erase(it);
+                ++clearedVirtualStates;
+                changed = true;
+                continue;
+            }
+            ++it;
+        }
+
+        int clearedNativeVisibleStates = 0;
+        for (std::map<unsigned long long, NativeVisibleBuffState>::iterator it = g_nativeVisibleBuffStates.begin();
+             it != g_nativeVisibleBuffStates.end();)
+        {
+            if (matchesRelatedSkillId(it->second.skillId))
+            {
+                it = g_nativeVisibleBuffStates.erase(it);
+                ++clearedNativeVisibleStates;
+                changed = true;
+                continue;
+            }
+            ++it;
+        }
+
+        const bool clearedRecentCancelTick =
+            g_recentIndependentBuffClientCancelTickBySkillId.erase(definition.skillId) > 0;
+        const bool clearedRecentUseTick =
+            g_recentIndependentBuffClientUseTickBySkillId.erase(definition.skillId) > 0;
+        if (clearedRecentCancelTick || clearedRecentUseTick)
+            changed = true;
+
+        if (changed)
+        {
+            WriteLogFmt(
+                "[IndependentBuffRuntime] clear-by-skill skillId=%d reason=%s local=%d virtual=%d nativeVisible=%d recentCancel=%d recentUse=%d",
+                definition.skillId,
+                reason ? reason : "unknown",
+                clearedLocalState ? 1 : 0,
+                clearedVirtualStates,
+                clearedNativeVisibleStates,
+                clearedRecentCancelTick ? 1 : 0,
+                clearedRecentUseTick ? 1 : 0);
+        }
+
+        return changed;
+    }
+
     bool TryLogUnmappedCustomSkillPacket(const BYTE* packet, int packetLen, unsigned short opcode, uintptr_t callerRetAddr)
     {
         if (!packet || packetLen < 8)
@@ -4683,12 +5505,33 @@ namespace
         if (observedSkillId != g_pendingSuperSkillUpgradePacketRewrite.proxySkillId)
             return false;
 
-        WritePacketInt(packet, 6, g_pendingSuperSkillUpgradePacketRewrite.targetSkillId);
+        const int targetSkillId = g_pendingSuperSkillUpgradePacketRewrite.targetSkillId;
+        WritePacketInt(packet, 6, targetSkillId);
         WriteLogFmt("[SuperSkill] rewrite distribute_sp proxy=%d -> target=%d len=%d caller=0x%08X",
             observedSkillId,
-            g_pendingSuperSkillUpgradePacketRewrite.targetSkillId,
+            targetSkillId,
             packetLen,
             (DWORD)(uintptr_t)callerRetAddr);
+
+        SuperSkillDefinition definition = {};
+        if (FindSuperSkillDefinition(targetSkillId, definition))
+        {
+            SkillItem* item = FindManagerSkillItem(GetBridgeManager(), targetSkillId);
+            const int currentLevel = item ? item->level : GetTrackedSkillLevel(targetSkillId);
+            const int nextSkillLevel = currentLevel + 1;
+            int nextCarrierPoints = ResolveAvailableSuperSkillPointsForCarrier(observedSkillId);
+            const int superSpCost = definition.superSpCost > 0 ? definition.superSpCost : 1;
+            nextCarrierPoints -= superSpCost;
+            if (nextCarrierPoints < 0)
+                nextCarrierPoints = 0;
+
+            ApplyOptimisticSuperSkillUpgradeObservation(
+                targetSkillId,
+                observedSkillId,
+                nextSkillLevel,
+                nextCarrierPoints);
+        }
+
         ClearPendingSuperSkillUpgradePacketRewrite();
         return true;
     }
@@ -4764,7 +5607,7 @@ namespace
                     continue;
 
                 const int sourceSkillId = bonus.sourceSkillId > 0 ? bonus.sourceSkillId : definition.skillId;
-                const int sourceSkillLevel = GetTrackedSkillLevel(sourceSkillId);
+                const int sourceSkillLevel = GetRuntimeAppliedSkillLevel(sourceSkillId);
                 if (sourceSkillLevel <= 0)
                     continue;
 
@@ -4782,6 +5625,11 @@ namespace
         return ResolveConfiguredPassiveBonusForSkill(targetSkillId, &PassiveBonusDefinition::damagePercent);
     }
 
+    int ResolveConfiguredPassiveIgnoreDefensePercentBonusForSkill(int targetSkillId)
+    {
+        return ResolveConfiguredPassiveBonusForSkill(targetSkillId, &PassiveBonusDefinition::ignoreDefensePercent);
+    }
+
     int ResolveConfiguredPassiveAttackCountBonusForSkill(int targetSkillId)
     {
         return ResolveConfiguredPassiveBonusForSkill(targetSkillId, &PassiveBonusDefinition::attackCount);
@@ -4790,6 +5638,481 @@ namespace
     int ResolveConfiguredPassiveMobCountBonusForSkill(int targetSkillId)
     {
         return ResolveConfiguredPassiveBonusForSkill(targetSkillId, &PassiveBonusDefinition::mobCount);
+    }
+
+    int ClampPassiveEffectValue(long long value)
+    {
+        if (value < 0)
+            return 0;
+        if (value > 0x3FFFFFFFLL)
+            return 0x3FFFFFFF;
+        return static_cast<int>(value);
+    }
+
+    int ClampPassivePercentValue(long long value)
+    {
+        if (value < 0)
+            return 0;
+        if (value > 100)
+            return 100;
+        return static_cast<int>(value);
+    }
+
+    int ClampProtocolCountNibble(long long value)
+    {
+        if (value < 1)
+            return 1;
+        if (value > 15)
+            return 15;
+        return static_cast<int>(value);
+    }
+
+    bool TryResolvePassiveEffectBaseValueFromLocalData(
+        int skillId,
+        int level,
+        const char* primaryField,
+        const char* alternateField,
+        int& outValue)
+    {
+        outValue = 0;
+        if (skillId <= 0 || level <= 0 || !primaryField || !primaryField[0])
+            return false;
+
+        if (SkillLocalDataGetLevelValueInt(skillId, level, primaryField, outValue))
+            return true;
+        if (alternateField && alternateField[0] &&
+            SkillLocalDataGetLevelValueInt(skillId, level, alternateField, outValue))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    void LogPassiveEffectDecodedValueCandidates(uintptr_t effectPtr, int skillId, int level)
+    {
+        if (!effectPtr || skillId <= 0 || level <= 0)
+            return;
+
+        static std::map<uintptr_t, DWORD> s_lastCandidateLogTickByEffectPtr;
+        const DWORD nowTick = GetTickCount();
+        std::map<uintptr_t, DWORD>::iterator lastIt = s_lastCandidateLogTickByEffectPtr.find(effectPtr);
+        if (lastIt != s_lastCandidateLogTickByEffectPtr.end() &&
+            nowTick - lastIt->second <= 30000)
+        {
+            return;
+        }
+        s_lastCandidateLogTickByEffectPtr[effectPtr] = nowTick;
+
+        DWORD* effectBase = reinterpret_cast<DWORD*>(effectPtr);
+        int damageBase = 0;
+        int attackBase = 0;
+        int mobBase = 0;
+        bool hasDamage =
+            TryResolvePassiveEffectBaseValueFromLocalData(skillId, level, "damage", "damRate", damageBase) ||
+            TryResolvePassiveEffectBaseValueFromLocalData(skillId, level, "damR", "damagePercent", damageBase);
+        bool hasAttack =
+            TryResolvePassiveEffectBaseValueFromLocalData(skillId, level, "attackCount", "hitCount", attackBase);
+        bool hasMob =
+            TryResolvePassiveEffectBaseValueFromLocalData(skillId, level, "mobCount", "targetCount", mobBase);
+
+        std::string damageCandidates;
+        std::string attackCandidates;
+        std::string mobCandidates;
+        size_t damageCount = 0;
+        size_t attackCount = 0;
+        size_t mobCount = 0;
+        const size_t kMaxCandidatesPerValue = 16;
+        const size_t kMaxKeyIndex = 276;
+
+        for (size_t keyIndex = 0; keyIndex <= kMaxKeyIndex; ++keyIndex)
+        {
+            int decodedValue = 0;
+            if (!ReadEncryptedTripletValueLocal(effectBase, keyIndex, &decodedValue))
+                continue;
+
+            if (hasDamage && decodedValue == damageBase)
+                AppendCandidateIndexText(damageCandidates, keyIndex, decodedValue, damageCount, kMaxCandidatesPerValue);
+            if (hasAttack && decodedValue == attackBase)
+                AppendCandidateIndexText(attackCandidates, keyIndex, decodedValue, attackCount, kMaxCandidatesPerValue);
+            if (hasMob && decodedValue == mobBase)
+                AppendCandidateIndexText(mobCandidates, keyIndex, decodedValue, mobCount, kMaxCandidatesPerValue);
+        }
+
+        WriteLogFmt(
+            "[SuperPassiveEffectScan] target=%d level=%d effect=0x%08X localDamage=%d damageCandidates=%s localAttack=%d attackCandidates=%s localMob=%d mobCandidates=%s",
+            skillId,
+            level,
+            (DWORD)effectPtr,
+            hasDamage ? damageBase : -1,
+            damageCandidates.empty() ? "none" : damageCandidates.c_str(),
+            hasAttack ? attackBase : -1,
+            attackCandidates.empty() ? "none" : attackCandidates.c_str(),
+            hasMob ? mobBase : -1,
+            mobCandidates.empty() ? "none" : mobCandidates.c_str());
+    }
+
+    int ResolvePassiveEffectGetterOverrideValue(
+        int skillId,
+        int level,
+        int originalValue,
+        const char* getterTag,
+        const char* getterSourceTag,
+        int& outBaseValue,
+        int& outBonusValue)
+    {
+        outBaseValue = originalValue;
+        outBonusValue = 0;
+        if (skillId <= 0 || level <= 0 || !getterTag || !getterTag[0])
+            return originalValue;
+
+        const bool useB05C40HitCountSemantics =
+            getterSourceTag &&
+            getterSourceTag[0] &&
+            _stricmp(getterSourceTag, "7D1990") == 0;
+
+        if (_stricmp(getterTag, "damage") == 0)
+        {
+            int localDamage = 0;
+            if (outBaseValue <= 0 &&
+                (TryResolvePassiveEffectBaseValueFromLocalData(skillId, level, "damage", "damRate", localDamage) ||
+                 TryResolvePassiveEffectBaseValueFromLocalData(skillId, level, "damR", "damagePercent", localDamage)))
+            {
+                outBaseValue = localDamage;
+            }
+
+            const int configuredBonus = ResolveConfiguredPassiveDamagePercentBonusForSkill(skillId);
+            if (configuredBonus == 0 || outBaseValue <= 0)
+                return originalValue;
+            outBonusValue = configuredBonus;
+
+            const long long scaledValue =
+                static_cast<long long>(outBaseValue) +
+                (static_cast<long long>(outBaseValue) * outBonusValue) / 100;
+            return ClampPassiveEffectValue(scaledValue);
+        }
+
+        if (_stricmp(getterTag, "mobCount") == 0)
+        {
+            if (useB05C40HitCountSemantics)
+            {
+                int localAttackCount = 0;
+                if (outBaseValue <= 0 &&
+                    TryResolvePassiveEffectBaseValueFromLocalData(skillId, level, "attackCount", "hitCount", localAttackCount))
+                {
+                    outBaseValue = localAttackCount;
+                }
+                if (outBaseValue <= 0)
+                    outBaseValue = 1;
+
+                outBonusValue = ResolveConfiguredPassiveAttackCountBonusForSkill(skillId);
+                if (outBonusValue == 0)
+                    return originalValue;
+
+                return ClampProtocolCountNibble(static_cast<long long>(outBaseValue) + outBonusValue);
+            }
+
+            int localMobCount = 0;
+            if (outBaseValue <= 0 &&
+                TryResolvePassiveEffectBaseValueFromLocalData(skillId, level, "mobCount", "targetCount", localMobCount))
+            {
+                outBaseValue = localMobCount;
+            }
+            if (outBaseValue <= 0)
+                outBaseValue = 1;
+
+            outBonusValue = ResolveConfiguredPassiveMobCountBonusForSkill(skillId);
+            if (outBonusValue == 0)
+                return originalValue;
+
+            return ClampProtocolCountNibble(static_cast<long long>(outBaseValue) + outBonusValue);
+        }
+
+        if (_stricmp(getterTag, "attackCount") == 0)
+        {
+            int localAttackCount = 0;
+            if (outBaseValue <= 0 &&
+                TryResolvePassiveEffectBaseValueFromLocalData(skillId, level, "attackCount", "hitCount", localAttackCount))
+            {
+                outBaseValue = localAttackCount;
+            }
+            if (outBaseValue <= 0)
+                outBaseValue = 1;
+
+            outBonusValue = ResolveConfiguredPassiveAttackCountBonusForSkill(skillId);
+            if (outBonusValue == 0)
+                return originalValue;
+
+            return ClampProtocolCountNibble(static_cast<long long>(outBaseValue) + outBonusValue);
+        }
+
+        if (_stricmp(getterTag, "ignoreMobpdpR") == 0)
+        {
+            int localIgnore = 0;
+            if (outBaseValue <= 0 &&
+                TryResolvePassiveEffectBaseValueFromLocalData(skillId, level, "ignoreMobpdpR", "ignoreMob", localIgnore))
+            {
+                outBaseValue = localIgnore;
+            }
+
+            outBonusValue = ResolveConfiguredPassiveIgnoreDefensePercentBonusForSkill(skillId);
+            if (outBonusValue == 0)
+                return originalValue;
+
+            return ClampPassivePercentValue(static_cast<long long>(outBaseValue) + outBonusValue);
+        }
+
+        return originalValue;
+    }
+
+    bool TryResolveDesiredPassiveEffectValueFromSnapshot(
+        const PassiveEffectPatchSnapshot& snapshot,
+        const char* getterTag,
+        const char* getterSourceTag,
+        int& outDesiredValue,
+        int& outBaseValue,
+        int& outBonusValue)
+    {
+        outDesiredValue = 0;
+        outBaseValue = 0;
+        outBonusValue = 0;
+        if (!getterTag || !getterTag[0] || snapshot.skillId <= 0 || snapshot.level <= 0)
+            return false;
+
+        int originalValue = 0;
+        bool hasStoredField = false;
+        if (_stricmp(getterTag, "damage") == 0)
+        {
+            const bool preferAltDamageField =
+                getterSourceTag &&
+                getterSourceTag[0] &&
+                _stricmp(getterSourceTag, "43DE50") == 0;
+            if (preferAltDamageField)
+            {
+                if (snapshot.hasDamageAlt && snapshot.originalDamageAlt > 0)
+                {
+                    hasStoredField = true;
+                    originalValue = snapshot.originalDamageAlt;
+                }
+                else if (snapshot.hasDamage && snapshot.originalDamage > 0)
+                {
+                    hasStoredField = true;
+                    originalValue = snapshot.originalDamage;
+                }
+                else if (snapshot.hasDamageLocal && snapshot.originalDamageLocal > 0)
+                {
+                    hasStoredField = true;
+                    originalValue = snapshot.originalDamageLocal;
+                }
+                else if (snapshot.hasDamageAlt)
+                {
+                    hasStoredField = true;
+                    originalValue = snapshot.originalDamageAlt;
+                }
+                else if (snapshot.hasDamage)
+                {
+                    hasStoredField = true;
+                    originalValue = snapshot.originalDamage;
+                }
+                else
+                {
+                    hasStoredField = snapshot.hasDamageLocal;
+                    originalValue = snapshot.originalDamageLocal;
+                }
+            }
+            else if (snapshot.hasDamage && snapshot.originalDamage > 0)
+            {
+                hasStoredField = true;
+                originalValue = snapshot.originalDamage;
+            }
+            else if (snapshot.hasDamageAlt && snapshot.originalDamageAlt > 0)
+            {
+                hasStoredField = true;
+                originalValue = snapshot.originalDamageAlt;
+            }
+            else if (snapshot.hasDamageLocal && snapshot.originalDamageLocal > 0)
+            {
+                hasStoredField = true;
+                originalValue = snapshot.originalDamageLocal;
+            }
+            else if (snapshot.hasDamage)
+            {
+                hasStoredField = true;
+                originalValue = snapshot.originalDamage;
+            }
+            else if (snapshot.hasDamageAlt)
+            {
+                hasStoredField = true;
+                originalValue = snapshot.originalDamageAlt;
+            }
+            else
+            {
+                hasStoredField = snapshot.hasDamageLocal;
+                originalValue = snapshot.originalDamageLocal;
+            }
+        }
+        else if (_stricmp(getterTag, "mobCount") == 0)
+        {
+            hasStoredField = snapshot.hasMobCount;
+            originalValue = snapshot.originalMobCount;
+        }
+        else if (_stricmp(getterTag, "attackCount") == 0)
+        {
+            if (snapshot.hasAttackCountAlt && snapshot.originalAttackCountAlt > 0)
+            {
+                hasStoredField = true;
+                originalValue = snapshot.originalAttackCountAlt;
+            }
+            else if (snapshot.hasAttackCount && snapshot.originalAttackCount > 0)
+            {
+                hasStoredField = true;
+                originalValue = snapshot.originalAttackCount;
+            }
+            else if (snapshot.hasAttackCountAlt)
+            {
+                hasStoredField = true;
+                originalValue = snapshot.originalAttackCountAlt;
+            }
+            else
+            {
+                hasStoredField = snapshot.hasAttackCount;
+                originalValue = snapshot.originalAttackCount;
+            }
+        }
+        else if (_stricmp(getterTag, "ignoreMobpdpR") == 0)
+        {
+            hasStoredField = snapshot.hasIgnoreMobpdpR;
+            originalValue = snapshot.originalIgnoreMobpdpR;
+        }
+        else
+        {
+            return false;
+        }
+
+        if (!hasStoredField)
+            return false;
+
+        outDesiredValue = ResolvePassiveEffectGetterOverrideValue(
+            snapshot.skillId,
+            snapshot.level,
+            originalValue,
+            getterTag,
+            getterSourceTag,
+            outBaseValue,
+            outBonusValue);
+        return outBonusValue != 0;
+    }
+
+    void RememberPassiveEffectDamageWrite(int skillId)
+    {
+        if (skillId <= 0)
+            return;
+        g_passiveEffectDamageWriteTickBySkillId[skillId] = GetTickCount();
+    }
+
+    bool HasRecentPassiveEffectDamageWrite(int skillId)
+    {
+        if (skillId <= 0)
+            return false;
+        std::map<int, DWORD>::const_iterator it =
+            g_passiveEffectDamageWriteTickBySkillId.find(skillId);
+        if (it == g_passiveEffectDamageWriteTickBySkillId.end())
+            return false;
+        return GetTickCount() - it->second <= kPassiveEffectDamageWriteSuppressPacketRewriteMs;
+    }
+
+    void RememberPassiveEffectDamageGetterUse(int skillId)
+    {
+        if (skillId <= 0)
+            return;
+        g_passiveEffectDamageGetterTickBySkillId[skillId] = GetTickCount();
+    }
+
+    bool HasRecentPassiveEffectDamageGetterUse(int skillId)
+    {
+        if (skillId <= 0)
+            return false;
+        std::map<int, DWORD>::const_iterator it =
+            g_passiveEffectDamageGetterTickBySkillId.find(skillId);
+        if (it == g_passiveEffectDamageGetterTickBySkillId.end())
+            return false;
+        return GetTickCount() - it->second <= kPassiveEffectDamageWriteSuppressPacketRewriteMs;
+    }
+
+    void RememberPassiveEffectAttackCountGetterUse(int skillId)
+    {
+        if (skillId <= 0)
+            return;
+        g_passiveEffectAttackCountGetterTickBySkillId[skillId] = GetTickCount();
+    }
+
+    bool HasRecentPassiveEffectAttackCountGetterUse(int skillId)
+    {
+        if (skillId <= 0)
+            return false;
+        std::map<int, DWORD>::const_iterator it =
+            g_passiveEffectAttackCountGetterTickBySkillId.find(skillId);
+        if (it == g_passiveEffectAttackCountGetterTickBySkillId.end())
+            return false;
+        return GetTickCount() - it->second <= kPassiveEffectDamageWriteSuppressPacketRewriteMs;
+    }
+
+    void RememberPassiveEffectRuntimeContext(int skillId, int level, uintptr_t effectPtr)
+    {
+        if (skillId <= 0 || level <= 0 || !effectPtr)
+            return;
+
+        if (g_passiveEffectRuntimeContextsByEffectPtr.size() > 4096)
+        {
+            const DWORD nowTick = GetTickCount();
+            for (std::map<uintptr_t, PassiveEffectRuntimeContext>::iterator it =
+                     g_passiveEffectRuntimeContextsByEffectPtr.begin();
+                 it != g_passiveEffectRuntimeContextsByEffectPtr.end(); )
+            {
+                if (nowTick - it->second.lastSeenTick > 300000)
+                    it = g_passiveEffectRuntimeContextsByEffectPtr.erase(it);
+                else
+                    ++it;
+            }
+        }
+
+        PassiveEffectRuntimeContext& context = g_passiveEffectRuntimeContextsByEffectPtr[effectPtr];
+        context.skillId = skillId;
+        context.level = level;
+        context.lastSeenTick = GetTickCount();
+    }
+
+    void LogConfiguredPassiveSemanticBonusesForSkill(
+        int targetSkillId,
+        CustomSkillPacketRoute packetRoute,
+        unsigned short opcode,
+        uintptr_t callerRetAddr)
+    {
+        if (targetSkillId <= 0)
+            return;
+
+        static std::map<int, DWORD> s_lastLogTickByTargetSkillId;
+        const DWORD now = GetTickCount();
+        std::map<int, DWORD>::iterator lastIt = s_lastLogTickByTargetSkillId.find(targetSkillId);
+        if (lastIt != s_lastLogTickByTargetSkillId.end() && now - lastIt->second < 1000)
+            return;
+        s_lastLogTickByTargetSkillId[targetSkillId] = now;
+
+        const int damagePercent = ResolveConfiguredPassiveDamagePercentBonusForSkill(targetSkillId);
+        const int ignoreDefensePercent = ResolveConfiguredPassiveIgnoreDefensePercentBonusForSkill(targetSkillId);
+        const int attackCount = ResolveConfiguredPassiveAttackCountBonusForSkill(targetSkillId);
+        const int mobCount = ResolveConfiguredPassiveMobCountBonusForSkill(targetSkillId);
+        if (damagePercent == 0 && ignoreDefensePercent == 0 && attackCount == 0 && mobCount == 0)
+            return;
+
+        WriteLogFmt("[SuperPassive] semantic bonuses target=%d damage=%d ignoreMobpdpR=%d attackCount=%d mobCount=%d opcode=0x%X route=%s caller=0x%08X",
+            targetSkillId,
+            damagePercent,
+            ignoreDefensePercent,
+            attackCount,
+            mobCount,
+            (unsigned int)opcode,
+            PacketRouteToString(packetRoute),
+            (DWORD)(uintptr_t)callerRetAddr);
     }
 
     int ResolveActiveIndependentBuffBonusTotal(const char* bonusKey)
@@ -4821,9 +6144,9 @@ namespace
                 continue;
 
             const int sourceSkillId = definition.independentSourceSkillId > 0 ? definition.independentSourceSkillId : definition.skillId;
-            int sourceSkillLevel = GetTrackedSkillLevel(definition.skillId);
+            int sourceSkillLevel = GetRuntimeAppliedSkillLevel(definition.skillId);
             if (sourceSkillLevel <= 0 && sourceSkillId != definition.skillId)
-                sourceSkillLevel = GetTrackedSkillLevel(sourceSkillId);
+                sourceSkillLevel = GetRuntimeAppliedSkillLevel(sourceSkillId);
             if (sourceSkillId <= 0 || sourceSkillLevel <= 0)
                 continue;
 
@@ -4856,9 +6179,129 @@ namespace
         return true;
     }
 
+    bool TryLogIncomingCloseRangeAttackPacket(int opcode, BYTE* payload, int payloadLen, uintptr_t callerRetAddr)
+    {
+        if (!payload || payloadLen < 20)
+            return false;
+        if (opcode != (int)kServerCloseRangeAttackPacketOpcode &&
+            opcode != (int)kServerEnergyAttackPacketOpcode)
+        {
+            return false;
+        }
+
+        const int cid = ReadPacketInt(payload, 0);
+        const BYTE tbyte = payload[4];
+        const int targetCount = (tbyte >> 4) & 0x0F;
+        const int hitCount = tbyte & 0x0F;
+        const int level = payload[6];
+        const int skillId = ReadPacketInt(payload, 7);
+        if (skillId <= 0)
+            return false;
+
+        const int damageBonus = ResolveConfiguredPassiveDamagePercentBonusForSkill(skillId);
+        const int attackBonus = ResolveConfiguredPassiveAttackCountBonusForSkill(skillId);
+        const int mobBonus = ResolveConfiguredPassiveMobCountBonusForSkill(skillId);
+        const int ignoreBonus = ResolveConfiguredPassiveIgnoreDefensePercentBonusForSkill(skillId);
+        if (damageBonus == 0 && attackBonus == 0 && mobBonus == 0 && ignoreBonus == 0)
+            return false;
+
+        int cursor = 20;
+        int firstOid = 0;
+        std::string sample;
+        int parsedTargets = 0;
+        for (int targetIndex = 0; targetIndex < targetCount; ++targetIndex)
+        {
+            if (!PacketCanRead(cursor, 5, payloadLen))
+                break;
+
+            const int oid = ReadPacketInt(payload, cursor);
+            cursor += 4;
+            cursor += 1; // hit action marker (0x07 for close-range attack broadcast)
+
+            if (!PacketCanRead(cursor, hitCount * 4, payloadLen))
+                break;
+
+            if (parsedTargets == 0)
+            {
+                firstOid = oid;
+                for (int hitIndex = 0; hitIndex < hitCount; ++hitIndex)
+                {
+                    if (hitIndex > 0)
+                        sample += ",";
+                    char buf[32] = {};
+                    std::snprintf(buf, sizeof(buf), "%d", ReadPacketInt(payload, cursor + hitIndex * 4));
+                    sample += buf;
+                    if (hitIndex >= 5 && hitCount > 6)
+                    {
+                        sample += "...";
+                        break;
+                    }
+                }
+            }
+
+            cursor += hitCount * 4;
+            parsedTargets++;
+        }
+
+        WriteLogFmt("[SuperPassiveRecv] opcode=0x%X cid=%d skillId=%d level=%d targets=%d hits=%d parsedTargets=%d firstOid=%d sample=%s len=%d caller=0x%08X",
+            (unsigned int)opcode,
+            cid,
+            skillId,
+            level,
+            targetCount,
+            hitCount,
+            parsedTargets,
+            firstOid,
+            sample.empty() ? "none" : sample.c_str(),
+            payloadLen,
+            (DWORD)(uintptr_t)callerRetAddr);
+        return true;
+    }
+
+    void TryLogIncomingPassiveAttackProbe(int opcode, BYTE* payload, int payloadLen, uintptr_t callerRetAddr)
+    {
+        int recentSkillId = 0;
+        if (!TryGetRecentPassiveAttackProbeSkillId(recentSkillId))
+            return;
+        if (!payload || payloadLen <= 0)
+            return;
+        if (opcode < 0x100 || opcode > 0x120)
+            return;
+
+        static DWORD s_lastProbeLogTick = 0;
+        static int s_lastProbeOpcode = 0;
+        static int s_lastProbeSkillId = 0;
+        const DWORD nowTick = GetTickCount();
+        if (s_lastProbeOpcode == opcode &&
+            s_lastProbeSkillId == recentSkillId &&
+            nowTick - s_lastProbeLogTick <= 250)
+        {
+            return;
+        }
+        s_lastProbeLogTick = nowTick;
+        s_lastProbeOpcode = opcode;
+        s_lastProbeSkillId = recentSkillId;
+
+        const BYTE byte4 = payloadLen > 4 ? payload[4] : 0;
+        const int skillAt7 = payloadLen >= 11 ? ReadPacketInt(payload, 7) : 0;
+        const int skillAt4 = payloadLen >= 8 ? ReadPacketInt(payload, 4) : 0;
+        const int skillAt6 = payloadLen >= 10 ? ReadPacketInt(payload, 6) : 0;
+        WriteLogFmt(
+            "[SuperPassiveRecvProbe] recentSkill=%d opcode=0x%X len=%d b4=0x%02X skill@4=%d skill@6=%d skill@7=%d caller=0x%08X",
+            recentSkillId,
+            (unsigned int)opcode,
+            payloadLen,
+            (unsigned int)byte4,
+            skillAt4,
+            skillAt6,
+            skillAt7,
+            (DWORD)(uintptr_t)callerRetAddr);
+    }
+
     struct AttackTargetPacketBlock
     {
         int blockStart;
+        BYTE headerByte;
         int damageStart;
         int damageEnd;
         int blockEnd;
@@ -4875,6 +6318,35 @@ namespace
         int tailBytes;
         std::vector<AttackTargetPacketBlock> targets;
     };
+
+    void CollectDamageOffsetsFromAttackLayout(
+        const AttackPacketLayout& layout,
+        std::vector<int>& outOffsets)
+    {
+        outOffsets.clear();
+
+        size_t totalDamageOffsets = 0;
+        for (size_t i = 0; i < layout.targets.size(); ++i)
+            totalDamageOffsets += layout.targets[i].damageOffsets.size();
+
+        outOffsets.reserve(totalDamageOffsets);
+        for (size_t i = 0; i < layout.targets.size(); ++i)
+        {
+            const AttackTargetPacketBlock& block = layout.targets[i];
+            outOffsets.insert(outOffsets.end(), block.damageOffsets.begin(), block.damageOffsets.end());
+        }
+    }
+
+    int CountAttackTargetHeaderByteMatches(const AttackPacketLayout& layout, BYTE expectedValue)
+    {
+        int matched = 0;
+        for (size_t i = 0; i < layout.targets.size(); ++i)
+        {
+            if (layout.targets[i].headerByte == expectedValue)
+                ++matched;
+        }
+        return matched;
+    }
 
     bool IsCloseAttackMoveSkipOnlySkill(int skillId)
     {
@@ -5067,8 +6539,17 @@ namespace
                     return false;
                 if (!PacketSkip(cursor, 1, packetLen))
                     return false;
-                if (moveFlag != 0 && !SkipAttackMovementBlock(packet, packetLen, cursor))
-                    return false;
+                if (moveFlag != 0)
+                {
+                    if (!PacketSkip(cursor, 8, packetLen))
+                        return false;
+                    if (!PacketSkip(cursor, 4, packetLen))
+                        return false;
+                    if (!SkipAttackMovementBlock(packet, packetLen, cursor))
+                        return false;
+                    if (!PacketSkip(cursor, 9, packetLen))
+                        return false;
+                }
             }
 
             if (IsCloseAttackChargeSkill(skillId) && !PacketSkip(cursor, 4, packetLen))
@@ -5097,8 +6578,17 @@ namespace
                 return false;
             if (!PacketSkip(cursor, 1, packetLen))
                 return false;
-            if (moveFlag != 0 && !SkipAttackMovementBlock(packet, packetLen, cursor))
-                return false;
+            if (moveFlag != 0)
+            {
+                if (!PacketSkip(cursor, 8, packetLen))
+                    return false;
+                if (!PacketSkip(cursor, 4, packetLen))
+                    return false;
+                if (!SkipAttackMovementBlock(packet, packetLen, cursor))
+                    return false;
+                if (!PacketSkip(cursor, 9, packetLen))
+                    return false;
+            }
             if (IsRangedAttackExtra4Skill(skillId) && !PacketSkip(cursor, 4, packetLen))
                 return false;
             if (!PacketSkip(cursor, 4, packetLen))
@@ -5132,8 +6622,17 @@ namespace
                 return false;
             if (!PacketSkip(cursor, 1, packetLen))
                 return false;
-            if (moveFlag != 0 && !SkipAttackMovementBlock(packet, packetLen, cursor))
-                return false;
+            if (moveFlag != 0)
+            {
+                if (!PacketSkip(cursor, 8, packetLen))
+                    return false;
+                if (!PacketSkip(cursor, 4, packetLen))
+                    return false;
+                if (!SkipAttackMovementBlock(packet, packetLen, cursor))
+                    return false;
+                if (!PacketSkip(cursor, 9, packetLen))
+                    return false;
+            }
             if (IsMagicChargeSkillClientKnown(skillId) && !PacketSkip(cursor, 4, packetLen))
                 return false;
             if (!PacketSkip(cursor, 4, packetLen))
@@ -5198,6 +6697,203 @@ namespace
         return false;
     }
 
+    bool IsPlausibleAttackTargetOid(int oid)
+    {
+        return oid >= 100000 && oid <= 0x00FFFFFF;
+    }
+
+    bool TryBuildAttackPacketLayoutFromCursor(
+        const BYTE* packet,
+        int packetLen,
+        CustomSkillPacketRoute packetRoute,
+        int skillId,
+        int tbyteOffset,
+        int targetCount,
+        int hitCount,
+        int cursor,
+        AttackPacketLayout& outLayout)
+    {
+        outLayout = AttackPacketLayout();
+        if (!packet || targetCount <= 0 || hitCount <= 0)
+            return false;
+
+        outLayout.tbyteOffset = tbyteOffset;
+        outLayout.skillId = skillId;
+        outLayout.targetCount = targetCount;
+        outLayout.hitCount = hitCount;
+        outLayout.targets.reserve((size_t)targetCount);
+
+        for (int targetIndex = 0; targetIndex < targetCount; ++targetIndex)
+        {
+            AttackTargetPacketBlock block = {};
+            block.blockStart = cursor;
+            if (!PacketCanRead(cursor, 4, packetLen))
+                return false;
+
+            const int oid = ReadPacketInt(packet, cursor);
+            if (!IsPlausibleAttackTargetOid(oid))
+                return false;
+
+            cursor += 4;
+            if (!PacketCanRead(cursor, 14, packetLen))
+                return false;
+            block.headerByte = packet[cursor];
+            cursor += 14;
+
+            block.damageStart = cursor;
+            block.damageOffsets.reserve((size_t)hitCount);
+            for (int hitIndex = 0; hitIndex < hitCount; ++hitIndex)
+            {
+                if (!PacketCanRead(cursor, 4, packetLen))
+                    return false;
+                block.damageOffsets.push_back(cursor);
+                cursor += 4;
+            }
+            block.damageEnd = cursor;
+
+            if (!PacketSkip(cursor, 4, packetLen))
+                return false;
+            if (!PacketSkip(cursor, 4, packetLen))
+                return false;
+
+            block.blockEnd = cursor;
+            outLayout.targets.push_back(block);
+        }
+
+        if (!IsAttackTailPlausible(packet, packetLen, packetRoute, skillId, cursor))
+            return false;
+
+        outLayout.tailOffset = cursor;
+        outLayout.tailBytes = packetLen - cursor;
+        return true;
+    }
+
+    bool TryScanCloseRangeAttackPacketLayout(
+        const BYTE* packet,
+        int packetLen,
+        int skillIdOffset,
+        AttackPacketLayout& outLayout)
+    {
+        outLayout = AttackPacketLayout();
+        if (!packet || packetLen < skillIdOffset + 4 || skillIdOffset != 4)
+            return false;
+
+        const int tbyteOffset = skillIdOffset - 1;
+        if (!PacketCanRead(tbyteOffset, 1, packetLen))
+            return false;
+
+        const BYTE targetHitByte = packet[tbyteOffset];
+        const int targetCount = ((int)targetHitByte >> 4) & 0x0F;
+        const int hitCount = (int)targetHitByte & 0x0F;
+        if (targetCount <= 0 || hitCount <= 0 || targetCount > 15 || hitCount > 15)
+            return false;
+
+        const int skillId = ReadPacketInt(packet, skillIdOffset);
+        const int perTargetBytes = 26 + hitCount * 4;
+        const int minTailBytes = 4;
+        const int minCursor = skillIdOffset + 26;
+        const int maxCursor = packetLen - (targetCount * perTargetBytes) - minTailBytes;
+        if (maxCursor < minCursor)
+            return false;
+
+        struct CloseRangeLayoutCandidate
+        {
+            AttackPacketLayout layout;
+            int cursor;
+            int headerByte6Count;
+        };
+
+        AttackPacketLayout candidateLayout;
+        std::vector<CloseRangeLayoutCandidate> candidates;
+        for (int candidateCursor = minCursor; candidateCursor <= maxCursor; ++candidateCursor)
+        {
+            if (!TryBuildAttackPacketLayoutFromCursor(
+                    packet,
+                    packetLen,
+                    CustomSkillPacketRoute_CloseRange,
+                    skillId,
+                    tbyteOffset,
+                    targetCount,
+                    hitCount,
+                    candidateCursor,
+                    candidateLayout))
+            {
+                continue;
+            }
+
+            CloseRangeLayoutCandidate candidate = {};
+            candidate.layout = candidateLayout;
+            candidate.cursor = candidateCursor;
+            candidate.headerByte6Count = CountAttackTargetHeaderByteMatches(candidateLayout, 6);
+            candidates.push_back(candidate);
+        }
+
+        if (candidates.size() == 1)
+        {
+            outLayout = candidates[0].layout;
+            WriteLogFmt("[SuperPassive] close_range cursor scan skillId=%d targets=%d hits=%d cursor=%d len=%d",
+                skillId,
+                targetCount,
+                hitCount,
+                candidates[0].cursor,
+                packetLen);
+            return true;
+        }
+
+        int bestHeaderByte6Count = -1;
+        int bestCandidateIndex = -1;
+        bool bestTied = false;
+        for (size_t i = 0; i < candidates.size(); ++i)
+        {
+            if (candidates[i].headerByte6Count > bestHeaderByte6Count)
+            {
+                bestHeaderByte6Count = candidates[i].headerByte6Count;
+                bestCandidateIndex = (int)i;
+                bestTied = false;
+            }
+            else if (candidates[i].headerByte6Count == bestHeaderByte6Count)
+            {
+                bestTied = true;
+            }
+        }
+
+        if (!bestTied &&
+            bestCandidateIndex >= 0 &&
+            bestHeaderByte6Count > 0)
+        {
+            outLayout = candidates[(size_t)bestCandidateIndex].layout;
+            WriteLogFmt("[SuperPassive] close_range cursor scan resolved skillId=%d targets=%d hits=%d cursor=%d header6=%d/%d len=%d",
+                skillId,
+                targetCount,
+                hitCount,
+                candidates[(size_t)bestCandidateIndex].cursor,
+                bestHeaderByte6Count,
+                targetCount,
+                packetLen);
+            return true;
+        }
+
+        if (!candidates.empty())
+        {
+            const int cursor0 = candidates.size() > 0 ? candidates[0].cursor : -1;
+            const int cursor1 = candidates.size() > 1 ? candidates[1].cursor : -1;
+            const int header60 = candidates.size() > 0 ? candidates[0].headerByte6Count : -1;
+            const int header61 = candidates.size() > 1 ? candidates[1].headerByte6Count : -1;
+            WriteLogFmt("[SuperPassive] close_range cursor scan ambiguous skillId=%d targets=%d hits=%d candidates=%d c0=%d h60=%d c1=%d h61=%d len=%d",
+                skillId,
+                targetCount,
+                hitCount,
+                (int)candidates.size(),
+                cursor0,
+                header60,
+                cursor1,
+                header61,
+                packetLen);
+        }
+
+        return false;
+    }
+
     bool TryCollectAttackDamageOffsetsWithBlessSkip(
         const BYTE* packet,
         int packetLen,
@@ -5227,35 +6923,23 @@ namespace
         if (!SkipAttackHeaderAfterSkill(packet, packetLen, packetRoute, skillId, cygnusBlessSkip, cursor))
             return false;
 
-        const int expectedDamageIntCount = targetCount * hitCount;
-        outOffsets.reserve((size_t)expectedDamageIntCount);
-        for (int targetIndex = 0; targetIndex < targetCount; ++targetIndex)
+        AttackPacketLayout layout;
+        if (!TryBuildAttackPacketLayoutFromCursor(
+                packet,
+                packetLen,
+                packetRoute,
+                skillId,
+                tbyteOffset,
+                targetCount,
+                hitCount,
+                cursor,
+                layout))
         {
-            if (!PacketSkip(cursor, 4, packetLen))
-                return false;
-            if (!PacketSkip(cursor, 14, packetLen))
-                return false;
-
-            for (int hitIndex = 0; hitIndex < hitCount; ++hitIndex)
-            {
-                if (!PacketCanRead(cursor, 4, packetLen))
-                    return false;
-                outOffsets.push_back(cursor);
-                cursor += 4;
-            }
-
-            if (!PacketSkip(cursor, 4, packetLen))
-                return false;
-            if (!PacketSkip(cursor, 4, packetLen))
-                return false;
+            return false;
         }
 
-        if ((int)outOffsets.size() != expectedDamageIntCount)
-            return false;
-        if (!IsAttackTailPlausible(packet, packetLen, packetRoute, skillId, cursor))
-            return false;
-
-        outTailBytes = packetLen - cursor;
+        CollectDamageOffsetsFromAttackLayout(layout, outOffsets);
+        outTailBytes = layout.tailBytes;
         return true;
     }
 
@@ -5286,46 +6970,16 @@ namespace
         if (!SkipAttackHeaderAfterSkill(packet, packetLen, packetRoute, skillId, cygnusBlessSkip, cursor))
             return false;
 
-        outLayout.tbyteOffset = tbyteOffset;
-        outLayout.skillId = skillId;
-        outLayout.targetCount = targetCount;
-        outLayout.hitCount = hitCount;
-        outLayout.targets.reserve((size_t)targetCount);
-
-        for (int targetIndex = 0; targetIndex < targetCount; ++targetIndex)
-        {
-            AttackTargetPacketBlock block = {};
-            block.blockStart = cursor;
-            if (!PacketSkip(cursor, 4, packetLen))
-                return false;
-            if (!PacketSkip(cursor, 14, packetLen))
-                return false;
-
-            block.damageStart = cursor;
-            block.damageOffsets.reserve((size_t)hitCount);
-            for (int hitIndex = 0; hitIndex < hitCount; ++hitIndex)
-            {
-                if (!PacketCanRead(cursor, 4, packetLen))
-                    return false;
-                block.damageOffsets.push_back(cursor);
-                cursor += 4;
-            }
-            block.damageEnd = cursor;
-
-            if (!PacketSkip(cursor, 4, packetLen))
-                return false;
-            if (!PacketSkip(cursor, 4, packetLen))
-                return false;
-            block.blockEnd = cursor;
-            outLayout.targets.push_back(block);
-        }
-
-        if (!IsAttackTailPlausible(packet, packetLen, packetRoute, skillId, cursor))
-            return false;
-
-        outLayout.tailOffset = cursor;
-        outLayout.tailBytes = packetLen - cursor;
-        return true;
+        return TryBuildAttackPacketLayoutFromCursor(
+            packet,
+            packetLen,
+            packetRoute,
+            skillId,
+            tbyteOffset,
+            targetCount,
+            hitCount,
+            cursor,
+            outLayout);
     }
 
     bool TryCollectAttackPacketLayout(
@@ -5367,6 +7021,12 @@ namespace
             layoutNoBless.targets.size() == layoutBless.targets.size())
         {
             outLayout = layoutNoBless;
+            return true;
+        }
+
+        if (packetRoute == CustomSkillPacketRoute_CloseRange &&
+            TryScanCloseRangeAttackPacketLayout(packet, packetLen, skillIdOffset, outLayout))
+        {
             return true;
         }
 
@@ -5415,6 +7075,16 @@ namespace
             return true;
         }
 
+        if (packetRoute == CustomSkillPacketRoute_CloseRange)
+        {
+            AttackPacketLayout fallbackLayout;
+            if (TryScanCloseRangeAttackPacketLayout(packet, packetLen, skillIdOffset, fallbackLayout))
+            {
+                CollectDamageOffsetsFromAttackLayout(fallbackLayout, outOffsets);
+                return !outOffsets.empty();
+            }
+        }
+
         return false;
     }
 
@@ -5449,6 +7119,23 @@ namespace
         if (bonusPercent == 0)
             return false;
 
+        if (passiveBonusPercent > 0 && HasRecentPassiveEffectDamageGetterUse(observedSkillId))
+        {
+            static std::map<int, DWORD> s_lastLocalEffectDamageSkipLogTickBySkillId;
+            DWORD& lastLogTick = s_lastLocalEffectDamageSkipLogTickBySkillId[observedSkillId];
+            const DWORD nowTick = GetTickCount();
+            if (nowTick - lastLogTick > 1000)
+            {
+                lastLogTick = nowTick;
+                WriteLogFmt("[SuperPassive] skip packet damage rewrite skillId=%d bonus=%d opcode=0x%X route=%s reason=damage-getter-owned",
+                    observedSkillId,
+                    bonusPercent,
+                    (unsigned int)opcode,
+                    PacketRouteToString(packetRoute));
+            }
+            return false;
+        }
+
         std::vector<int> damageOffsets;
         if (!TryCollectAttackDamageOffsets(packet, packetLen, packetRoute, skillIdOffset, damageOffsets) ||
             damageOffsets.empty())
@@ -5464,6 +7151,12 @@ namespace
         }
 
         int changedCount = 0;
+        int firstChangedOffset = -1;
+        int firstOldDamage = 0;
+        int firstNewDamage = 0;
+        int lastChangedOffset = -1;
+        int lastOldDamage = 0;
+        int lastNewDamage = 0;
         for (size_t i = 0; i < damageOffsets.size(); ++i)
         {
             const int offset = damageOffsets[i];
@@ -5472,6 +7165,15 @@ namespace
             if (newDamage != oldDamage)
             {
                 WritePacketInt(packet, offset, newDamage);
+                if (changedCount == 0)
+                {
+                    firstChangedOffset = offset;
+                    firstOldDamage = oldDamage;
+                    firstNewDamage = newDamage;
+                }
+                lastChangedOffset = offset;
+                lastOldDamage = oldDamage;
+                lastNewDamage = newDamage;
                 ++changedCount;
             }
         }
@@ -5479,13 +7181,19 @@ namespace
         if (changedCount <= 0)
             return false;
 
-        WriteLogFmt("[SuperPassive] damage rewrite skillId=%d bonus=%d passive=%d buff=%d hits=%d changed=%d opcode=0x%X route=%s len=%d caller=0x%08X",
+        WriteLogFmt("[SuperPassive] damage rewrite skillId=%d bonus=%d passive=%d buff=%d hits=%d changed=%d first@%d=%d->%d last@%d=%d->%d opcode=0x%X route=%s len=%d caller=0x%08X",
             observedSkillId,
             bonusPercent,
             passiveBonusPercent,
             independentBuffBonusPercent,
             (int)damageOffsets.size(),
             changedCount,
+            firstChangedOffset,
+            firstOldDamage,
+            firstNewDamage,
+            lastChangedOffset,
+            lastOldDamage,
+            lastNewDamage,
             (unsigned int)opcode,
             PacketRouteToString(packetRoute),
             packetLen,
@@ -5511,6 +7219,24 @@ namespace
         const int mobCountBonus = ResolveConfiguredPassiveMobCountBonusForSkill(observedSkillId);
         if (attackCountBonus <= 0 && mobCountBonus <= 0)
             return false;
+
+        if (attackCountBonus > 0 && HasRecentPassiveEffectAttackCountGetterUse(observedSkillId))
+        {
+            static std::map<int, DWORD> s_lastAttackCountGetterOwnedSkipLogTickBySkillId;
+            DWORD& lastLogTick = s_lastAttackCountGetterOwnedSkipLogTickBySkillId[observedSkillId];
+            const DWORD nowTick = GetTickCount();
+            if (nowTick - lastLogTick > 1000)
+            {
+                lastLogTick = nowTick;
+                WriteLogFmt("[SuperPassive] skip packet count expansion skillId=%d attackBonus=%d mobBonus=%d opcode=0x%X route=%s reason=attackCount-getter-owned",
+                    observedSkillId,
+                    attackCountBonus,
+                    mobCountBonus,
+                    (unsigned int)opcode,
+                    PacketRouteToString(packetRoute));
+            }
+            return false;
+        }
 
         AttackPacketLayout layout;
         if (!TryCollectAttackPacketLayout(packet, packetLen, packetRoute, skillIdOffset, layout))
@@ -5883,12 +7609,68 @@ namespace
         return true;
     }
 
+    void ArmPendingOptimisticSuperSkillLevelHold(int skillId, int expectedLevel)
+    {
+        if (skillId <= 0 || expectedLevel <= 0)
+            return;
+
+        PendingOptimisticSuperSkillLevelHold& hold = g_pendingOptimisticSuperSkillLevelHoldBySkillId[skillId];
+        hold.expectedLevel = expectedLevel;
+        hold.expireTick = GetTickCount() + kPendingOptimisticSuperSkillLevelHoldWindowMs;
+    }
+
+    void ClearPendingOptimisticSuperSkillLevelHold(int skillId)
+    {
+        if (skillId <= 0)
+            return;
+        g_pendingOptimisticSuperSkillLevelHoldBySkillId.erase(skillId);
+    }
+
+    void ClearAllPendingOptimisticSuperSkillLevelHolds(const char* reason)
+    {
+        if (!g_pendingOptimisticSuperSkillLevelHoldBySkillId.empty())
+        {
+            WriteLogFmt("[SkillLevelBridge] clear optimistic holds count=%d reason=%s",
+                (int)g_pendingOptimisticSuperSkillLevelHoldBySkillId.size(),
+                reason ? reason : "unknown");
+        }
+        g_pendingOptimisticSuperSkillLevelHoldBySkillId.clear();
+    }
+
+    bool TryGetFreshPendingOptimisticSuperSkillLevelHold(int skillId, PendingOptimisticSuperSkillLevelHold& outHold)
+    {
+        outHold = PendingOptimisticSuperSkillLevelHold{};
+        if (skillId <= 0)
+            return false;
+
+        std::map<int, PendingOptimisticSuperSkillLevelHold>::iterator it =
+            g_pendingOptimisticSuperSkillLevelHoldBySkillId.find(skillId);
+        if (it == g_pendingOptimisticSuperSkillLevelHoldBySkillId.end())
+            return false;
+
+        const DWORD nowTick = GetTickCount();
+        if (it->second.expireTick == 0 || nowTick > it->second.expireTick)
+        {
+            g_pendingOptimisticSuperSkillLevelHoldBySkillId.erase(it);
+            return false;
+        }
+
+        outHold = it->second;
+        return true;
+    }
+
     void ApplyOptimisticSuperSkillUpgradeObservation(int skillId, int carrierSkillId, int nextSkillLevel, int nextCarrierPoints)
     {
         if (skillId > 0)
         {
+            SkillItem* item = FindManagerSkillItem(GetBridgeManager(), skillId);
+            if (item && nextSkillLevel > item->level)
+                item->level = nextSkillLevel;
+
             g_observedBaseLevelsBySkillId[skillId] = nextSkillLevel;
             g_observedCurrentLevelsBySkillId[skillId] = nextSkillLevel;
+            RecordPersistentSuperSkillLevel(skillId, nextSkillLevel, "optimistic-upgrade");
+            ArmPendingOptimisticSuperSkillLevelHold(skillId, nextSkillLevel);
         }
         if (carrierSkillId > 0)
         {
@@ -5971,14 +7753,6 @@ namespace
         // 非原生技能：本地独立升级，不走游戏发包
         const int proxySkillId = carrierSkillId > 0 ? carrierSkillId : item.skillID;
         const bool requestOk = GameRequestSuperSkillUpgradeByProxyPacket(proxySkillId, item.skillID);
-        if (requestOk)
-        {
-            ApplyOptimisticSuperSkillUpgradeObservation(
-                item.skillID,
-                carrierSkillId,
-                item.level + 1,
-                availablePoints - superSpCost);
-        }
 
         WriteLogFmt(
             "[SuperSkill] plus proxy-upgrade skillId=%d ok=%d level=%d->%d cost=%d carrier=%d proxy=%d points=%d",
@@ -6016,9 +7790,11 @@ namespace
             return false;
         }
 
+        const DWORD nowTick = GetTickCount();
         g_lastRefreshTick = 0;
-        g_fastRefreshUntilTick = GetTickCount() + kPendingRefreshWindowMs;
-        WriteLogFmt("[SuperSkill] reset request sent proxy=%d target=%d",
+        g_fastRefreshUntilTick = nowTick + kPendingRefreshWindowMs;
+        g_superSkillResetLevelSyncUntilTick = nowTick + kSuperSkillResetLevelSyncWindowMs;
+        WriteLogFmt("[SuperSkill] reset request sent proxy=%d target=%d localClearDeferred=1",
             proxySkillId,
             kSuperSkillResetRequestSkillId);
         return true;
@@ -6089,6 +7865,8 @@ namespace
                 sprintf_s(fallbackName, "#%07d", skillId);
                 skillName = fallbackName;
             }
+            if (isSuperSkill)
+                skillName = BuildSuperSkillDisplayName(skillName, superDefinition);
 
             // 等级优先从游戏 CALL 查询，fallback 到本地 JSON
             int gameLevel = GameGetSkillLevel(skillId);
@@ -6096,8 +7874,14 @@ namespace
             int localMaxLevel = 1;
             SkillLocalDataGetMaxLevel(skillId, localMaxLevel);
 
+            int persistentLevel = 0;
+            if (TryResolvePersistentNonNativeSuperSkillLevel(skillId, gameLevel, 0, persistentLevel))
+                gameLevel = persistentLevel;
+
             int maxLevel = (gameMaxLevel > 0) ? gameMaxLevel : ((localMaxLevel > 0) ? localMaxLevel : 1);
             int level = (gameLevel > 0) ? gameLevel : 0;
+            if (isSuperSkill && level > 0)
+                RecordPersistentSuperSkillLevel(skillId, level, "populate");
             bool passiveHint = false;
             SkillLocalDataIsPassiveHint(skillId, passiveHint);
 
@@ -6156,6 +7940,9 @@ namespace
             PopulateManagerTab(manager, 0, "Tab0", kIndependentTab0SkillIds, ARRAYSIZE(kIndependentTab0SkillIds));
             PopulateManagerTab(manager, 1, "Tab1", kIndependentTab1SkillIds, ARRAYSIZE(kIndependentTab1SkillIds));
         }
+
+        int currentJobId = 0;
+        g_lastOverlayConfiguredJobId = TryReadCurrentPlayerJobId(currentJobId) ? currentJobId : -1;
 
         WriteLogFmt("[SkillBridge] independent manager ready: tab0=%d tab1=%d",
             manager->tabs[0].count, manager->tabs[1].count);
@@ -6233,15 +8020,6 @@ namespace
             return RetroSkill_SuppressDefault;
         }
 
-        // 对非原生超级技能，游戏不会自动刷新等级，手动 +1
-        if (item->isSuperSkill && !item->hasNativeUpgradeState)
-        {
-            item->level++;
-            if (item->maxLevel > 0 && item->level > item->maxLevel)
-                item->level = item->maxLevel;
-            WriteLogFmt("[SkillBridge] plus local-level-up skillId=%d newLevel=%d/%d", context.skillId, item->level, item->maxLevel);
-        }
-
         g_lastRefreshTick = 0;
         g_fastRefreshUntilTick = GetTickCount() + kPendingRefreshWindowMs;
         WriteLogFmt("[SkillBridge] plus request sent skillId=%d level=%d/%d", context.skillId, item->level, item->maxLevel);
@@ -6260,13 +8038,22 @@ namespace
         (void)userData;
         RetroSkillActionDecision result = SkillOverlaySourceHandleInitAction(ResolveActionSource(), context);
         const bool requestOk = RequestSuperSkillReset();
-        SkillManager* manager = GetBridgeManager();
-        if (manager)
+        if (!requestOk)
         {
-            RefreshSkillLevelsFromGame(manager);
-            WriteLogFmt("[SkillBridge] init request tab=%d sent=%d -> resynced current game levels",
+            SkillManager* manager = GetBridgeManager();
+            if (manager)
+            {
+                RefreshSkillLevelsFromGame(manager);
+                WriteLogFmt("[SkillBridge] init request tab=%d sent=%d -> local refresh kept because request failed",
+                    context.currentTab,
+                    0);
+            }
+        }
+        else
+        {
+            WriteLogFmt("[SkillBridge] init request tab=%d sent=%d -> awaiting authoritative reset sync",
                 context.currentTab,
-                requestOk ? 1 : 0);
+                1);
         }
         return result == RetroSkill_UseDefault ? RetroSkill_SuppressDefault : result;
     }
@@ -6475,9 +8262,16 @@ void SkillOverlayBridgeInitialize(SkillManager* manager)
     g_bridge = BridgeState{};
     g_lastRefreshTick = 0;
     g_fastRefreshUntilTick = 0;
+    g_superSkillResetLevelSyncUntilTick = 0;
     g_initialGameLevelLoaded = false;
     g_observedCurrentLevelsBySkillId.clear();
     g_observedBaseLevelsBySkillId.clear();
+    g_persistentNonNativeSuperSkillLevelsBySkillId.clear();
+    g_passiveEffectPatchSnapshotsByEffectPtr.clear();
+    g_passiveEffectRuntimeContextsByEffectPtr.clear();
+    g_passiveEffectDamageWriteTickBySkillId.clear();
+    g_passiveEffectDamageGetterTickBySkillId.clear();
+    g_passiveEffectAttackCountGetterTickBySkillId.clear();
     g_loggedMissingSuperSkillConfig = false;
     g_loggedDuplicateSuperSkills = false;
     ClearPendingSuperSkillUpgradePacketRewrite();
@@ -6505,9 +8299,17 @@ void SkillOverlayBridgeShutdown()
     ClearNativeSkillInjectionRegistry();
     g_observedCurrentLevelsBySkillId.clear();
     g_observedBaseLevelsBySkillId.clear();
+    g_persistentNonNativeSuperSkillLevelsBySkillId.clear();
+    g_passiveEffectPatchSnapshotsByEffectPtr.clear();
+    g_passiveEffectRuntimeContextsByEffectPtr.clear();
+    g_passiveEffectDamageWriteTickBySkillId.clear();
+    g_passiveEffectDamageGetterTickBySkillId.clear();
+    g_passiveEffectAttackCountGetterTickBySkillId.clear();
     g_superSkillResetPreviewRevision = 0;
     g_superSkillResetPreviewSpentSp = 0;
     g_superSkillResetPreviewCostMeso = 0;
+    g_superSkillResetPreviewCurrentMeso = 0;
+    g_superSkillResetPreviewHasCurrentMeso = 0;
     g_superSkillResetPreviewReceiveHookReady = 0;
     g_lastObservedLevelContext = 0;
     g_lastObservedSkillDataMgr = 0;
@@ -6779,6 +8581,8 @@ void SkillOverlayBridgeSyncRetroState(RetroSkillRuntimeState& state)
     state.superSkillPoints = ResolveAvailableSuperSkillPointsForCarrier(state.superSkillCarrierSkillId);
     state.superSkillResetPreviewSpentSp = (int)g_superSkillResetPreviewSpentSp;
     state.superSkillResetPreviewCostMeso = (int)g_superSkillResetPreviewCostMeso;
+    state.superSkillResetPreviewCurrentMeso = (int)g_superSkillResetPreviewCurrentMeso;
+    state.superSkillResetPreviewHasCurrentMeso = g_superSkillResetPreviewHasCurrentMeso != 0;
     state.superSkillResetPreviewRevision = (unsigned int)g_superSkillResetPreviewRevision;
     if ((state.superSkillResetConfirmVisible || state.superSkillResetConfirmOpenRequested) &&
         state.superSkillResetConfirmCostPending &&
@@ -6786,12 +8590,16 @@ void SkillOverlayBridgeSyncRetroState(RetroSkillRuntimeState& state)
     {
         state.superSkillResetConfirmSpentSp = state.superSkillResetPreviewSpentSp;
         state.superSkillResetConfirmCostMeso = state.superSkillResetPreviewCostMeso;
+        state.superSkillResetConfirmCurrentMeso = state.superSkillResetPreviewCurrentMeso;
+        state.superSkillResetConfirmHasCurrentMeso = state.superSkillResetPreviewHasCurrentMeso;
         state.superSkillResetConfirmCostPending = false;
-        WriteLogFmt("[SkillBridge] reset preview applied requestRev=%u newRev=%u spentSp=%d cost=%d",
+        WriteLogFmt("[SkillBridge] reset preview applied requestRev=%u newRev=%u spentSp=%d cost=%d meso=%d hasMeso=%d",
             state.superSkillResetConfirmPreviewRequestRevision,
             state.superSkillResetPreviewRevision,
             state.superSkillResetPreviewSpentSp,
-            state.superSkillResetPreviewCostMeso);
+            state.superSkillResetPreviewCostMeso,
+            state.superSkillResetPreviewCurrentMeso,
+            state.superSkillResetPreviewHasCurrentMeso ? 1 : 0);
     }
 
     // 定期从游戏刷新技能等级
@@ -6837,6 +8645,19 @@ void SkillOverlayBridgeSyncRetroState(RetroSkillRuntimeState& state)
         WriteLogFmt("[SuperSkill] overlay rebuilt: showInSuperWhenLearned visibility changed");
     }
 
+    int currentJobId = 0;
+    if (manager &&
+        !g_superSkillsBySkillId.empty() &&
+        TryReadCurrentPlayerJobId(currentJobId) &&
+        currentJobId != g_lastOverlayConfiguredJobId)
+    {
+        const int currentTab = manager->currentTab;
+        ConfigureIndependentOverlayManager(manager);
+        if (currentTab >= 0 && currentTab < manager->tabCount)
+            manager->currentTab = currentTab;
+        WriteLogFmt("[SuperSkill] overlay rebuilt: current job changed job=%d", currentJobId);
+    }
+
     TryRestorePendingQuickSlots();
 
     SkillOverlaySource* preferred = ResolveActiveSource();
@@ -6855,7 +8676,9 @@ void SkillOverlayBridgeSyncRetroState(RetroSkillRuntimeState& state)
 
         static DWORD s_lastSuperSpSyncLogTick = 0;
         const DWORD nowTick = GetTickCount();
-        if (state.superSkillCarrierSkillId > 0 && nowTick - s_lastSuperSpSyncLogTick > 1000)
+        if (EnableSuperSkillSyncStateDiagnosticLogs() &&
+            state.superSkillCarrierSkillId > 0 &&
+            nowTick - s_lastSuperSpSyncLogTick > 1000)
         {
             s_lastSuperSpSyncLogTick = nowTick;
             WriteLogFmt("[SuperSkill] sync state carrier=%d points=%d observedBase=%d observedCurrent=%d base=%d current=%d",
@@ -7282,6 +9105,8 @@ void SkillOverlayBridgeFilterNativeSkillWindow(uintptr_t skillWndThis)
                 sprintf_s(fallbackName, "#%07d", def.skillId);
                 skillName = fallbackName;
             }
+            if (FindSuperSkillDefinition(def.skillId, superDefinition))
+                skillName = BuildSuperSkillDisplayName(skillName, superDefinition);
             g_nativeInjectedNames.push_back(skillName);
 
             if (block.size() >= 8)
@@ -7501,6 +9326,36 @@ void SkillOverlayBridgeGetIndependentBuffOverlayEntries(std::vector<IndependentB
         unsigned long long activationOrder = 0;
     };
     std::vector<OrderedOverlayEntry> orderedEntries;
+    auto populateEntryMetadata = [](IndependentBuffOverlayEntry& entry)
+    {
+        std::string name;
+        if (SkillLocalDataGetName(entry.skillId, name) && !name.empty())
+            entry.name = name;
+
+        int maxLevel = 0;
+        if (SkillLocalDataGetMaxLevel(entry.skillId, maxLevel) && maxLevel > 0)
+            entry.maxLevel = maxLevel;
+
+        SkillLocalTooltipText tooltip = {};
+        if (SkillLocalDataGetTooltipText(entry.skillId, tooltip))
+        {
+            entry.tooltipPreview = tooltip.previewUtf8;
+            entry.tooltipDescription = tooltip.descriptionUtf8;
+            entry.tooltipDetail = tooltip.detailUtf8;
+
+            const std::string rawTooltipPreview = entry.tooltipPreview;
+            const std::string rawTooltipDescription = entry.tooltipDescription;
+            const std::string rawTooltipDetail = entry.tooltipDetail;
+            const int currentTooltipLevel = (std::max)(1, GetTrackedSkillLevel(entry.skillId));
+            std::string formattedText;
+            if (SkillLocalDataFormatTooltipText(entry.skillId, currentTooltipLevel, rawTooltipPreview, formattedText))
+                entry.tooltipPreview = formattedText;
+            if (SkillLocalDataFormatTooltipText(entry.skillId, currentTooltipLevel, rawTooltipDescription, formattedText))
+                entry.tooltipDescription = formattedText;
+            if (SkillLocalDataFormatTooltipText(entry.skillId, currentTooltipLevel, rawTooltipDetail, formattedText))
+                entry.tooltipDetail = formattedText;
+        }
+    };
 
     if (!g_independentBuffVirtualStates.empty())
     {
@@ -7602,34 +9457,7 @@ void SkillOverlayBridgeGetIndependentBuffOverlayEntries(std::vector<IndependentB
             entry.remainingMs = remainingMs;
             entry.totalDurationMs = state.durationMs;
             entry.cancelable = state.cancelable;
-
-            std::string name;
-            if (SkillLocalDataGetName(entry.skillId, name) && !name.empty())
-                entry.name = name;
-
-            int maxLevel = 0;
-            if (SkillLocalDataGetMaxLevel(entry.skillId, maxLevel) && maxLevel > 0)
-                entry.maxLevel = maxLevel;
-
-            SkillLocalTooltipText tooltip = {};
-            if (SkillLocalDataGetTooltipText(entry.skillId, tooltip))
-            {
-                entry.tooltipPreview = tooltip.previewUtf8;
-                entry.tooltipDescription = tooltip.descriptionUtf8;
-                entry.tooltipDetail = tooltip.detailUtf8;
-
-                const std::string rawTooltipPreview = entry.tooltipPreview;
-                const std::string rawTooltipDescription = entry.tooltipDescription;
-                const std::string rawTooltipDetail = entry.tooltipDetail;
-                const int currentTooltipLevel = (std::max)(1, GetTrackedSkillLevel(entry.skillId));
-                std::string formattedText;
-                if (SkillLocalDataFormatTooltipText(entry.skillId, currentTooltipLevel, rawTooltipPreview, formattedText))
-                    entry.tooltipPreview = formattedText;
-                if (SkillLocalDataFormatTooltipText(entry.skillId, currentTooltipLevel, rawTooltipDescription, formattedText))
-                    entry.tooltipDescription = formattedText;
-                if (SkillLocalDataFormatTooltipText(entry.skillId, currentTooltipLevel, rawTooltipDetail, formattedText))
-                    entry.tooltipDetail = formattedText;
-            }
+            populateEntryMetadata(entry);
 
             OrderedOverlayEntry ordered = {};
             ordered.entry = entry;
@@ -7665,34 +9493,7 @@ void SkillOverlayBridgeGetIndependentBuffOverlayEntries(std::vector<IndependentB
             entry.remainingMs = remainingMs;
             entry.totalDurationMs = state.durationMs;
             entry.cancelable = state.cancelable;
-
-            std::string name;
-            if (SkillLocalDataGetName(entry.skillId, name) && !name.empty())
-                entry.name = name;
-
-            int maxLevel = 0;
-            if (SkillLocalDataGetMaxLevel(entry.skillId, maxLevel) && maxLevel > 0)
-                entry.maxLevel = maxLevel;
-
-            SkillLocalTooltipText tooltip = {};
-            if (SkillLocalDataGetTooltipText(entry.skillId, tooltip))
-            {
-                entry.tooltipPreview = tooltip.previewUtf8;
-                entry.tooltipDescription = tooltip.descriptionUtf8;
-                entry.tooltipDetail = tooltip.detailUtf8;
-
-                const std::string rawTooltipPreview = entry.tooltipPreview;
-                const std::string rawTooltipDescription = entry.tooltipDescription;
-                const std::string rawTooltipDetail = entry.tooltipDetail;
-                const int currentTooltipLevel = (std::max)(1, GetTrackedSkillLevel(entry.skillId));
-                std::string formattedText;
-                if (SkillLocalDataFormatTooltipText(entry.skillId, currentTooltipLevel, rawTooltipPreview, formattedText))
-                    entry.tooltipPreview = formattedText;
-                if (SkillLocalDataFormatTooltipText(entry.skillId, currentTooltipLevel, rawTooltipDescription, formattedText))
-                    entry.tooltipDescription = formattedText;
-                if (SkillLocalDataFormatTooltipText(entry.skillId, currentTooltipLevel, rawTooltipDetail, formattedText))
-                    entry.tooltipDetail = formattedText;
-            }
+            populateEntryMetadata(entry);
 
             OrderedOverlayEntry ordered = {};
             ordered.entry = entry;
@@ -7784,6 +9585,11 @@ DWORD SkillOverlayBridgeResolveNativeReleaseJumpTarget(int skillId)
     if (!RouteUsesNativeReleaseClass(route))
         return 0;
 
+    if (TryApplyMountedDoubleJumpStableProxyOverride(route, true))
+    {
+        return 0;
+    }
+
     if (ShouldPreserveActiveContextForImmediateProxyRoute(skillId, route))
     {
         WriteLogFmt("[SkillRoute] keep native release context custom=%d donor=%d ignore=%d route=%s releaseClass=%s",
@@ -7829,6 +9635,11 @@ int SkillOverlayBridgeResolveNativeClassifierOverrideSkillId(int skillId)
 
     if (!RouteUsesNativeClassifierProxy(route))
         return 0;
+
+    if (TryApplyMountedDoubleJumpStableProxyOverride(route, true))
+    {
+        return 0;
+    }
 
     if (ShouldPreserveActiveContextForImmediateProxyRoute(skillId, route))
     {
@@ -7934,6 +9745,15 @@ int SkillOverlayBridgeResolveNativeGateSkillId(int skillId)
     if (!FindRouteByCustomSkillId(skillId, route))
         return skillId;
 
+    // Mounted double-jump needs its route intent armed as early as the native
+    // gate lookup stage; otherwise the first mounted jump can miss the recent
+    // intent window and still surface one or more "搭乘中无法使用" prompts
+    // before the later release/classifier hooks get a chance to warm up.
+    if (TryApplyMountedDoubleJumpStableProxyOverride(route, true))
+    {
+        return skillId;
+    }
+
     // Some deep native branches (post animation/effect dispatch) still hard-check
     // donor ids (e.g., 1001003 family). Keep those checks on donor while release
     // and packet rewrite continue to use custom skill id outside those gates.
@@ -7970,6 +9790,136 @@ bool SkillOverlayBridgeShouldForceNativeGateAllow(int skillId)
     }
 
     return false;
+}
+
+int SkillOverlayBridgeResolveMountedDoubleJumpSkillId(int mountItemId)
+{
+    SuperSkillDefinition definition = {};
+    if (!FindMountedDoubleJumpDefinitionByMountItemId(mountItemId, definition))
+        return 0;
+    return definition.mountedDoubleJumpSkillId > 0 ? definition.mountedDoubleJumpSkillId : 3101003;
+}
+
+bool SkillOverlayBridgeCanUseMountedDoubleJumpSkill(int mountItemId, int skillId)
+{
+    if (mountItemId <= 0 || skillId <= 0)
+        return false;
+
+    return SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId) == skillId;
+}
+
+bool SkillOverlayBridgeCanUseMountedDoubleJumpRuntimeSkill(int mountItemId, int skillId)
+{
+    if (mountItemId <= 0 || skillId <= 0)
+        return false;
+
+    const int mountedDoubleJumpSkillId = SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId);
+    if (mountedDoubleJumpSkillId <= 0)
+        return false;
+
+    if (mountedDoubleJumpSkillId == skillId)
+        return true;
+
+    CustomSkillUseRoute route = {};
+    if (!FindRouteByCustomSkillId(mountedDoubleJumpSkillId, route))
+        return false;
+
+    if ((RouteUsesNativeClassifierProxy(route) || RouteUsesLegacyProxyPacketRewrite(route)) &&
+        route.proxySkillId > 0 &&
+        route.proxySkillId == skillId)
+    {
+        return true;
+    }
+
+    return false;
+}
+
+bool SkillOverlayBridgeHasRecentMountedDoubleJumpRouteArm(int mountItemId, DWORD maxAgeMs)
+{
+    if (!kEnableMountedDoubleJumpRouteArm)
+    {
+        return false;
+    }
+
+    const LONG recentMountItemId =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpRouteArmItemId, 0, 0);
+    if (recentMountItemId <= 0)
+    {
+        return false;
+    }
+
+    if (mountItemId > 0 && recentMountItemId != mountItemId)
+    {
+        return false;
+    }
+
+    const LONG recentTick =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpRouteArmTick, 0, 0);
+    if (recentTick <= 0)
+    {
+        return false;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    const DWORD allowedAgeMs =
+        maxAgeMs > 0 ? maxAgeMs : kMountedDoubleJumpRouteArmTimeoutMs;
+    return nowTick - static_cast<DWORD>(recentTick) <= allowedAgeMs;
+}
+
+namespace
+{
+    void ObserveMountedDoubleJumpRouteArm(
+        int mountItemId)
+    {
+        if (mountItemId <= 0)
+        {
+            return;
+        }
+
+        InterlockedExchange(&g_recentMountedDoubleJumpRouteArmItemId, mountItemId);
+        InterlockedExchange(&g_recentMountedDoubleJumpRouteArmTick, static_cast<LONG>(GetTickCount()));
+
+    }
+
+    bool TryApplyMountedDoubleJumpStableProxyOverride(
+        CustomSkillUseRoute& route,
+        bool armRouteIntent)
+    {
+        if (!kEnableMountedDoubleJumpRouteArm)
+        {
+            return false;
+        }
+
+        if (route.skillId <= 0 ||
+            route.packetRoute != CustomSkillPacketRoute_SpecialMove ||
+            route.releaseClass != CustomSkillReleaseClass_NativeClassifierProxy ||
+            route.proxySkillId != route.skillId)
+        {
+            return false;
+        }
+
+        DWORD userLocal = 0;
+        int mountItemId = 0;
+        if (!SafeReadValue(ADDR_UserLocal, userLocal) ||
+            !userLocal ||
+            !SafeReadValue(static_cast<uintptr_t>(userLocal) + 0x454u, mountItemId) ||
+            mountItemId <= 0 ||
+            !SkillOverlayBridgeCanUseMountedDoubleJumpSkill(mountItemId, route.skillId))
+        {
+            return false;
+        }
+
+        if (armRouteIntent)
+        {
+            ObserveMountedDoubleJumpRouteArm(mountItemId);
+        }
+
+        // Mounted double jump needs the real native double-jump family to keep
+        // movement/packet behavior. Rewriting it to 1001003 lets mounted gates
+        // pass more easily, but it also swaps the action branch into a buff-like
+        // donor family and loses the actual second-jump release behavior.
+        return true;
+    }
 }
 
 int SkillOverlayBridgeResolveNativeLevelLookupSkillId(int skillId)
@@ -8018,6 +9968,90 @@ void SkillOverlayBridgeObserveLevelResult(int skillId, int level, bool isBaseLev
     if (skillId <= 0 || level < 0)
         return;
 
+    SkillManager* manager = GetBridgeManager();
+    SkillItem* item = FindManagerSkillItem(manager, skillId);
+        const bool suppressResetFallback =
+            level == 0 &&
+            ShouldSuppressNonNativeSuperSkillLevelFallback(skillId);
+        if (suppressResetFallback)
+        {
+            ClearTrackedNonNativeSuperSkillLevel(
+                skillId,
+                isBaseLevel ? "observe-base-reset-sync" : "observe-current-reset-sync");
+        }
+
+        std::map<int, int>& actualObservedLevels =
+            isBaseLevel ? g_observedActualBaseLevelsBySkillId : g_observedActualCurrentLevelsBySkillId;
+        actualObservedLevels[skillId] = level;
+
+    PendingOptimisticSuperSkillLevelHold optimisticHold;
+    const bool hasFreshOptimisticHold =
+        TryGetFreshPendingOptimisticSuperSkillLevelHold(skillId, optimisticHold);
+    int persistentNonNativeSuperSkillLevel = 0;
+    bool preservePersistentNonNativeSuperSkillLevel =
+        TryResolvePersistentNonNativeSuperSkillLevel(
+            skillId,
+            level,
+            item ? item->level : 0,
+            persistentNonNativeSuperSkillLevel);
+    bool preserveOptimisticNonNativeSuperSkillLevel =
+        item &&
+        item->isSuperSkill &&
+        !item->hasNativeUpgradeState &&
+        hasFreshOptimisticHold &&
+        optimisticHold.expectedLevel > 0 &&
+        item->level >= optimisticHold.expectedLevel &&
+        level < optimisticHold.expectedLevel;
+    bool preserveLocalNonNativeSuperSkillLevel =
+        preservePersistentNonNativeSuperSkillLevel ||
+        preserveOptimisticNonNativeSuperSkillLevel;
+    int preservedNonNativeSuperSkillLevel =
+        preserveOptimisticNonNativeSuperSkillLevel && item
+            ? item->level
+            : persistentNonNativeSuperSkillLevel;
+
+    if (!suppressResetFallback && !preserveLocalNonNativeSuperSkillLevel && level == 0)
+    {
+        SuperSkillDefinition definition = {};
+        const bool isKnownNonNativeSuperSkill =
+            FindSuperSkillDefinition(skillId, definition) &&
+            (!item || !item->hasNativeUpgradeState);
+        if (isKnownNonNativeSuperSkill)
+        {
+            int keepLevel = item ? item->level : 0;
+            int persistentLevel = 0;
+            if (TryGetPersistentSuperSkillLevel(skillId, persistentLevel) && persistentLevel > keepLevel)
+                keepLevel = persistentLevel;
+            const int observedBaseLevel = GetObservedBaseSkillLevel(skillId);
+            if (observedBaseLevel > keepLevel)
+                keepLevel = observedBaseLevel;
+            const int observedCurrentLevel = GetObservedCurrentSkillLevel(skillId);
+            if (observedCurrentLevel > keepLevel)
+                keepLevel = observedCurrentLevel;
+
+            if (keepLevel > 0)
+            {
+                preservePersistentNonNativeSuperSkillLevel = true;
+                preserveLocalNonNativeSuperSkillLevel = true;
+                preservedNonNativeSuperSkillLevel = keepLevel;
+
+                static LONG s_ignoreZeroNonNativeSuperSkillLevelLogBudget = 48;
+                const LONG budgetAfterDecrement = InterlockedDecrement(&s_ignoreZeroNonNativeSuperSkillLevelLogBudget);
+                if (budgetAfterDecrement >= 0)
+                {
+                    WriteLogFmt("[SkillLevelBridge] ignore zero for non-native super skill skillId=%d keep=%d item=%d persistent=%d base=%d current=%d mode=%s",
+                        skillId,
+                        keepLevel,
+                        item ? item->level : 0,
+                        persistentLevel,
+                        observedBaseLevel,
+                        observedCurrentLevel,
+                        isBaseLevel ? "base" : "current");
+                }
+            }
+        }
+    }
+
     std::map<int, int>& observedLevels = isBaseLevel ? g_observedBaseLevelsBySkillId : g_observedCurrentLevelsBySkillId;
     if (IsKnownSuperSkillCarrierSkillId(skillId))
     {
@@ -8033,15 +10067,41 @@ void SkillOverlayBridgeObserveLevelResult(int skillId, int level, bool isBaseLev
     }
     else
     {
-        observedLevels[skillId] = level;
+        if (preserveLocalNonNativeSuperSkillLevel)
+        {
+            observedLevels[skillId] = preservedNonNativeSuperSkillLevel;
+            RecordPersistentSuperSkillLevel(skillId, preservedNonNativeSuperSkillLevel, "observe-preserve");
+        }
+        else
+        {
+            observedLevels[skillId] = level;
+            if (level > 0)
+                RecordPersistentSuperSkillLevel(skillId, level, isBaseLevel ? "observe-base" : "observe-current");
+        }
     }
 
-    SkillManager* manager = GetBridgeManager();
-    SkillItem* item = FindManagerSkillItem(manager, skillId);
     if (!item)
         return;
 
-    if (isBaseLevel)
+    if (preserveLocalNonNativeSuperSkillLevel)
+    {
+        if (preservedNonNativeSuperSkillLevel > item->level)
+            item->level = preservedNonNativeSuperSkillLevel;
+
+        static LONG s_preserveLocalSuperSkillLevelLogBudget = 32;
+        const LONG budgetAfterDecrement = InterlockedDecrement(&s_preserveLocalSuperSkillLevelLogBudget);
+        if (budgetAfterDecrement >= 0)
+        {
+            WriteLogFmt("[SkillLevelBridge] preserve non-native super skill level skillId=%d observed=%d keep=%d expected=%d mode=%s base=%d",
+                skillId,
+                level,
+                preservedNonNativeSuperSkillLevel,
+                optimisticHold.expectedLevel,
+                preserveOptimisticNonNativeSuperSkillLevel ? "optimistic" : "persistent",
+                isBaseLevel ? 1 : 0);
+        }
+    }
+    else if (isBaseLevel)
     {
         if (item->level < level)
             item->level = level;
@@ -8056,12 +10116,357 @@ void SkillOverlayBridgeObserveLevelResult(int skillId, int level, bool isBaseLev
     if (item->maxLevel > 0 && item->level > item->maxLevel)
         item->level = item->maxLevel;
 
+    if (hasFreshOptimisticHold && level >= optimisticHold.expectedLevel)
+    {
+        ClearPendingOptimisticSuperSkillLevelHold(skillId);
+    }
+    else if (!preserveLocalNonNativeSuperSkillLevel)
+    {
+        ClearPendingOptimisticSuperSkillLevelHold(skillId);
+    }
+
     RefreshSkillNativeState(*item);
 }
 
 uintptr_t SkillOverlayBridgeLookupSkillEntryPointer(int skillId)
 {
     return GameLookupSkillEntryPointer(skillId);
+}
+
+void SkillOverlayBridgeApplyConfiguredPassiveEffectBonuses(uintptr_t skillEntryPtr, int level, uintptr_t effectPtr, const char* sourceTag)
+{
+    if (!skillEntryPtr || !effectPtr || level <= 0)
+        return;
+    if (SafeIsBadReadPtr(reinterpret_cast<void*>(skillEntryPtr), sizeof(DWORD)))
+        return;
+
+    const int targetSkillId = *reinterpret_cast<int*>(skillEntryPtr);
+    if (targetSkillId <= 0 || targetSkillId > kIndependentBuffMaxReasonableSkillId)
+        return;
+
+    RememberPassiveEffectRuntimeContext(targetSkillId, level, effectPtr);
+
+    const int damageBonus = ResolveConfiguredPassiveDamagePercentBonusForSkill(targetSkillId);
+    const int ignoreMobpdpRBonus = ResolveConfiguredPassiveIgnoreDefensePercentBonusForSkill(targetSkillId);
+    const int attackCountBonus = ResolveConfiguredPassiveAttackCountBonusForSkill(targetSkillId);
+    const int mobCountBonus = ResolveConfiguredPassiveMobCountBonusForSkill(targetSkillId);
+
+    const size_t kEffectBytesNeededForIgnoreMobpdpR = 0x45C;
+    if (SafeIsBadReadPtr(reinterpret_cast<void*>(effectPtr), kEffectBytesNeededForIgnoreMobpdpR) ||
+        SafeIsBadWritePtr(reinterpret_cast<void*>(effectPtr), kEffectBytesNeededForIgnoreMobpdpR))
+    {
+        static DWORD s_lastBadEffectPtrLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastBadEffectPtrLogTick > 1000)
+        {
+            s_lastBadEffectPtrLogTick = nowTick;
+            WriteLogFmt("[SuperPassiveEffect] skip unreadable effect source=%s target=%d level=%d entry=0x%08X effect=0x%08X",
+                sourceTag ? sourceTag : "?",
+                targetSkillId,
+                level,
+                (DWORD)skillEntryPtr,
+                (DWORD)effectPtr);
+        }
+        return;
+    }
+
+    DWORD* effectBase = reinterpret_cast<DWORD*>(effectPtr);
+    std::map<uintptr_t, PassiveEffectPatchSnapshot>::iterator snapshotIt =
+        g_passiveEffectPatchSnapshotsByEffectPtr.find(effectPtr);
+    if (damageBonus == 0 && ignoreMobpdpRBonus == 0 && attackCountBonus == 0 && mobCountBonus == 0)
+    {
+        if (snapshotIt != g_passiveEffectPatchSnapshotsByEffectPtr.end() &&
+            snapshotIt->second.initialized &&
+            snapshotIt->second.skillId == targetSkillId &&
+            snapshotIt->second.level == level &&
+            (snapshotIt->second.lastDamageBonus != 0 ||
+             snapshotIt->second.lastMobCountBonus != 0 ||
+             snapshotIt->second.lastAttackCountBonus != 0 ||
+             snapshotIt->second.lastIgnoreMobpdpRBonus != 0))
+        {
+            PassiveEffectPatchSnapshot& snapshot = snapshotIt->second;
+            if (snapshot.hasDamageLocal)
+                WriteEncryptedTripletValueLocal(effectBase, 74, snapshot.originalDamageLocal);
+            if (snapshot.hasDamage)
+                WriteEncryptedTripletValueLocal(effectBase, 117, snapshot.originalDamage);
+            if (snapshot.hasDamageAlt)
+                WriteEncryptedTripletValueLocal(effectBase, 120, snapshot.originalDamageAlt);
+            if (snapshot.hasMobCount)
+                WriteEncryptedTripletValueLocal(effectBase, 101, snapshot.originalMobCount);
+            if (snapshot.hasAttackCount)
+                WriteEncryptedTripletValueLocal(effectBase, 104, snapshot.originalAttackCount);
+            if (snapshot.hasAttackCountAlt)
+                WriteEncryptedTripletValueLocal(effectBase, 114, snapshot.originalAttackCountAlt);
+            if (snapshot.hasIgnoreMobpdpR)
+                WriteEncryptedTripletValueLocal(effectBase, 276, snapshot.originalIgnoreMobpdpR);
+
+            WriteLogFmt("[SuperPassiveEffect] restore source=%s target=%d level=%d entry=0x%08X effect=0x%08X damageLocal=%d damage=%d damageAlt=%d mobCount=%d attackCount=%d ignoreMobpdpR=%d",
+                sourceTag ? sourceTag : "?",
+                targetSkillId,
+                level,
+                (DWORD)skillEntryPtr,
+                (DWORD)effectPtr,
+                snapshot.originalDamageLocal,
+                snapshot.originalDamage,
+                snapshot.originalDamageAlt,
+                snapshot.originalMobCount,
+                snapshot.originalAttackCount,
+                snapshot.originalIgnoreMobpdpR);
+
+            snapshot.lastDamageBonus = 0;
+            snapshot.lastMobCountBonus = 0;
+            snapshot.lastAttackCountBonus = 0;
+            snapshot.lastIgnoreMobpdpRBonus = 0;
+        }
+        return;
+    }
+
+    PassiveEffectPatchSnapshot& snapshot =
+        (snapshotIt != g_passiveEffectPatchSnapshotsByEffectPtr.end())
+            ? snapshotIt->second
+            : g_passiveEffectPatchSnapshotsByEffectPtr[effectPtr];
+    if (!snapshot.initialized || snapshot.skillId != targetSkillId || snapshot.level != level)
+    {
+        snapshot = PassiveEffectPatchSnapshot{};
+        snapshot.initialized = true;
+        snapshot.skillId = targetSkillId;
+        snapshot.level = level;
+        snapshot.hasDamageLocal = ReadEncryptedTripletValueLocal(effectBase, 74, &snapshot.originalDamageLocal);
+        snapshot.hasDamage = ReadEncryptedTripletValueLocal(effectBase, 117, &snapshot.originalDamage);
+        snapshot.hasDamageAlt = ReadEncryptedTripletValueLocal(effectBase, 120, &snapshot.originalDamageAlt);
+        snapshot.hasMobCount = ReadEncryptedTripletValueLocal(effectBase, 101, &snapshot.originalMobCount);
+        snapshot.hasAttackCount = ReadEncryptedTripletValueLocal(effectBase, 104, &snapshot.originalAttackCount);
+        snapshot.hasAttackCountAlt = ReadEncryptedTripletValueLocal(effectBase, 114, &snapshot.originalAttackCountAlt);
+        snapshot.hasIgnoreMobpdpR = ReadEncryptedTripletValueLocal(effectBase, 276, &snapshot.originalIgnoreMobpdpR);
+    }
+
+    LogPassiveEffectDecodedValueCandidates(effectPtr, targetSkillId, level);
+
+    if (!snapshot.hasDamageLocal &&
+        !snapshot.hasDamage &&
+        !snapshot.hasDamageAlt &&
+        !snapshot.hasMobCount &&
+        !snapshot.hasAttackCount &&
+        !snapshot.hasAttackCountAlt &&
+        !snapshot.hasIgnoreMobpdpR)
+    {
+        g_passiveEffectPatchSnapshotsByEffectPtr.erase(effectPtr);
+        return;
+    }
+
+    int nextDamageLocal = snapshot.originalDamageLocal;
+    int nextDamage = snapshot.originalDamage;
+    int nextDamageAlt = snapshot.originalDamageAlt;
+    int nextMobCount = snapshot.originalMobCount;
+    int nextAttackCount = snapshot.originalAttackCount;
+    int nextIgnoreMobpdpR = snapshot.originalIgnoreMobpdpR;
+    int appliedDamageBonus = 0;
+    int appliedMobCountBonus = 0;
+    int appliedAttackCountBonus = 0;
+    int appliedIgnoreMobpdpRBonus = 0;
+    bool wroteAny = false;
+
+    int desiredValue = 0;
+    int baseValue = 0;
+    int resolvedBonus = 0;
+    if (TryResolveDesiredPassiveEffectValueFromSnapshot(
+            snapshot,
+            "damage",
+            nullptr,
+            desiredValue,
+            baseValue,
+            resolvedBonus) &&
+        ((snapshot.hasDamageLocal &&
+          desiredValue != snapshot.originalDamageLocal &&
+          WriteEncryptedTripletValueLocal(effectBase, 74, desiredValue)) |
+         (snapshot.hasDamage &&
+          desiredValue != snapshot.originalDamage &&
+          WriteEncryptedTripletValueLocal(effectBase, 117, desiredValue)) |
+         (snapshot.hasDamageAlt &&
+          desiredValue != snapshot.originalDamageAlt &&
+          WriteEncryptedTripletValueLocal(effectBase, 120, desiredValue))))
+    {
+        if (snapshot.hasDamageLocal)
+            nextDamageLocal = desiredValue;
+        if (snapshot.hasDamage)
+            nextDamage = desiredValue;
+        if (snapshot.hasDamageAlt)
+            nextDamageAlt = desiredValue;
+        appliedDamageBonus = resolvedBonus;
+        RememberPassiveEffectDamageWrite(targetSkillId);
+        wroteAny = true;
+    }
+
+    // Do not raise client-side mobCount here. Selecting additional monster OIDs in
+    // the native client can desync from server-side validation and disconnect.
+    (void)mobCountBonus;
+
+    desiredValue = 0;
+    baseValue = 0;
+    resolvedBonus = 0;
+    if (TryResolveDesiredPassiveEffectValueFromSnapshot(
+            snapshot,
+            "attackCount",
+            nullptr,
+            desiredValue,
+            baseValue,
+            resolvedBonus) &&
+        ((snapshot.hasAttackCount &&
+          WriteEncryptedTripletValueLocal(effectBase, 104, desiredValue)) |
+         (snapshot.hasAttackCountAlt &&
+          WriteEncryptedTripletValueLocal(effectBase, 114, desiredValue))))
+    {
+        nextAttackCount = desiredValue;
+        appliedAttackCountBonus = resolvedBonus;
+        wroteAny = true;
+    }
+
+    desiredValue = 0;
+    baseValue = 0;
+    resolvedBonus = 0;
+    if (TryResolveDesiredPassiveEffectValueFromSnapshot(
+            snapshot,
+            "ignoreMobpdpR",
+            nullptr,
+            desiredValue,
+            baseValue,
+            resolvedBonus) &&
+        WriteEncryptedTripletValueLocal(effectBase, 276, desiredValue))
+    {
+        nextIgnoreMobpdpR = desiredValue;
+        appliedIgnoreMobpdpRBonus = resolvedBonus;
+        wroteAny = true;
+    }
+
+    const bool bonusSignatureChanged =
+        snapshot.lastDamageBonus != appliedDamageBonus ||
+        snapshot.lastMobCountBonus != appliedMobCountBonus ||
+        snapshot.lastAttackCountBonus != appliedAttackCountBonus ||
+        snapshot.lastIgnoreMobpdpRBonus != appliedIgnoreMobpdpRBonus;
+
+    if (wroteAny && bonusSignatureChanged)
+    {
+        WriteLogFmt("[SuperPassiveEffect] source=%s target=%d level=%d entry=0x%08X effect=0x%08X damageLocal=%d->%d(+%d) damage=%d->%d(+%d) damageAlt=%d->%d(+%d) mobCount=%d->%d(+%d) attackCount=%d->%d(+%d) ignoreMobpdpR=%d->%d(+%d)",
+            sourceTag ? sourceTag : "?",
+            targetSkillId,
+            level,
+            (DWORD)skillEntryPtr,
+            (DWORD)effectPtr,
+            snapshot.originalDamageLocal,
+            nextDamageLocal,
+            appliedDamageBonus,
+            snapshot.originalDamage,
+            nextDamage,
+            appliedDamageBonus,
+            snapshot.originalDamageAlt,
+            nextDamageAlt,
+            appliedDamageBonus,
+            snapshot.originalMobCount,
+            nextMobCount,
+            appliedMobCountBonus,
+            snapshot.originalAttackCount,
+            nextAttackCount,
+            appliedAttackCountBonus,
+            snapshot.originalIgnoreMobpdpR,
+            nextIgnoreMobpdpR,
+            appliedIgnoreMobpdpRBonus);
+    }
+
+    snapshot.lastDamageBonus = appliedDamageBonus;
+    snapshot.lastMobCountBonus = appliedMobCountBonus;
+    snapshot.lastAttackCountBonus = appliedAttackCountBonus;
+    snapshot.lastIgnoreMobpdpRBonus = appliedIgnoreMobpdpRBonus;
+}
+
+int SkillOverlayBridgeOverridePassiveEffectGetterValue(uintptr_t effectPtr, int originalValue, const char* getterTag, const char* getterSourceTag)
+{
+    if (!effectPtr || !getterTag || !getterTag[0])
+        return originalValue;
+
+    int resolvedSkillId = 0;
+    int resolvedLevel = 0;
+    int baseValue = originalValue;
+    int bonusValue = 0;
+    int overriddenValue = originalValue;
+    bool resolved = false;
+    bool changed = false;
+
+    std::map<uintptr_t, PassiveEffectPatchSnapshot>::iterator snapshotIt =
+        g_passiveEffectPatchSnapshotsByEffectPtr.find(effectPtr);
+    if (snapshotIt != g_passiveEffectPatchSnapshotsByEffectPtr.end())
+    {
+        resolvedSkillId = snapshotIt->second.skillId;
+        resolvedLevel = snapshotIt->second.level;
+        if (TryResolveDesiredPassiveEffectValueFromSnapshot(
+                snapshotIt->second,
+                getterTag,
+                getterSourceTag,
+                overriddenValue,
+                baseValue,
+                bonusValue))
+        {
+            resolved = bonusValue != 0;
+            changed = overriddenValue != originalValue;
+        }
+    }
+
+    if (!resolved)
+    {
+        std::map<uintptr_t, PassiveEffectRuntimeContext>::iterator contextIt =
+            g_passiveEffectRuntimeContextsByEffectPtr.find(effectPtr);
+        if (contextIt == g_passiveEffectRuntimeContextsByEffectPtr.end())
+            return originalValue;
+
+        const PassiveEffectRuntimeContext& context = contextIt->second;
+        if (context.skillId <= 0 || context.level <= 0)
+            return originalValue;
+
+        resolvedSkillId = context.skillId;
+        resolvedLevel = context.level;
+        overriddenValue = ResolvePassiveEffectGetterOverrideValue(
+            context.skillId,
+            context.level,
+            originalValue,
+            getterTag,
+            getterSourceTag,
+            baseValue,
+            bonusValue);
+        if (bonusValue == 0)
+            return originalValue;
+
+        resolved = true;
+        changed = overriddenValue != originalValue;
+    }
+
+    static std::map<std::string, DWORD> s_lastGetterOverrideLogTickByKey;
+    const char* logSourceTag =
+        (getterSourceTag && getterSourceTag[0]) ? getterSourceTag : getterTag;
+    char keyBuffer[96] = {};
+    std::snprintf(keyBuffer, sizeof(keyBuffer), "%d:%s:%s", resolvedSkillId, getterTag, logSourceTag);
+    DWORD& lastLogTick = s_lastGetterOverrideLogTickByKey[keyBuffer];
+    const DWORD nowTick = GetTickCount();
+    if (nowTick - lastLogTick > 1000)
+    {
+        lastLogTick = nowTick;
+        WriteLogFmt("[SuperPassiveGetter] %s via=%s target=%d level=%d effect=0x%08X native=%d base=%d bonus=%d -> %d changed=%d",
+            getterTag,
+            logSourceTag,
+            resolvedSkillId,
+            resolvedLevel,
+            (DWORD)effectPtr,
+            originalValue,
+            baseValue,
+            bonusValue,
+            overriddenValue,
+            changed ? 1 : 0);
+    }
+
+    if (_stricmp(getterTag, "damage") == 0)
+        RememberPassiveEffectDamageGetterUse(resolvedSkillId);
+    else if (_stricmp(getterTag, "attackCount") == 0)
+        RememberPassiveEffectAttackCountGetterUse(resolvedSkillId);
+
+    return changed ? overriddenValue : originalValue;
 }
 
 void SkillOverlayBridgeInspectOutgoingPacketMutable(void** packetDataSlot, int* packetLenSlot, uintptr_t callerRetAddr)
@@ -8078,11 +10483,15 @@ void SkillOverlayBridgeInspectOutgoingPacketMutable(void** packetDataSlot, int* 
         const int cancelSkillId = ReadPacketInt(packet, 2);
         const DWORD now = GetTickCount();
         int rewrittenCancelSkillId = cancelSkillId;
+        bool matchedIndependentBuff = false;
         for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
              it != g_superSkillsBySkillId.end();
              ++it)
         {
             const SuperSkillDefinition& definition = it->second;
+            if (!definition.independentBuffEnabled)
+                continue;
+
             const int displaySkillId = definition.independentNativeDisplaySkillId > 0
                 ? definition.independentNativeDisplaySkillId
                 : definition.skillId;
@@ -8096,12 +10505,13 @@ void SkillOverlayBridgeInspectOutgoingPacketMutable(void** packetDataSlot, int* 
                 cancelSkillId == definition.behaviorSkillId ||
                 (proxySkillId > 0 && cancelSkillId == proxySkillId))
             {
+                matchedIndependentBuff = true;
                 g_recentIndependentBuffClientCancelTickBySkillId[definition.skillId] = now;
                 if (cancelSkillId != definition.skillId)
                     rewrittenCancelSkillId = definition.skillId;
             }
         }
-        if (rewrittenCancelSkillId != cancelSkillId)
+        if (matchedIndependentBuff && rewrittenCancelSkillId != cancelSkillId)
         {
             WritePacketInt(packet, 2, rewrittenCancelSkillId);
             WriteLogFmt("[IndependentBuffClient] cancel rewrite outgoing old=%d new=%d len=%d caller=0x%08X",
@@ -8110,10 +10520,13 @@ void SkillOverlayBridgeInspectOutgoingPacketMutable(void** packetDataSlot, int* 
                 packetLen,
                 (DWORD)(uintptr_t)callerRetAddr);
         }
-        WriteLogFmt("[IndependentBuffClient] cancel send skillId=%d len=%d caller=0x%08X",
-            rewrittenCancelSkillId,
-            packetLen,
-            (DWORD)(uintptr_t)callerRetAddr);
+        if (matchedIndependentBuff)
+        {
+            WriteLogFmt("[IndependentBuffClient] cancel send skillId=%d len=%d caller=0x%08X",
+                rewrittenCancelSkillId,
+                packetLen,
+                (DWORD)(uintptr_t)callerRetAddr);
+        }
     }
 
     if (TryRewritePendingSuperSkillUpgradePacket(packet, packetLen, opcode, callerRetAddr))
@@ -8150,6 +10563,19 @@ void SkillOverlayBridgeInspectOutgoingPacketMutable(void** packetDataSlot, int* 
             (DWORD)(uintptr_t)callerRetAddr);
     }
 
+    LogConfiguredPassiveSemanticBonusesForSkill(
+        observedSkillId,
+        packetRoute,
+        opcode,
+        callerRetAddr);
+    if (ResolveConfiguredPassiveDamagePercentBonusForSkill(observedSkillId) != 0 ||
+        ResolveConfiguredPassiveIgnoreDefensePercentBonusForSkill(observedSkillId) != 0 ||
+        ResolveConfiguredPassiveAttackCountBonusForSkill(observedSkillId) != 0 ||
+        ResolveConfiguredPassiveMobCountBonusForSkill(observedSkillId) != 0)
+    {
+        RememberRecentPassiveAttackProbe(observedSkillId);
+    }
+
     int independentBuffSkillId = 0;
     if (TryResolveObservedIndependentBuffSkillId(observedSkillId, packetRoute, independentBuffSkillId))
     {
@@ -8160,15 +10586,6 @@ void SkillOverlayBridgeInspectOutgoingPacketMutable(void** packetDataSlot, int* 
             opcode,
             callerRetAddr);
     }
-
-    TryApplyConfiguredPassiveDamagePacketRewrite(
-        packet,
-        packetLen,
-        packetRoute,
-        skillIdOffset,
-        observedSkillId,
-        callerRetAddr,
-        opcode);
 
     std::vector<BYTE> expandedPacket;
     if (TryApplyConfiguredPassiveAttackCountPacketExpansion(
@@ -8189,6 +10606,15 @@ void SkillOverlayBridgeInspectOutgoingPacketMutable(void** packetDataSlot, int* 
         packet = static_cast<BYTE*>(*packetDataSlot);
         packetLen = *packetLenSlot;
     }
+
+    TryApplyConfiguredPassiveDamagePacketRewrite(
+        packet,
+        packetLen,
+        packetRoute,
+        skillIdOffset,
+        observedSkillId,
+        callerRetAddr,
+        opcode);
 
     if (TryRewritePacketFromActiveNativeRelease(
             packet,
@@ -8320,9 +10746,9 @@ void SkillOverlayBridgeInspectOutgoingPacket(void* packetData, int packetLen, ui
             if (definition.independentNativeValueSpec.type != PassiveValueSpecType_None)
             {
                 int sourceSkillId = definition.independentSourceSkillId > 0 ? definition.independentSourceSkillId : definition.skillId;
-                int sourceSkillLevel = GetTrackedSkillLevel(definition.skillId);
+                int sourceSkillLevel = GetRuntimeAppliedSkillLevel(definition.skillId);
                 if (sourceSkillLevel <= 0 && sourceSkillId != definition.skillId)
-                    sourceSkillLevel = GetTrackedSkillLevel(sourceSkillId);
+                    sourceSkillLevel = GetRuntimeAppliedSkillLevel(sourceSkillId);
                 int nativeValue = 0;
                 if (sourceSkillId > 0 &&
                     sourceSkillLevel > 0 &&
@@ -8467,7 +10893,7 @@ void SkillOverlayBridgeInspectOutgoingPacket(void* packetData, int packetLen, ui
         if (!TryReadMonsterRidingGiveBuffData(payload, payloadLen, mountItemId, packetSkillId))
             return;
 
-        const int displaySkillId = ResolveMountBuffDisplaySkillId(packetSkillId);
+        const int displaySkillId = ResolveMountBuffDisplaySkillId(mountItemId, packetSkillId);
         if (displaySkillId <= 0 || displaySkillId == packetSkillId)
             return;
 
@@ -8548,6 +10974,77 @@ void SkillOverlayBridgeInspectIncomingPacket(void* inPacket, int opcode, uintptr
         return;
     }
 
+    BYTE* payload = nullptr;
+    int payloadLen = 0;
+    if (TryReadIncomingPacketPayload(inPacket, payload, payloadLen))
+    {
+        TryLogIncomingPassiveAttackProbe(opcode, payload, payloadLen, callerRetAddr);
+        TryLogIncomingCloseRangeAttackPacket(opcode, payload, payloadLen, callerRetAddr);
+    }
+
+    if (opcode == (int)kSuperSkillLevelSyncPacketOpcode)
+    {
+        if (g_superSkillsBySkillId.empty())
+            LoadSuperSkillRegistry();
+
+        if (!payload || payloadLen < 4)
+        {
+            WriteLogFmt("[SuperSkill] level sync packet short opcode=0x%X len=%d caller=0x%08X",
+                opcode,
+                payloadLen,
+                (DWORD)(uintptr_t)callerRetAddr);
+            return;
+        }
+
+        const int entryCount = ReadPacketInt(payload, 0);
+        if (entryCount < 0 || entryCount > kMaxReasonableSkillCount)
+        {
+            WriteLogFmt("[SuperSkill] level sync packet bad count=%d opcode=0x%X len=%d caller=0x%08X",
+                entryCount,
+                opcode,
+                payloadLen,
+                (DWORD)(uintptr_t)callerRetAddr);
+            return;
+        }
+
+        const int expectedBytes = 4 + entryCount * 8;
+        if (payloadLen < expectedBytes)
+        {
+            WriteLogFmt("[SuperSkill] level sync packet truncated count=%d len=%d need=%d caller=0x%08X",
+                entryCount,
+                payloadLen,
+                expectedBytes,
+                (DWORD)(uintptr_t)callerRetAddr);
+            return;
+        }
+
+        int positiveCount = 0;
+        for (int i = 0, cursor = 4; i < entryCount; ++i, cursor += 8)
+        {
+            const int skillId = ReadPacketInt(payload, cursor);
+            int level = ReadPacketInt(payload, cursor + 4);
+            if (level < 0)
+                level = 0;
+            if (level > 0)
+                ++positiveCount;
+            ApplyAuthoritativeSuperSkillLevelSync(skillId, level, "packet-sync");
+        }
+
+        const bool closedResetSyncWindow = IsSuperSkillResetLevelSyncWindowActive();
+        if (closedResetSyncWindow)
+            g_superSkillResetLevelSyncUntilTick = 0;
+
+        g_lastRefreshTick = 0;
+        g_fastRefreshUntilTick = GetTickCount() + kPendingRefreshWindowMs;
+        WriteLogFmt("[SuperSkill] level sync recv count=%d positive=%d closeResetSync=%d opcode=0x%X caller=0x%08X",
+            entryCount,
+            positiveCount,
+            closedResetSyncWindow ? 1 : 0,
+            opcode,
+            (DWORD)(uintptr_t)callerRetAddr);
+        return;
+    }
+
     if (opcode != (int)kSuperSkillResetPreviewPacketOpcode)
         return;
 
@@ -8579,6 +11076,8 @@ void SkillOverlayBridgeInspectIncomingPacket(void* inPacket, int opcode, uintptr
 
     int spentSp = 0;
     int costMeso = 0;
+    int currentMeso = 0;
+    bool hasCurrentMeso = false;
     if (!SafeReadValue(base + cursor, spentSp) ||
         !SafeReadValue(base + cursor + 4, costMeso))
     {
@@ -8589,19 +11088,32 @@ void SkillOverlayBridgeInspectIncomingPacket(void* inPacket, int opcode, uintptr
         return;
     }
 
+    if (cursor + 12 <= (DWORD)length &&
+        !SafeIsBadReadPtr((void*)(base + cursor + 8), sizeof(int)) &&
+        SafeReadValue(base + cursor + 8, currentMeso))
+    {
+        hasCurrentMeso = true;
+    }
+
     if (spentSp < 0)
         spentSp = 0;
     if (costMeso < 0)
         costMeso = 0;
+    if (currentMeso < 0)
+        currentMeso = 0;
 
     g_superSkillResetPreviewSpentSp = spentSp;
     g_superSkillResetPreviewCostMeso = costMeso;
+    g_superSkillResetPreviewCurrentMeso = hasCurrentMeso ? currentMeso : 0;
+    g_superSkillResetPreviewHasCurrentMeso = hasCurrentMeso ? 1 : 0;
     InterlockedIncrement(&g_superSkillResetPreviewRevision);
-    SafeWriteValue(packetPtr + 0x14, cursor + 8);
+    SafeWriteValue(packetPtr + 0x14, cursor + (hasCurrentMeso ? 12 : 8));
 
-    WriteLogFmt("[SuperSkill] reset preview recv spentSp=%d cost=%d opcode=0x%X rev=%ld caller=0x%08X",
+    WriteLogFmt("[SuperSkill] reset preview recv spentSp=%d cost=%d meso=%d hasMeso=%d opcode=0x%X rev=%ld caller=0x%08X",
         spentSp,
         costMeso,
+        currentMeso,
+        hasCurrentMeso ? 1 : 0,
         opcode,
         (long)g_superSkillResetPreviewRevision,
         (DWORD)(uintptr_t)callerRetAddr);
@@ -8789,10 +11301,34 @@ bool SkillOverlayBridgeUseSkill(int skillId)
     WriteLogFmt("[SkillBridge] assignSlot OK: slot=%d keyIndex=%d skillId=%d native=%d entry=0x%08X",
         slotIndex, keyIndex, skillId, nativeSkillId, targetEntry);
 
-    // 5. 刷新 UI: sub_B9A5D0(__thiscall, ECX=StatusBar, push 0)
-    DWORD statusBar = *(DWORD*)ADDR_StatusBar;
-    if (statusBar && !SafeIsBadReadPtr((void*)statusBar, 48))
+    // 5. 刷新 UI：优先使用全局 StatusBar，拿不到时回退到 runtime hook 观察到的实例
+    DWORD globalStatusBar = 0;
+    SafeReadValue(ADDR_StatusBar, globalStatusBar);
+    DWORD observedStatusBar = static_cast<DWORD>(SkillOverlayBridgeGetObservedStatusBarPtr());
+    DWORD statusBar = 0;
+    const char* statusSource = "none";
+    if (globalStatusBar && !SafeIsBadReadPtr((void*)globalStatusBar, 0xB30 + 4))
     {
+        statusBar = globalStatusBar;
+        statusSource = "global";
+        SkillOverlayBridgeSetObservedStatusBarPtr(statusBar);
+    }
+    else if (observedStatusBar && !SafeIsBadReadPtr((void*)observedStatusBar, 0xB30 + 4))
+    {
+        statusBar = observedStatusBar;
+        statusSource = "observed";
+    }
+
+    const uintptr_t skillWndThis = GetLiveSkillWndThis();
+    if (statusBar)
+    {
+        __try {
+            typedef void(__thiscall* tStatusBarRefreshInternalFn)(uintptr_t thisPtr);
+            ((tStatusBarRefreshInternalFn)ADDR_StatusBarRefreshInternal)(statusBar);
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            WriteLogFmt("[SkillBridge] EXCEPTION in status bar internal refresh: 0x%08X", GetExceptionCode());
+        }
+
         DWORD fnRefresh = ADDR_B9A5D0;
         __try {
             __asm {
@@ -8803,10 +11339,40 @@ bool SkillOverlayBridgeUseSkill(int skillId)
         } __except(EXCEPTION_EXECUTE_HANDLER) {
             WriteLogFmt("[SkillBridge] EXCEPTION in sub_B9A5D0: 0x%08X", GetExceptionCode());
         }
+
+        if (skillWndThis && !SafeIsBadReadPtr(reinterpret_cast<void*>(skillWndThis), 0x40))
+        {
+            __try
+            {
+                typedef int(__thiscall* tSkillWndRefreshFn)(uintptr_t thisPtr);
+                ((tSkillWndRefreshFn)ADDR_9E1770)(skillWndThis);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                WriteLogFmt("[SkillBridge] EXCEPTION in skill wnd refresh: 0x%08X", GetExceptionCode());
+            }
+        }
+
+        const HWND hwnd = GetForegroundWindow();
+        DWORD hwndPid = 0;
+        if (hwnd)
+            GetWindowThreadProcessId(hwnd, &hwndPid);
+        if (hwnd && hwndPid == GetCurrentProcessId())
+        {
+            InvalidateRect(hwnd, nullptr, FALSE);
+            UpdateWindow(hwnd);
+        }
+
+        WriteLogFmt("[SkillBridge] refresh UI after assign statusBar=0x%08X source=%s skillWnd=0x%08X",
+            statusBar,
+            statusSource,
+            (DWORD)skillWndThis);
     }
     else
     {
-        WriteLogFmt("[SkillBridge] WARN: StatusBar=0x%08X, skip UI refresh", statusBar);
+        WriteLogFmt("[SkillBridge] WARN: StatusBar global=0x%08X observed=0x%08X, skip UI refresh",
+            globalStatusBar,
+            observedStatusBar);
     }
 
     // 6. 发包 CHANGE_KEYMAP: sub_5E6F90(__thiscall, ECX=keyArray)

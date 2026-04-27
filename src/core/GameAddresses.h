@@ -36,6 +36,17 @@ const DWORD ADDR_7DBC50 = 0x007DBC50;  // 当前等级（含加成）
 const DWORD ADDR_5511C0 = 0x005511C0;  // 最大等级（需先用 sub_7DA4B0 获取 skillEntry）
 // sub_7DA4B0: __thiscall(ECX=SkillDataMgr, push skillId), 查 skillEntry 对象
 const DWORD ADDR_7DA4B0 = 0x007DA4B0;
+// sub_800260/sub_800580: __thiscall(ECX=skillEntryObj, push level), return skill effect block.
+// The attack builder reads damage/mobCount/attackCount/ignoreMobpdpR from this returned block.
+const DWORD ADDR_800260 = 0x00800260;
+const DWORD ADDR_800580 = 0x00800580;
+// Skill effect encrypted-field getters used by attack builders.
+const DWORD ADDR_43DE00 = 0x0043DE00;  // damage
+const DWORD ADDR_43DE50 = 0x0043DE50;  // damage (alternate encrypted slot)
+const DWORD ADDR_5E9EE0 = 0x005E9EE0;  // attackCount path used by B05C40/804800
+const DWORD ADDR_7D1990 = 0x007D1990;  // mobCount
+const DWORD ADDR_7D19E0 = 0x007D19E0;  // attackCount path used by B462B0
+const DWORD ADDR_7D28E0 = 0x007D28E0;  // ignoreMobpdpR
 // sub_BCE3C0: __thiscall(ECX=SkillWndEx, push rowData), retn 4
 const DWORD ADDR_BCE3C0 = 0x00BCE3C0;  // 原生“是否可升级”判断，返回 1/0/-1
 // sub_BF43E0: __thiscall(ECX=CWndMan, push skillId), retn 4
@@ -346,14 +357,24 @@ const DWORD ADDR_4020B0         = 0x004020B0;  // game free (__thiscall ecx=ADDR
 // 00B3144D: 技能释放高层分类分流块
 // 00B31722: 命中特定技能家族后的专门处理分支
 // 00B2F370: 技能释放大分支函数（原 SkillWnd 双击会以 ECX=*(0x00F59FC0), push 0,0,0,skillId 调用）
+// 00B3009F: B2F370 mounted 白名单分支里的 A9BF40 callsite
 // 00ABAF70: 技能本地表现/特效分发表现函数（special_move 等最终会走到这里）
 // 007CE790/007D0000: 深层技能白名单判定（后续播放动画/效果链）
+// 007CF270: mounted 状态技能白名单（B2F370 默认未知技能分支的第一层过滤）
+// 0042DE20: mounted 状态判定（B1B420/B1C9E0 的原生双跳分支会用它决定是否跳过）
 // 004069E0: 坐骑特殊动作白名单（0042C300 的 case 51/52 会先经过这里）
 // 00406AB0: 坐骑隐藏动作白名单（0042C300 的 case 51/52 第二层表驱动白名单）
 // 007CF370: 飞行骑宠 itemId -> 原生飞行技能 ID 映射
+// 00A9BF40: mounted 上下文动作 gate（B2F370 mounted 白名单第二层）
 // 00A9AAA0: 飞行家族判定（上+跳/二次起飞链会调用，原生仅放行 0xC7 家族）
 const DWORD ADDR_UserLocal      = 0x00F59FC0;  // 原生技能栏双击释放时作为 B2F370 的 this/ECX
+const DWORD ADDR_42DE20         = 0x0042DE20;
+const DWORD ADDR_AE6260         = 0x00AE6260;  // mounted use-fail prompt helper (10BA / 10BC / 10BD)
 const DWORD ADDR_B2F370         = 0x00B2F370;
+const DWORD ADDR_B3009F         = 0x00B3009F;
+const DWORD ADDR_B300AC         = 0x00B300AC;  // B2F370 mounted 未知技能分支：默认 jmp B30240（只做浅层成功返回）
+const DWORD ADDR_B300E3         = 0x00B300E3;  // B2F370 完整技能释放树继续入口
+const DWORD ADDR_B30240         = 0x00B30240;  // B2F370 mounted 未知技能默认短路分支
 const DWORD ADDR_B26290         = 0x00B26290;  // 原生 Soaring(80001089) 专用释放分支
 const DWORD ADDR_B31349         = 0x00B31349;
 const DWORD ADDR_B3144D         = 0x00B3144D;
@@ -361,10 +382,12 @@ const DWORD ADDR_B31722         = 0x00B31722;
 const DWORD ADDR_ABAF70         = 0x00ABAF70;
 const DWORD ADDR_7CE790         = 0x007CE790;
 const DWORD ADDR_7D0000         = 0x007D0000;
+const DWORD ADDR_7CF270         = 0x007CF270;
 const DWORD ADDR_4069E0         = 0x004069E0;
 const DWORD ADDR_406AB0         = 0x00406AB0;
 const DWORD ADDR_7CF370         = 0x007CF370;
 const DWORD ADDR_7DC1B0         = 0x007DC1B0;
+const DWORD ADDR_A9BF40         = 0x00A9BF40;
 const DWORD ADDR_A9AAA0         = 0x00A9AAA0;
 const DWORD ADDR_4010B0         = 0x004010B0;
 const DWORD ADDR_7D4C00         = 0x007D4C00;
@@ -374,6 +397,13 @@ const DWORD ADDR_7D4CD0         = 0x007D4CD0;
 const DWORD ADDR_858D30         = 0x00858D30;  // speed upper clamp: cmp/jl/mov edx,edi
 const DWORD ADDR_858D49         = 0x00858D49;  // jump upper clamp compare
 const DWORD ADDR_858D4E         = 0x00858D4E;  // jump upper clamp branch + mov edx,123
+const DWORD ADDR_804550         = 0x00804550;  // 856C60 movement speed additive source helper
+const DWORD ADDR_82C700         = 0x0082C700;  // 856C60 movement speed cap base helper
+const DWORD ADDR_8213D0         = 0x008213D0;  // 856C60 movement speed cap override getter
+const DWORD ADDR_8222B0         = 0x008222B0;  // 856C60 current movement speed getter
+const DWORD ADDR_8223F0         = 0x008223F0;  // 856C60 current jump getter
+const DWORD ADDR_831F00         = 0x00831F00;  // encrypted movement speed setter
+const DWORD ADDR_832000         = 0x00832000;  // encrypted jump setter
 
 // ============================================================================
 // 技能列表构建过滤点（sub_7DD420 LABEL_42 入口，技能加入 entries 前最后一刻）

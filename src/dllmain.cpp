@@ -150,6 +150,7 @@ static const int SUPER_CHILD_DONOR_MODE = 1; // 9DDB30 的 a2 实际是“伪指
 static const DWORD SKILLWND_GONE_DEBOUNCE_MS = 800;
 static const bool ENABLE_NATIVE_BUTTON_INSTANCE_SKIN = true;
 static const bool ENABLE_SUPERBTN_D3D_BUTTON_MODE = true; // v18.0: D3D button with clipped visible rects
+static const bool ENABLE_HOTPATH_DIAGNOSTIC_LOGS = false; // 技能栏/按钮热路径默认不刷盘；需要诊断卡顿时再临时打开
 static const bool ENABLE_POST_B9F6E0_NATIVE_TIMING_TEST = false; // 关闭 v18.1 的 post-B9F6E0 纯色块实验，回到可见按钮基线
 static const bool ENABLE_SUPERBTN_STATE_DRAWOBJ_OVERRIDE = false; // 稳定模式：停用 ExBtMacro 叶子draw object override，避免 hover 命中坏资源链
 static const bool ENABLE_SUPERBTN_DRAWOBJ_AB_FALLBACK = false; // dump 已证实 compare 按钮只适合诊断，不再参与正式显示
@@ -167,9 +168,9 @@ static const bool ENABLE_PRESENT_NATIVE_CHILD_UPDATE = false; // v10.4+: native 
 static const bool ENABLE_REFRESH_NATIVE_CHILD_UPDATE = false; // v10.6: native child 不再在 refresh hook 中高频搬运，优先消除拖动抽搐
 static const char* SAVE_STATE_PATH = "G:\\code\\c++\\SuperSkillWnd\\skill\\save_state.json";
 #if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
-static const char* BUILD_MARKER = "v20.4-2026-04-11-second-child-vt2-log";
+static const char* BUILD_MARKER = "v20.31-2026-04-27-mount-doublejump-clean";
 #else
-static const char* BUILD_MARKER = "v20.5-2026-04-14-reset-confirm-preview-fallback";
+static const char* BUILD_MARKER = "v20.31-2026-04-27-mount-doublejump-clean";
 #endif
 static const wchar_t* SUPER_BTN_RES_PATH = L"UI/UIWindow2.img/Skill/main/BtMacro";
 static const wchar_t* SUPER_BTN_RES_PATH_ALT = L"/UIWindow2.img/Skill/main/BtMacro";
@@ -273,6 +274,11 @@ static DWORD WINAPI InitThread(LPVOID)
         ENABLE_PRESENT_CLICK_POLL ? 1 : 0, ENABLE_PRESENT_PANEL_DRAW ? 1 : 0, ROUTEB_CHILD_ALLOC_SIZE,
         ENABLE_TOGGLE_FOCUS_SYNC ? 1 : 0, ENABLE_MOVE_FOCUS_SYNC ? 1 : 0,
         ENABLE_PRESENT_NATIVE_CHILD_UPDATE ? 1 : 0, ENABLE_REFRESH_NATIVE_CHILD_UPDATE ? 1 : 0);
+    WriteLogFmt("[Build] hotpath_diag=%d", ENABLE_HOTPATH_DIAGNOSTIC_LOGS ? 1 : 0);
+    WriteLogFmt("[Build] ability_red_diag=%d indep_buff_rect_diag=%d super_sync_diag=%d",
+        EnableAbilityRedDiagnosticLogs() ? 1 : 0,
+        EnableIndependentBuffOverlayDiagnosticLogs() ? 1 : 0,
+        EnableSuperSkillSyncStateDiagnosticLogs() ? 1 : 0);
     WriteLogFmt("[Build] native_button_skin_remap=%d", ENABLE_NATIVE_BUTTON_SKIN_REMAP ? 1 : 0);
 #if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
     WriteLog("[CarrierProbe] runtime enabled hotkeys: F10=run once, F11=poll, F12=release");
