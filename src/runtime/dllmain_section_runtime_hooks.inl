@@ -2064,6 +2064,7 @@ static bool TryGetRecentMountedMovementRawSample(
     int *speedOut,
     int *jumpOut,
     DWORD maxAgeMs);
+static void ClearRecentMountedMovementRawSample();
 static bool TryResolveCurrentUserMountItemIdWithFallback(
     int *mountItemIdOut,
     const char **sourceOut = nullptr);
@@ -8029,9 +8030,17 @@ static bool TryGetRecentMountedMovementRawSample(
     }
 
     int currentMountItemId = 0;
-    if (TryResolveCurrentUserMountItemIdWithFallback(&currentMountItemId, nullptr) &&
-        currentMountItemId > 0 &&
-        currentMountItemId != mountItemId)
+    if (!TryReadCurrentUserMountItemId(&currentMountItemId) ||
+        currentMountItemId <= 0)
+    {
+        // Mounted raw samples should only affect the live mounted output path.
+        // Once dismounted, keeping the last sample around leaks boosted speed
+        // and jump for a short window before the next stat refresh catches up.
+        ClearRecentMountedMovementRawSample();
+        return false;
+    }
+
+    if (currentMountItemId != mountItemId)
     {
         return false;
     }
@@ -9839,7 +9848,7 @@ static DWORD ResolveMountedFlightVerticalCruiseMinActiveMs(
 {
     if (IsMountedFlightPhysicsHumanPercentRouteSample(mountItemId, dataKey))
     {
-        return 500;
+        return 120;
     }
 
     // Vertical cruise used to wait 2200ms to avoid stretching takeoff. That is
@@ -10863,16 +10872,37 @@ static bool ShouldSuppressMountedDoubleJumpUseFailPrompt(
         return false;
     }
 
-    const int mountedDoubleJumpSkillId =
-        SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId);
-    if (mountedDoubleJumpSkillId <= 0)
+    if (!HasRecentMountedDoubleJumpIntent(mountItemId, 1200))
     {
         return false;
     }
 
-    if (!HasRecentMountedDoubleJumpIntent(mountItemId, 1200))
+    const int mountedDoubleJumpSkillId =
+        SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId);
+    if (mountedDoubleJumpSkillId <= 0)
     {
-        return false;
+        // Custom mounts without mountedDoubleJumpEnabled should still suppress
+        // the native "cannot use while mounted" spam when the recent input was
+        // only probing a double-jump path on that mount.
+        MountedMovementOverride mountedOverride = {};
+        if (!SkillOverlayBridgeResolveMountedMovementOverride(
+                mountItemId,
+                0,
+                mountedOverride) ||
+            !mountedOverride.matched)
+        {
+            return false;
+        }
+
+        if (mountItemIdOut)
+        {
+            *mountItemIdOut = mountItemId;
+        }
+        if (mountedDoubleJumpSkillIdOut)
+        {
+            *mountedDoubleJumpSkillIdOut = 0;
+        }
+        return true;
     }
 
     if (mountItemIdOut)
@@ -10926,6 +10956,15 @@ static int __fastcall hkMountedStateGate42DE20(void *thisPtr, void * /*edxUnused
         return result;
     }
 
+    if (ShouldMountedDoubleJumpBypassReturnZero(callerRet) ||
+        ShouldMountedDoubleJumpBypassReturnOne(callerRet))
+    {
+        // Observe intent before we know whether this mount really exposes a
+        // mounted double-jump skill. That lets AE6260 distinguish "plain jump
+        // on a custom mount" from the native fail-prompt spam path.
+        ObserveMountedDoubleJumpIntent(mountItemId);
+    }
+
     const int mountedDoubleJumpSkillId =
         SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId);
     if (mountedDoubleJumpSkillId <= 0)
@@ -10963,7 +11002,42 @@ static int __fastcall hkMountedUseFailPromptAE6260(
             &mountItemId,
             &mountedDoubleJumpSkillId))
     {
+        static LONG s_mountUseFailPromptSuppressLogBudget = 24;
+        if (InterlockedDecrement(&s_mountUseFailPromptSuppressLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountDoubleJump] AE6260 suppress prompt mount=%d skill=%d reason=%d caller=0x%08X",
+                mountItemId,
+                mountedDoubleJumpSkillId,
+                a2,
+                (DWORD)(uintptr_t)_ReturnAddress());
+        }
         return 1;
+    }
+
+    int debugMountItemId = 0;
+    if (TryResolveCurrentUserMountItemIdWithFallback(&debugMountItemId, nullptr))
+    {
+        MountedMovementOverride mountedOverride = {};
+        if (debugMountItemId > 0 &&
+            SkillOverlayBridgeResolveMountedMovementOverride(
+                debugMountItemId,
+                0,
+                mountedOverride) &&
+            mountedOverride.matched)
+        {
+            static LONG s_mountUseFailPromptObserveLogBudget = 24;
+            if (InterlockedDecrement(&s_mountUseFailPromptObserveLogBudget) >= 0)
+            {
+                WriteLogFmt(
+                    "[MountDoubleJump] AE6260 passthrough mount=%d reason=%d caller=0x%08X intent=%d skill=%d",
+                    debugMountItemId,
+                    a2,
+                    (DWORD)(uintptr_t)_ReturnAddress(),
+                    HasRecentMountedDoubleJumpIntent(debugMountItemId, 1200) ? 1 : 0,
+                    SkillOverlayBridgeResolveMountedDoubleJumpSkillId(debugMountItemId));
+            }
+        }
     }
 
     return oMountedUseFailPromptAE6260
