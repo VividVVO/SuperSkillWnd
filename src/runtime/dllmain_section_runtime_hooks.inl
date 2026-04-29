@@ -1943,6 +1943,8 @@ static tMountFamilyGateFn oMountFamilyGateA9AAA0 = nullptr;
 typedef int(__thiscall *tMountContextGetItemIdFn)(void *mountContext);
 typedef BOOL(__thiscall *tMountContextIsFlyingFamilyFn)(void *mountContext);
 static tMountContextIsFlyingFamilyFn oMountContextIsFlyingFamily7D4CD0 = nullptr;
+typedef void *(__thiscall *tMountItemInfoLookupFn)(void *thisPtr, int mountItemId);
+typedef int(__thiscall *tMountItemInfoDataKeyFn)(void *thisPtr);
 typedef int(__cdecl *tMountMovementDataLookupFn)(int dataKey);
 static tMountMovementDataLookupFn oMountMovementDataLookup888B30 = nullptr;
 typedef __int16 (__thiscall *tEncodedDoubleWriteFn)(void *slot, int lowDword, int highDword);
@@ -2057,6 +2059,8 @@ static const bool kEnableMountMovementCapPatches = true;
 static const bool kEnableMountMovementObservationHooks = true;
 static const bool kEnableMountedFlightPhysicsSpeedHooks = true;
 static bool TryReadCurrentUserMountItemId(int *mountItemIdOut);
+static bool TryResolveMountedMovementDataKeyFromMountItemId(int mountItemId, int *dataKeyOut);
+static bool TryReadMountItemIdFromPlayerObjectRaw(void *playerObj, int *mountItemIdOut);
 static bool TryReadMountItemIdFromPlayerObject(void *playerObj, int *mountItemIdOut);
 static bool TryGetRecentMountedMovementRawSample(
     int *mountItemIdOut,
@@ -2176,6 +2180,13 @@ static bool HasMeaningfulMountedFlightPhysicsScaleBaseline(
     double nativeSwim,
     double overrideFs,
     double overrideSwim);
+static double NormalizeMountedFlightPhysicsHumanScalar(double rawValue);
+static void RememberMountedFlightPhysicsScaleSample(
+    int mountItemId,
+    int dataKey,
+    double nativeFs,
+    double nativeSwim,
+    const MountedMovementOverride &appliedOverride);
 struct MountedFlightPhysicsScaleSample
 {
     int mountItemId;
@@ -2275,6 +2286,137 @@ static bool TryGetMountedFlightPhysicsScaleSampleForRoute(
         mountItemId,
         dataKey,
         sampleOut);
+}
+
+static bool TryPrimeMountedFlightPhysicsScaleSampleForMount(
+    int mountItemId,
+    MountedFlightPhysicsScaleSample *sampleOut)
+{
+    if (sampleOut)
+    {
+        ZeroMemory(sampleOut, sizeof(*sampleOut));
+    }
+    if (mountItemId <= 0 || !sampleOut || !oMountMovementDataLookup888B30)
+    {
+        return false;
+    }
+
+    int recentMountItemId = 0;
+    int dataKey = 0;
+    const bool hasRecentDataKey =
+        TryGetRecentMountedMovementRawSample(
+            &recentMountItemId,
+            &dataKey,
+            nullptr,
+            nullptr,
+            30000) &&
+        recentMountItemId == mountItemId &&
+        dataKey > 0;
+    if (!hasRecentDataKey &&
+        !TryResolveMountedMovementDataKeyFromMountItemId(
+            mountItemId,
+            &dataKey))
+    {
+        return false;
+    }
+
+    if (TryGetMountedFlightPhysicsScaleSampleForRoute(
+            mountItemId,
+            dataKey,
+            sampleOut))
+    {
+        return true;
+    }
+
+    MountedMovementOverride mountedOverride = {};
+    if (!SkillOverlayBridgeResolveMountedSoaringOverride(
+            mountItemId,
+            dataKey,
+            mountedOverride) &&
+        !SkillOverlayBridgeResolveMountedMovementOverride(
+            mountItemId,
+            dataKey,
+            mountedOverride))
+    {
+        return false;
+    }
+
+    const int dataPtr = oMountMovementDataLookup888B30(dataKey);
+    if (dataPtr <= 0 ||
+        SafeIsBadReadPtr(reinterpret_cast<void *>(static_cast<uintptr_t>(dataPtr)), 0x2C))
+    {
+        return false;
+    }
+
+    double rawFs = 0.0;
+    DWORD rawSwim = 0;
+    __try
+    {
+        rawFs = *reinterpret_cast<double *>(static_cast<uintptr_t>(dataPtr) + 0x20);
+        rawSwim = *reinterpret_cast<DWORD *>(static_cast<uintptr_t>(dataPtr) + 0x28);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+
+    MountedMovementOverride primedOverride = mountedOverride;
+    // Flight priming must follow the runtime lookup key actually observed by
+    // 888B30. The config-side mountTamingMobId is only a selector hint and can
+    // differ from the real mounted movement table key (for example 1932064 can
+    // resolve to runtime key 18). Priming with the config key poisons the
+    // sample cache and blocks the later real flight sample from taking over.
+    if (mountedOverride.useNativeMovement)
+    {
+        const double normalizedFs =
+            NormalizeMountedFlightPhysicsHumanScalar(rawFs);
+        const double normalizedSwim =
+            NormalizeMountedFlightPhysicsHumanScalar(static_cast<double>(rawSwim));
+        primedOverride.hasFs = normalizedFs > 0.0;
+        primedOverride.fs = normalizedFs;
+        primedOverride.hasSwim = normalizedSwim > 0.0;
+        primedOverride.swim = normalizedSwim;
+        RememberMountedFlightPhysicsScaleSample(
+            mountItemId,
+            dataKey,
+            100.0,
+            100.0,
+            primedOverride);
+    }
+    else
+    {
+        RememberMountedFlightPhysicsScaleSample(
+            mountItemId,
+            dataKey,
+            rawFs,
+            static_cast<double>(rawSwim),
+            primedOverride);
+    }
+
+    const bool primed =
+        TryGetMountedFlightPhysicsScaleSampleForRoute(
+            mountItemId,
+            dataKey,
+            sampleOut);
+    if (primed)
+    {
+        static LONG s_mountFlightPrimeLogBudget = 24;
+        if (InterlockedDecrement(&s_mountFlightPrimeLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountFlightPrime] mount=%d key=%d raw=[fs=%.3f swim=%u] sample=[nativeFs=%.3f nativeSwim=%.3f overrideFs=%.3f overrideSwim=%.3f] nativeMode=%d",
+                mountItemId,
+                dataKey,
+                rawFs,
+                rawSwim,
+                sampleOut->nativeFs,
+                sampleOut->nativeSwim,
+                sampleOut->overrideFs,
+                sampleOut->overrideSwim,
+                mountedOverride.useNativeMovement ? 1 : 0);
+        }
+    }
+    return primed;
 }
 
 static void RememberMountedFlightPhysicsScaleHistorySample(
@@ -3878,17 +4020,38 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
     if (!a8 || SafeIsBadWritePtr(a8, sizeof(int)))
         return result;
 
+    int contextualPlayerMountItemId = 0;
+    const bool contextualPlayerMountReadable =
+        TryReadMountItemIdFromPlayerObjectRaw(
+            reinterpret_cast<void *>(static_cast<uintptr_t>(a4)),
+            &contextualPlayerMountItemId);
+
     int mountedRawMountItemId = 0;
     int mountedRawDataKey = 0;
     int mountedRawSpeed = 0;
     int mountedRawJump = 0;
-    const bool hasMountedRawSample =
+    bool hasMountedRawSample =
         TryGetRecentMountedMovementRawSample(
             &mountedRawMountItemId,
             &mountedRawDataKey,
             &mountedRawSpeed,
             &mountedRawJump,
             1200);
+    if (contextualPlayerMountReadable &&
+        (contextualPlayerMountItemId <= 0 ||
+         (hasMountedRawSample && contextualPlayerMountItemId != mountedRawMountItemId)))
+    {
+        // B93B80 is still hit for a few frames after dismount. Use the current
+        // player-object mount field as the earliest "we are on foot now"
+        // signal and drop the cached mounted raw sample immediately so the
+        // clamp hook stops reapplying mounted speed/jump on foot.
+        ClearRecentMountedMovementRawSample();
+        hasMountedRawSample = false;
+        mountedRawMountItemId = 0;
+        mountedRawDataKey = 0;
+        mountedRawSpeed = 0;
+        mountedRawJump = 0;
+    }
     MountedMovementOverride mountedRawOverride = {};
     const bool shouldRaiseFromMountedRaw =
         hasMountedRawSample &&
@@ -7917,6 +8080,19 @@ static bool TryResolveMountItemIdFromContextPointer(void *mountContext, int *mou
 
 static bool TryReadMountItemIdFromPlayerObject(void *playerObj, int *mountItemIdOut)
 {
+    int mountItemId = 0;
+    if (!TryReadMountItemIdFromPlayerObjectRaw(playerObj, &mountItemId) ||
+        mountItemId <= 0)
+    {
+        return false;
+    }
+
+    *mountItemIdOut = mountItemId;
+    return true;
+}
+
+static bool TryReadMountItemIdFromPlayerObjectRaw(void *playerObj, int *mountItemIdOut)
+{
     if (!playerObj || !mountItemIdOut)
     {
         return false;
@@ -7938,12 +8114,78 @@ static bool TryReadMountItemIdFromPlayerObject(void *playerObj, int *mountItemId
         return false;
     }
 
+    *mountItemIdOut = mountItemId;
+    return true;
+}
+
+static bool TryResolveMountedMovementDataKeyFromMountItemId(int mountItemId, int *dataKeyOut)
+{
+    if (!dataKeyOut)
+    {
+        return false;
+    }
+    *dataKeyOut = 0;
+
     if (mountItemId <= 0)
     {
         return false;
     }
 
-    *mountItemIdOut = mountItemId;
+    tMountItemInfoLookupFn lookupFn =
+        reinterpret_cast<tMountItemInfoLookupFn>(ADDR_6545A0);
+    tMountItemInfoDataKeyFn dataKeyFn =
+        reinterpret_cast<tMountItemInfoDataKeyFn>(ADDR_B22500);
+    if (!lookupFn || !dataKeyFn ||
+        SafeIsBadReadPtr(reinterpret_cast<void *>(static_cast<uintptr_t>(ADDR_F59D34)), sizeof(void *)))
+    {
+        return false;
+    }
+
+    void *mountInfoTable = nullptr;
+    void *mountInfo = nullptr;
+    int dataKey = 0;
+    __try
+    {
+        mountInfoTable =
+            *reinterpret_cast<void **>(static_cast<uintptr_t>(ADDR_F59D34));
+        if (!mountInfoTable)
+        {
+            return false;
+        }
+
+        // Follow B92D10's native chain exactly:
+        //   mountItemId -> sub_6545A0(dword_F59D34, itemId) -> sub_B22500(info)
+        // This yields the same runtime data key later passed to 888B30, so we
+        // can prime flight speed immediately instead of waiting for the first
+        // natural mounted movement lookup to arrive a few seconds later.
+        mountInfo = lookupFn(mountInfoTable, mountItemId);
+        if (!mountInfo)
+        {
+            return false;
+        }
+
+        dataKey = dataKeyFn(mountInfo);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+
+    if (dataKey <= 0)
+    {
+        return false;
+    }
+
+    *dataKeyOut = dataKey;
+
+    static LONG s_mountDataKeyResolveLogBudget = 24;
+    if (InterlockedDecrement(&s_mountDataKeyResolveLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountDataKeyResolve] mount=%d key=%d source=B92D10-native",
+            mountItemId,
+            dataKey);
+    }
     return true;
 }
 
@@ -8331,7 +8573,15 @@ static int __cdecl hkMountMovementDataLookup888B30(int dataKey)
     const bool shouldLog = InterlockedDecrement(&g_MountMovementObserveLogBudget) >= 0;
 
     int mountItemId = 0;
-    TryResolveCurrentUserMountItemIdWithFallback(&mountItemId, nullptr);
+    if (!TryReadCurrentUserMountItemId(&mountItemId) || mountItemId <= 0)
+    {
+        // Ground movement lookup must not reuse soaring/extended fallback
+        // context. After dismount those fallback windows can linger briefly and
+        // keep refreshing the last mounted raw sample, which makes B93B80
+        // continue raising speed/jump for a few seconds on foot.
+        ClearRecentMountedMovementRawSample();
+        return result;
+    }
 
     MountedMovementOverride resolvedOverride = {};
     const bool hasResolvedOverride =
@@ -8654,10 +8904,13 @@ static bool TryResolveMountedFlightPhysicsScaleForAxis(
         return false;
     }
 
-    const MountedFlightPhysicsScaleSample sample = g_MountedFlightPhysicsScaleSample;
-    if (sample.mountItemId <= 0 ||
-        sample.mountItemId != mountItemId ||
-        sample.tick == 0)
+    MountedFlightPhysicsScaleSample sample = {};
+    if (!TryPrimeMountedFlightPhysicsScaleSampleForMount(mountItemId, &sample) &&
+        !(g_MountedFlightPhysicsScaleSample.mountItemId == mountItemId &&
+          TryGetMountedFlightPhysicsScaleSampleForRoute(
+              mountItemId,
+              g_MountedFlightPhysicsScaleSample.dataKey,
+              &sample)))
     {
         return false;
     }
@@ -10854,6 +11107,8 @@ static int __fastcall hkMountedFlightPhysicsFinalizeB851F0(
 
 static bool ShouldSuppressMountedDoubleJumpUseFailPrompt(
     void *thisPtr,
+    int reason,
+    DWORD callerRet,
     int *mountItemIdOut,
     int *mountedDoubleJumpSkillIdOut)
 {
@@ -10872,18 +11127,24 @@ static bool ShouldSuppressMountedDoubleJumpUseFailPrompt(
         return false;
     }
 
-    if (!HasRecentMountedDoubleJumpIntent(mountItemId, 1200))
-    {
-        return false;
-    }
+    const bool hasRecentIntent = HasRecentMountedDoubleJumpIntent(mountItemId, 1200);
+    const bool isMountedJumpProbeCaller =
+        reason == 0 && callerRet == 0x00B30785;
 
     const int mountedDoubleJumpSkillId =
         SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId);
     if (mountedDoubleJumpSkillId <= 0)
     {
+        if (!hasRecentIntent && !isMountedJumpProbeCaller)
+        {
+            return false;
+        }
+
         // Custom mounts without mountedDoubleJumpEnabled should still suppress
         // the native "cannot use while mounted" spam when the recent input was
-        // only probing a double-jump path on that mount.
+        // only probing a double-jump path on that mount. 80001095 currently
+        // hits AE6260 from 0x00B30785 without always arming recent intent, so
+        // keep a narrow caller-based escape hatch for that mounted jump probe.
         MountedMovementOverride mountedOverride = {};
         if (!SkillOverlayBridgeResolveMountedMovementOverride(
                 mountItemId,
@@ -10903,6 +11164,11 @@ static bool ShouldSuppressMountedDoubleJumpUseFailPrompt(
             *mountedDoubleJumpSkillIdOut = 0;
         }
         return true;
+    }
+
+    if (!hasRecentIntent)
+    {
+        return false;
     }
 
     if (mountItemIdOut)
@@ -10997,8 +11263,11 @@ static int __fastcall hkMountedUseFailPromptAE6260(
 {
     int mountItemId = 0;
     int mountedDoubleJumpSkillId = 0;
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
     if (ShouldSuppressMountedDoubleJumpUseFailPrompt(
             thisPtr,
+            a2,
+            callerRet,
             &mountItemId,
             &mountedDoubleJumpSkillId))
     {
@@ -11010,7 +11279,7 @@ static int __fastcall hkMountedUseFailPromptAE6260(
                 mountItemId,
                 mountedDoubleJumpSkillId,
                 a2,
-                (DWORD)(uintptr_t)_ReturnAddress());
+                callerRet);
         }
         return 1;
     }
@@ -11033,7 +11302,7 @@ static int __fastcall hkMountedUseFailPromptAE6260(
                     "[MountDoubleJump] AE6260 passthrough mount=%d reason=%d caller=0x%08X intent=%d skill=%d",
                     debugMountItemId,
                     a2,
-                    (DWORD)(uintptr_t)_ReturnAddress(),
+                    callerRet,
                     HasRecentMountedDoubleJumpIntent(debugMountItemId, 1200) ? 1 : 0,
                     SkillOverlayBridgeResolveMountedDoubleJumpSkillId(debugMountItemId));
             }

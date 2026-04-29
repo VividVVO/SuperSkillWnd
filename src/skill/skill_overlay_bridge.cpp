@@ -304,7 +304,7 @@ namespace
         int mountTamingMobId = 0;
         bool mountedDoubleJumpEnabled = false;
         int mountedDoubleJumpSkillId = 0;
-        bool useNativeMountMovement = false;
+        bool useNativeMountMovement = true;
         bool hasMountSpeedOverride = false;
         int mountSpeedOverride = 0;
         bool hasMountJumpOverride = false;

@@ -412,6 +412,9 @@ const DWORD ADDR_B93B80         = 0x00B93B80;  // movement speed/jump output cla
 const DWORD ADDR_B93D0F         = 0x00B93D0F;  // B93B80 speed upper clamp: cmp eax,esi / mov eax,esi
 const DWORD ADDR_B93D23         = 0x00B93D23;  // B93B80 jump upper clamp: cmp edi,ebp / mov ebp,edi
 const DWORD ADDR_B93D4A         = 0x00B93D4A;  // B93B80 mode==2 post-transform speed upper clamp
+const DWORD ADDR_6545A0         = 0x006545A0;  // B92D10 mount item info lookup from dword_F59D34 table
+const DWORD ADDR_B22500         = 0x00B22500;  // B92D10 mount item info -> decoded tamingMob/data key
+const DWORD ADDR_F59D34         = 0x00F59D34;  // mount item info table singleton used by B92D10
 const DWORD ADDR_B9301F         = 0x00B9301F;  // B92D10 normal mount path: raw speed override gate -> 84CD10
 const DWORD ADDR_B93038         = 0x00B93038;  // B92D10 normal mount path: raw jump override gate -> B92260
 const DWORD ADDR_B92F2C         = 0x00B92F2C;  // B92D10 normal mount path: sub_888B30 return
