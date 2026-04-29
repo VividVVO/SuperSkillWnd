@@ -1112,9 +1112,7 @@ namespace SuperSkillTool
 
         private static string FormatSkillKey(int skillId)
         {
-            return skillId <= 9999999
-                ? skillId.ToString("D7")
-                : skillId.ToString();
+            return PathConfig.SkillKey(skillId);
         }
 
         private static string TryFindExistingSkillKey(Dictionary<string, object> container, int skillId)
@@ -1166,11 +1164,17 @@ namespace SuperSkillTool
             try
             {
                 fs = new FileStream(sourceImgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                img = new WzImage(sourceJobId + ".img", fs, WzMapleVersion.EMS);
+                img = new WzImage(Path.GetFileName(sourceImgPath), fs, WzMapleVersion.EMS);
                 if (!img.ParseImage(true))
                     return null;
 
-                var sourceNode = img.GetFromPath("skill/" + sourceSkillId) as WzSubProperty;
+                WzSubProperty sourceNode = null;
+                foreach (string key in PathConfig.SkillKeyCandidates(sourceSkillId))
+                {
+                    sourceNode = img.GetFromPath("skill/" + key) as WzSubProperty;
+                    if (sourceNode != null)
+                        break;
+                }
                 if (sourceNode == null)
                     return null;
 

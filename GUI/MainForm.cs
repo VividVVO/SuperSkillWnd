@@ -153,7 +153,13 @@ public class MainForm : Form
 
 		public string VisualSkillId = "";
 
+		public string BehaviorSkillId = "";
+
+		public string VisibleJobId = "";
+
 		public string MountItemId = "";
+
+		public string FlightMountItemId = "";
 
 		public int MountResourceModeIndex;
 
@@ -171,6 +177,8 @@ public class MainForm : Form
 
 		public bool HideFromNative;
 
+		public bool HideFromSuper;
+
 		public bool ShowInNativeWhenLearned;
 
 		public bool ShowInSuperWhenLearned;
@@ -180,6 +188,10 @@ public class MainForm : Form
 		public bool InjectToNative;
 
 		public bool AllowMountedFlight;
+
+		public bool MountedDoubleJumpEnabled;
+
+		public bool MountedDemonJumpEnabled;
 
 		public int SelectedSkillIndex = -1;
 
@@ -209,6 +221,8 @@ public class MainForm : Form
 		public Dictionary<int, Dictionary<string, string>> EditedLevelParams = new Dictionary<int, Dictionary<string, string>>();
 
 		public bool HasManualEffectEdit;
+
+		public bool HasManualTreeEdit;
 	}
 
 	private sealed class WzSkillDataSnapshot
@@ -288,6 +302,22 @@ public class MainForm : Form
 		}
 	}
 
+	private sealed class MountNodePageItem
+	{
+		public string Key = "";
+
+		public string Display = "";
+
+		public string RawPath = "";
+
+		public WzNodeInfo Node;
+
+		public override string ToString()
+		{
+			return Display;
+		}
+	}
+
 	private static readonly string[] RouteNames = new string[8] { "close_range", "ranged_attack", "magic_attack", "special_move", "skill_effect", "cancel_buff", "special_attack", "passive_energy" };
 
 	private static readonly string[] RouteLabels = new string[8]
@@ -305,6 +335,39 @@ public class MainForm : Form
 	private static readonly string[] ReleaseClassNames = new string[2] { "native_classifier_proxy", "native_b31722" };
 
 	private static readonly string[] MountResourceModeNames = new string[3] { "config_only", "sync_action", "sync_action_and_data" };
+
+	private static readonly string[] CommonBuffStatNames = new string[]
+	{
+		"DEFAULT_BUFFSTAT", "DEFAULT_BUFFSTAT2",
+		"WDEF", "MDEF", "WATK", "MATK", "SPEED", "JUMP",
+		"ENHANCED_WDEF", "ENHANCED_MDEF", "ENHANCED_WATK", "ENHANCED_MATK",
+		"ANGEL_ACC", "ANGEL_AVOID", "ANGEL_SPEED", "ANGEL_JUMP", "DIVINE_BODY",
+		"MAPLE_WARRIOR", "MAGIC_SHIELD", "WATER_SHIELD", "COMBAT_ORDERS",
+		"DARK_AURA", "BLUE_AURA", "YELLOW_AURA", "BLESS",
+		"DAMAGE_BUFF", "ATTACK_BUFF", "HOLY_MAGIC_SHELL", "DEFENCE_BOOST_R",
+		"DASH_SPEED", "DASH_JUMP", "COMBO", "SHADOWPARTNER",
+		"MONSTER_RIDING", "SOARING"
+	};
+
+	private static readonly string[] PassiveValueComboItems = BuildPassiveValueComboItems();
+
+	private static readonly string[] IndependentBuffBonusKeys = SkillDefinition.IndependentBuffBonusKeys;
+
+	private static readonly string[] ClientLocalBonusKeyItems = new string[]
+	{
+		"",
+		"wdef", "mdef", "watk", "matk",
+		"acc", "avoid", "speed", "jump",
+		"maxHp", "maxMp"
+	};
+
+	private static readonly string[] IndependentBuffDisplayModeItems = new string[]
+	{
+		"",
+		"native",
+		"overlay",
+		"both"
+	};
 
 	private static readonly string[] MountResourceModeLabels = new string[3]
 	{
@@ -385,9 +448,31 @@ public class MainForm : Form
 
 	private static readonly List<KeyValuePair<string, int>> JobList = LoadJobList();
 
+	private static string[] BuildPassiveValueComboItems()
+	{
+		List<string> items = new List<string>();
+		items.Add("");
+		items.Add("0");
+		items.Add("1");
+		items.Add("2");
+		items.Add("5");
+		items.Add("10");
+		items.Add("20");
+		items.Add("40");
+		items.Add("100");
+		foreach (string hint in SkillDefinition.PassiveValueFieldHints)
+		{
+			if (!items.Contains(hint))
+				items.Add(hint);
+		}
+		return items.ToArray();
+	}
+
 	private List<SkillDefinition> _pendingSkills = new List<SkillDefinition>();
 
 	private List<SkillDefinition> _deletedSkills = new List<SkillDefinition>();
+
+	private Dictionary<int, SkillDefinition> _appliedSkillsAfterLastExecute = new Dictionary<int, SkillDefinition>();
 
 	private Stack<SkillQueueSnapshot> _undoStack = new Stack<SkillQueueSnapshot>();
 
@@ -463,7 +548,13 @@ public class MainForm : Form
 
 	private TextBox txtVisualSkillId;
 
+	private TextBox txtBehaviorSkillId = null;
+
+	private TextBox txtVisibleJobId;
+
 	private TextBox txtMountItemId;
+
+	private TextBox txtFlightMountItemId = null;
 
 	private ComboBox cboMountResourceMode;
 
@@ -481,9 +572,15 @@ public class MainForm : Form
 
 	private CheckBox chkAllowMountedFlight;
 
+	private CheckBox chkMountedDoubleJump;
+
+	private CheckBox chkMountedDemonJump;
+
 	private GroupBox grpRoute;
 
 	private CheckBox chkHideFromNative;
+
+	private CheckBox chkHideFromSuper;
 
 	private CheckBox chkShowInNativeWhenLearned;
 
@@ -492,6 +589,14 @@ public class MainForm : Form
 	private CheckBox chkAllowNativeFallback;
 
 	private CheckBox chkInjectToNative;
+
+	private DataGridView dgvPassiveBonuses;
+
+	private CheckBox chkIndependentBuffEnabled;
+
+	private DataGridView dgvIndependentBuffStats;
+
+	private TextBox txtIndependentBuffGuide;
 
 	private ListView lvSkills;
 
@@ -525,7 +630,19 @@ public class MainForm : Form
 
 	private ListView lvMountFrames;
 
+	private ListView lvMountNodeChildren;
+
+	private ComboBox cboMountNodePage;
+
 	private PictureBox picMountFramePreview;
+
+	private TreeView treeMountActionTree = null;
+
+	private TreeView treeMountDataTree = null;
+
+	private Label lblMountActionTreeInfo = null;
+
+	private Label lblMountDataTreeInfo = null;
 
 	private DataGridView dgvMountActionInfo;
 
@@ -534,6 +651,8 @@ public class MainForm : Form
 	private Button btnMountLoad;
 
 	private Button btnMountClone;
+
+	private Button btnMountNewTamingMob;
 
 	private Button btnMountSaveAction;
 
@@ -559,6 +678,18 @@ public class MainForm : Form
 
 	private bool _suppressMountNodeChange;
 
+	private bool _suppressMountTreeSelectionSync;
+
+	private bool _suppressMountFrameSelectionSync;
+
+	private bool _suppressMountNodePageChange;
+
+	private bool _mountActionFramesDirty;
+
+	private bool _mountActionTreeDirty;
+
+	private bool _mountDataTreeDirty;
+
 	private MountEditorData _mountEditorData;
 
 	private Label _lblParamType;
@@ -566,6 +697,10 @@ public class MainForm : Form
 	private WzNodeInfo _clipboardNode;
 
 	private List<WzEffectFrame> _clipboardFrames;
+
+	private const string FrameClipboardType = "SuperSkillTool.FrameClipboard";
+
+	private const int FrameClipboardVersion = 1;
 
 	private bool _suppressIdSync;
 
@@ -596,6 +731,8 @@ public class MainForm : Form
 	private bool _suppressEffectNodeChange;
 
 	private bool _hasManualEffectEdit;
+
+	private bool _hasManualTreeEdit;
 
 	private ComboBox cboAnimLevel;
 
@@ -643,6 +780,8 @@ public class MainForm : Form
 	private static string CustomMountIdsJson => Path.Combine(PathConfig.ConfigDataDir, "custom_mount_ids.json");
 
 	private Dictionary<int, Dictionary<string, object>> _superSkillsCfgById = new Dictionary<int, Dictionary<string, object>>();
+
+	private Dictionary<int, Dictionary<string, object>> _hiddenSkillsCfgById = new Dictionary<int, Dictionary<string, object>>();
 
 	private Dictionary<int, Dictionary<string, object>> _routesCfgById = new Dictionary<int, Dictionary<string, object>>();
 
@@ -1237,6 +1376,7 @@ public class MainForm : Form
 		};
 		cboTab.Items.AddRange("active", "passive");
 		cboTab.SelectedIndex = 0;
+		cboTab.SelectedIndexChanged += CboTab_SelectedIndexChanged;
 		groupBox.Controls.Add(cboTab);
 		num6 += 28;
 		groupBox.Controls.Add(new Label
@@ -1250,7 +1390,7 @@ public class MainForm : Form
 			Location = new Point(72, num6),
 			Width = 55,
 			Minimum = 1m,
-			Maximum = 30m,
+			Maximum = 999m,
 			Value = 20m
 		};
 		nudMaxLevel.ValueChanged += NudMaxLevel_ValueChanged;
@@ -1288,7 +1428,7 @@ public class MainForm : Form
 		{
 			Text = "发包路由",
 			Location = new Point(8, num),
-			Size = new Size(num12, 176)
+			Size = new Size(num12, 228)
 		};
 		num6 = 18;
 		grpRoute.Controls.Add(new Label
@@ -1438,6 +1578,44 @@ public class MainForm : Form
 			AutoSize = true,
 			ForeColor = Color.Gray
 		});
+		num6 += 26;
+		chkMountedDoubleJump = new CheckBox
+		{
+			Text = "骑宠可二段跳(3101003)",
+			Location = new Point(8, num6 + 1),
+			AutoSize = true
+		};
+		grpRoute.Controls.Add(chkMountedDoubleJump);
+		grpRoute.Controls.Add(new Label
+		{
+			Text = "勾选后仅写 super_skills.json，骑上后连按两次跳触发 3101003",
+			Location = new Point(180, num6 + 3),
+			AutoSize = true,
+			ForeColor = Color.Gray
+		});
+		num6 += 26;
+		chkMountedDemonJump = new CheckBox
+		{
+			Text = "骑宠可恶魔跳跃(30010110)",
+			Location = new Point(8, num6 + 1),
+			AutoSize = true
+		};
+		chkMountedDemonJump.CheckedChanged += delegate
+		{
+			if (chkMountedDemonJump.Checked
+				&& string.Equals(GetSelectedMountResourceMode(), "config_only", StringComparison.OrdinalIgnoreCase))
+			{
+				SetSelectedMountResourceMode("sync_action");
+			}
+		};
+		grpRoute.Controls.Add(chkMountedDemonJump);
+		grpRoute.Controls.Add(new Label
+		{
+			Text = "勾选后补齐飞行/滑翔等级，支持 ↑↑、→→/←←、按住跳跃",
+			Location = new Point(210, num6 + 3),
+			AutoSize = true,
+			ForeColor = Color.Gray
+		});
 
 		// Keep hidden fields for compatibility with existing state/serialization flow.
 		txtMountSourceItemId = new TextBox { Visible = false };
@@ -1446,149 +1624,217 @@ public class MainForm : Form
 		txtMountJump = new TextBox { Visible = false };
 		txtMountFatigue = new TextBox { Visible = false };
 		panel.Controls.Add(grpRoute);
-		num += 180;
+		num += 232;
 		GroupBox groupBox2 = new GroupBox
 		{
 			Text = "显示策略",
 			Location = new Point(8, num),
-			Size = new Size(num12, 50)
+			Size = new Size(num12, 140)
 		};
-		int num9 = 8;
 		chkHideFromNative = new CheckBox
 		{
 			Text = "原生隐藏",
-			Location = new Point(num9, 20),
 			AutoSize = true,
 			Checked = true
 		};
-		groupBox2.Controls.Add(chkHideFromNative);
-		num9 += 90;
+		chkHideFromSuper = new CheckBox
+		{
+			Text = "超技隐藏",
+			AutoSize = true
+		};
 		chkShowInNativeWhenLearned = new CheckBox
 		{
-			Text = "学习后显示在原生",
-			Location = new Point(num9, 20),
+			Text = "原生学习",
 			AutoSize = true
 		};
-		groupBox2.Controls.Add(chkShowInNativeWhenLearned);
-		num9 += 125;
 		chkShowInSuperWhenLearned = new CheckBox
 		{
-			Text = "学习后显示在超技",
-			Location = new Point(num9, 20),
+			Text = "超技学习",
 			AutoSize = true
 		};
-		groupBox2.Controls.Add(chkShowInSuperWhenLearned);
-		num9 += 125;
 		chkAllowNativeFallback = new CheckBox
 		{
 			Text = "允许原生回退",
-			Location = new Point(num9, 20),
 			AutoSize = true,
 			Checked = true
 		};
-		groupBox2.Controls.Add(chkAllowNativeFallback);
-		num9 += 100;
 		chkInjectToNative = new CheckBox
 		{
 			Text = "注入原生",
-			Location = new Point(num9, 20),
 			AutoSize = true,
 			Checked = true
 		};
-		groupBox2.Controls.Add(chkInjectToNative);
-		panel.Controls.Add(groupBox2);
-		num += 56;
-		int num10 = num + 8;
-		panel.Controls.Add(new Label
+		TableLayoutPanel displayStrategyLayout = new TableLayoutPanel
 		{
-			Text = "动画编辑（拖入图片可添加帧）:",
-			Location = new Point(8, num10),
+			Location = new Point(8, 18),
+			Size = new Size(num12 - 16, 52),
+			ColumnCount = 3,
+			RowCount = 2,
+			Padding = new Padding(0),
+			Margin = new Padding(0)
+		};
+		displayStrategyLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.34f));
+		displayStrategyLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+		displayStrategyLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+		displayStrategyLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+		displayStrategyLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+		displayStrategyLayout.Controls.Add(chkHideFromNative, 0, 0);
+		displayStrategyLayout.Controls.Add(chkHideFromSuper, 1, 0);
+		displayStrategyLayout.Controls.Add(chkShowInNativeWhenLearned, 2, 0);
+		displayStrategyLayout.Controls.Add(chkShowInSuperWhenLearned, 0, 1);
+		displayStrategyLayout.Controls.Add(chkAllowNativeFallback, 1, 1);
+		displayStrategyLayout.Controls.Add(chkInjectToNative, 2, 1);
+		groupBox2.Controls.Add(displayStrategyLayout);
+		groupBox2.Controls.Add(new Label
+		{
+			Text = "可见职业ID:",
+			Location = new Point(8, 77),
 			AutoSize = true
 		});
+		txtVisibleJobId = new TextBox
+		{
+			Location = new Point(92, 74),
+			Width = num12 - 100
+		};
+		groupBox2.Controls.Add(txtVisibleJobId);
+		groupBox2.Controls.Add(new Label
+		{
+			Text = "填职业ID，例如 122 / 310；留空表示所有职业可见",
+			Location = new Point(92, 101),
+			MaximumSize = new Size(num12 - 100, 0),
+			AutoSize = true,
+			ForeColor = Color.Gray
+		});
+		panel.Controls.Add(groupBox2);
+		num += 146;
+
+		GroupBox groupBoxConfig = new GroupBox
+		{
+			Text = "超级配置 / 被动 / 独立BUFF",
+			Location = new Point(8, num),
+			Size = new Size(num12, 342)
+		};
+		int cfgY = 20;
+
+		Label passiveSectionLabel = new Label
+		{
+			Text = "被动加成",
+			Location = new Point(8, cfgY),
+			AutoSize = true
+		};
+		groupBoxConfig.Controls.Add(passiveSectionLabel);
+		cfgY += passiveSectionLabel.PreferredHeight + 6;
+		dgvPassiveBonuses = CreatePassiveBonusesGrid();
+		dgvPassiveBonuses.Location = new Point(8, cfgY);
+		dgvPassiveBonuses.Size = new Size(num12 - 20, 92);
+		groupBoxConfig.Controls.Add(dgvPassiveBonuses);
+		UpdatePassiveBonusesControlsEnabled();
+		cfgY += 104;
+		int lowerSectionHeight = 210;
+		int lowerSectionWidth = num12 - 20;
+
+		GroupBox groupBoxIndependent = new GroupBox
+		{
+			Text = "独立BUFF",
+			Location = new Point(8, cfgY),
+			Size = new Size(lowerSectionWidth, lowerSectionHeight)
+		};
+		chkIndependentBuffEnabled = new CheckBox
+		{
+			Text = "启用",
+			Location = new Point(8, 22),
+			AutoSize = true
+		};
+		groupBoxIndependent.Controls.Add(chkIndependentBuffEnabled);
+		chkIndependentBuffEnabled.CheckedChanged += delegate
+		{
+			UpdateIndependentBuffControlsEnabled();
+			UpdateIndependentBuffGuideText();
+		};
+		dgvIndependentBuffStats = CreateIndependentBuffStatsGrid();
+		dgvIndependentBuffStats.Location = new Point(8, 48);
+		dgvIndependentBuffStats.Size = new Size(lowerSectionWidth - 16, lowerSectionHeight - 56);
+		groupBoxIndependent.Controls.Add(dgvIndependentBuffStats);
+		groupBoxConfig.Controls.Add(groupBoxIndependent);
+		txtIndependentBuffGuide = null;
+		UpdateIndependentBuffControlsEnabled();
+		UpdateIndependentBuffGuideText();
+		panel.Controls.Add(groupBoxConfig);
+		num += 348;
+
+		GroupBox groupBoxAnim = new GroupBox
+		{
+			Text = "动画编辑",
+			Location = new Point(8, num),
+			Size = new Size(num12, 210)
+		};
+		panel.Controls.Add(groupBoxAnim);
 		btnCopyEffects = new Button
 		{
-			Text = "从其他技能复制",
-			Location = new Point(190, num10 - 3),
-			Width = 110
+			Text = "从其他技能复制"
 		};
 		btnCopyEffects.Click += BtnCopyEffects_Click;
-		panel.Controls.Add(btnCopyEffects);
-		// Second row: level selector + node selector
-		int num10r2 = num10 + 22;
-		panel.Controls.Add(new Label
+		groupBoxAnim.Controls.Add(btnCopyEffects);
+		Label lblAnimLevel = new Label
 		{
 			Text = "等级:",
-			Location = new Point(8, num10r2 + 3),
 			AutoSize = true
-		});
+		};
+		groupBoxAnim.Controls.Add(lblAnimLevel);
 		cboAnimLevel = new ComboBox
 		{
-			Location = new Point(43, num10r2),
-			Width = 90,
 			DropDownStyle = ComboBoxStyle.DropDownList
 		};
 		cboAnimLevel.SelectedIndexChanged += CboAnimLevel_SelectedIndexChanged;
-		panel.Controls.Add(cboAnimLevel);
+		groupBoxAnim.Controls.Add(cboAnimLevel);
 		btnAddAnimLevel = new Button
 		{
 			Text = "+",
-			Location = new Point(136, num10r2),
 			Size = new Size(22, 22),
 			ForeColor = Color.LimeGreen,
 			FlatStyle = FlatStyle.Flat,
 			Padding = Padding.Empty
 		};
 		btnAddAnimLevel.Click += BtnAddAnimLevel_Click;
-		panel.Controls.Add(btnAddAnimLevel);
+		groupBoxAnim.Controls.Add(btnAddAnimLevel);
 		btnRemoveAnimLevel = new Button
 		{
 			Text = "-",
-			Location = new Point(159, num10r2),
 			Size = new Size(22, 22),
 			ForeColor = Color.OrangeRed,
 			FlatStyle = FlatStyle.Flat,
 			Padding = Padding.Empty
 		};
 		btnRemoveAnimLevel.Click += BtnRemoveAnimLevel_Click;
-		panel.Controls.Add(btnRemoveAnimLevel);
-		panel.Controls.Add(new Label
+		groupBoxAnim.Controls.Add(btnRemoveAnimLevel);
+		Label lblAnimNode = new Label
 		{
 			Text = "节点:",
-			Location = new Point(188, num10r2 + 3),
 			AutoSize = true
-		});
+		};
+		groupBoxAnim.Controls.Add(lblAnimNode);
 		cboEffectNode = new ComboBox
 		{
-			Location = new Point(223, num10r2),
-			Width = 90,
 			DropDownStyle = ComboBoxStyle.DropDownList
 		};
 		cboEffectNode.SelectedIndexChanged += CboEffectNode_SelectedIndexChanged;
-		panel.Controls.Add(cboEffectNode);
-		// Add/Delete node buttons next to node selector
+		groupBoxAnim.Controls.Add(cboEffectNode);
 		btnAddAnimNode = new Button
 		{
 			Text = "+节点",
-			Location = new Point(317, num10r2),
-			Size = new Size(50, 22),
 			ForeColor = Color.LimeGreen
 		};
 		btnAddAnimNode.Click += BtnAddAnimNode_Click;
-		panel.Controls.Add(btnAddAnimNode);
+		groupBoxAnim.Controls.Add(btnAddAnimNode);
 		btnDeleteAnimNode = new Button
 		{
 			Text = "-节点",
-			Location = new Point(369, num10r2),
-			Size = new Size(50, 22),
 			ForeColor = Color.OrangeRed
 		};
 		btnDeleteAnimNode.Click += BtnDeleteAnimNode_Click;
-		panel.Controls.Add(btnDeleteAnimNode);
-		int num10c = num10r2 + 26;
+		groupBoxAnim.Controls.Add(btnDeleteAnimNode);
 		lvEffectFrames = new ListView
 		{
-			Location = new Point(8, num10c),
-			Size = new Size(num12 - 102, 150),
 			View = View.Details,
 			FullRowSelect = true,
 			MultiSelect = true,
@@ -1600,6 +1846,7 @@ public class MainForm : Form
 		lvEffectFrames.Columns.Add("延迟(ms)", 70);
 		lvEffectFrames.Columns.Add("定位/参数", 260);
 		lvEffectFrames.SelectedIndexChanged += LvEffectFrames_SelectedChanged;
+		lvEffectFrames.KeyDown += FxFrames_KeyDown;
 		lvEffectFrames.DragEnter += FxList_DragEnter;
 		lvEffectFrames.DragDrop += FxList_DragDrop;
 		ContextMenuStrip contextMenuStrip3 = new ContextMenuStrip();
@@ -1613,11 +1860,9 @@ public class MainForm : Form
 		contextMenuStrip3.Items.Add(new ToolStripSeparator());
 		contextMenuStrip3.Items.Add("删除帧", null, FxMenu_DeleteFrame);
 		lvEffectFrames.ContextMenuStrip = contextMenuStrip3;
-		panel.Controls.Add(lvEffectFrames);
+		groupBoxAnim.Controls.Add(lvEffectFrames);
 		_picEffectPreview = new PictureBox
 		{
-			Location = new Point(8 + num12 - 94, num10c),
-			Size = new Size(90, 90),
 			SizeMode = PictureBoxSizeMode.Zoom,
 			BorderStyle = BorderStyle.FixedSingle,
 			BackColor = Color.FromArgb(40, 40, 40),
@@ -1625,14 +1870,50 @@ public class MainForm : Form
 		};
 		_picEffectPreview.DragEnter += FxList_DragEnter;
 		_picEffectPreview.DragDrop += FxList_DragDrop;
-		panel.Controls.Add(_picEffectPreview);
-		panel.Controls.Add(new Label
+		groupBoxAnim.Controls.Add(_picEffectPreview);
+		Label lblEffectPreview = new Label
 		{
 			Text = "预览",
-			Location = new Point(8 + num12 - 68, num10c + 94),
 			AutoSize = true,
 			ForeColor = Color.Gray
-		});
+		};
+		groupBoxAnim.Controls.Add(lblEffectPreview);
+
+		void LayoutAnimationEditorGroup()
+		{
+			if (groupBoxAnim == null)
+				return;
+			int innerWidth = Math.Max(220, groupBoxAnim.ClientSize.Width - 16);
+			btnCopyEffects.Location = new Point(8, 20);
+			btnCopyEffects.Size = new Size(Math.Min(160, innerWidth), 24);
+
+			int row1Y = 52;
+			lblAnimLevel.Location = new Point(8, row1Y + 3);
+			cboAnimLevel.Location = new Point(43, row1Y);
+			cboAnimLevel.Size = new Size(90, 24);
+			btnAddAnimLevel.Location = new Point(136, row1Y);
+			btnRemoveAnimLevel.Location = new Point(159, row1Y);
+			lblAnimNode.Location = new Point(188, row1Y + 3);
+			cboEffectNode.Location = new Point(223, row1Y);
+			cboEffectNode.Size = new Size(90, 24);
+			btnAddAnimNode.Location = new Point(317, row1Y);
+			btnAddAnimNode.Size = new Size(50, 22);
+			btnDeleteAnimNode.Location = new Point(369, row1Y);
+			btnDeleteAnimNode.Size = new Size(50, 22);
+
+			int previewWidth = 90;
+			int listY = row1Y + 26;
+			int listHeight = Math.Max(80, groupBoxAnim.ClientSize.Height - listY - 12);
+			lvEffectFrames.Location = new Point(8, listY);
+			lvEffectFrames.Size = new Size(Math.Max(120, innerWidth - previewWidth - 8), listHeight);
+			_picEffectPreview.Location = new Point(groupBoxAnim.ClientSize.Width - previewWidth - 8, listY);
+			_picEffectPreview.Size = new Size(previewWidth, previewWidth);
+			lblEffectPreview.Location = new Point(groupBoxAnim.ClientSize.Width - 64, listY + previewWidth + 4);
+		}
+		groupBoxAnim.Resize += delegate { LayoutAnimationEditorGroup(); };
+		LayoutAnimationEditorGroup();
+		num += 222;
+
 		// (Text editing TabControl is placed in right column — see below)
 		Label labelNodeTree = new Label
 		{
@@ -1649,11 +1930,20 @@ public class MainForm : Form
 			Anchor = (AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right)
 		};
 		treeSkillData.NodeMouseDoubleClick += TreeNode_DoubleClick;
+		treeSkillData.NodeMouseClick += TreeView_SelectNodeOnRightClick;
 		ContextMenuStrip contextMenuStrip = new ContextMenuStrip();
 		contextMenuStrip.Items.Add("编辑值", null, TreeMenu_EditValue);
+		contextMenuStrip.Items.Add("编辑节点名", null, TreeMenu_RenameNode);
 		contextMenuStrip.Items.Add("复制节点", null, TreeMenu_CopyNode);
 		contextMenuStrip.Items.Add("粘贴节点", null, TreeMenu_PasteNode);
-		contextMenuStrip.Items.Add("添加子节点", null, TreeMenu_AddChild);
+		contextMenuStrip.Items.Add(new ToolStripSeparator());
+		contextMenuStrip.Items.Add("添加目录", null, TreeMenu_AddFolderNode);
+		contextMenuStrip.Items.Add("添加整数值（name=1）", null, TreeMenu_AddIntValue);
+		contextMenuStrip.Items.Add("添加文本值（name=text）", null, TreeMenu_AddStringValue);
+		contextMenuStrip.Items.Add("添加坐标值（name=x,y）", null, TreeMenu_AddVectorValue);
+		contextMenuStrip.Items.Add("添加引用值（name=path）", null, TreeMenu_AddUolValue);
+		contextMenuStrip.Items.Add("高级添加...", null, TreeMenu_AddChild);
+		contextMenuStrip.Items.Add(new ToolStripSeparator());
 		contextMenuStrip.Items.Add("删除节点", null, TreeMenu_DeleteNode);
 		treeSkillData.ContextMenuStrip = contextMenuStrip;
 		panel.Controls.Add(treeSkillData);
@@ -2067,6 +2357,1176 @@ public class MainForm : Form
 		tableLayoutPanel.Controls.Add(lvSkills, 0, 1);
 		tableLayoutPanel.Controls.Add(flowLayoutPanel2, 0, 2);
 		panel2.Controls.Add(tableLayoutPanel);
+	}
+
+	private DataGridView CreatePassiveBonusesGrid()
+	{
+		DataGridView grid = new DataGridView
+		{
+			AllowUserToAddRows = true,
+			AllowUserToDeleteRows = true,
+			AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+			ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize,
+			RowHeadersVisible = false,
+			SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+			MultiSelect = true,
+			EditMode = DataGridViewEditMode.EditOnEnter
+		};
+		ApplyImgInfoGridStyle(grid);
+		grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "TargetSkillIds", HeaderText = "目标技能ID列表", FillWeight = 220f });
+		grid.Columns.Add(CreateValueComboColumn("DamagePercent", "伤害%"));
+		grid.Columns.Add(CreateValueComboColumn("IgnoreDefensePercent", "无视%"));
+		grid.Columns.Add(CreateValueComboColumn("AttackCount", "段数"));
+		grid.Columns.Add(CreateValueComboColumn("MobCount", "怪物数"));
+		grid.MouseDown += MountInfoGrid_MouseDownSelectCell;
+		grid.ShowCellToolTips = true;
+		foreach (DataGridViewColumn column in grid.Columns)
+			column.ToolTipText = GetPassiveBonusColumnHint(column.Name);
+		grid.CellToolTipTextNeeded += PassiveBonusesGrid_CellToolTipTextNeeded;
+
+		ContextMenuStrip menu = new ContextMenuStrip();
+		menu.Items.Add("添加空行", null, delegate
+		{
+			grid.Rows.Add();
+		});
+		menu.Items.Add("追加伤害模板", null, delegate { AppendPassiveBonusTemplateRow(grid, "damage"); });
+		menu.Items.Add("追加无视模板", null, delegate { AppendPassiveBonusTemplateRow(grid, "ignore"); });
+		menu.Items.Add("追加段数模板", null, delegate { AppendPassiveBonusTemplateRow(grid, "attack"); });
+		menu.Items.Add("追加怪物模板", null, delegate { AppendPassiveBonusTemplateRow(grid, "mob"); });
+		menu.Items.Add("追加综合模板", null, delegate { AppendPassiveBonusTemplateRow(grid, "all"); });
+		menu.Items.Add(new ToolStripSeparator());
+		menu.Items.Add("删除当前行", null, delegate { DeleteGridCurrentRow(grid, "被动行"); });
+		menu.Items.Add("删除选中行", null, delegate { DeleteGridSelectedRows(grid, "被动行"); });
+		grid.ContextMenuStrip = menu;
+		return grid;
+	}
+
+	private DataGridView CreateIndependentBuffStatsGrid()
+	{
+		DataGridView grid = new DataGridView
+		{
+			AllowUserToAddRows = false,
+			AllowUserToDeleteRows = false,
+			AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+			ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize,
+			RowHeadersVisible = false,
+			SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+			MultiSelect = true,
+			EditMode = DataGridViewEditMode.EditOnEnter,
+			ShowCellToolTips = true
+		};
+		ApplyImgInfoGridStyle(grid);
+		var keyColumn = new DataGridViewTextBoxColumn
+		{
+			Name = "BonusKey",
+			HeaderText = "属性",
+			ReadOnly = true,
+			FillWeight = 24f
+		};
+		var nameColumn = new DataGridViewTextBoxColumn
+		{
+			Name = "BonusNameZh",
+			HeaderText = "中文名",
+			ReadOnly = true,
+			FillWeight = 24f
+		};
+		var valueColumn = new DataGridViewTextBoxColumn
+		{
+			Name = "BonusValue",
+			HeaderText = "数值/字段",
+			FillWeight = 52f
+		};
+		grid.Columns.Add(keyColumn);
+		grid.Columns.Add(nameColumn);
+		grid.Columns.Add(valueColumn);
+		grid.MouseDown += MountInfoGrid_MouseDownSelectCell;
+		grid.CellEndEdit += delegate(object sender, DataGridViewCellEventArgs e)
+		{
+			if (e.RowIndex < 0 || e.RowIndex >= grid.Rows.Count)
+				return;
+			if (!string.Equals(grid.Columns[e.ColumnIndex]?.Name, "BonusValue", StringComparison.OrdinalIgnoreCase))
+				return;
+			UpdateIndependentBuffStatsGridRow(grid.Rows[e.RowIndex]);
+			TryAutoPopulateIndependentBuffControls(force: false);
+			UpdateIndependentBuffGuideText();
+		};
+		grid.CellToolTipTextNeeded += delegate(object sender, DataGridViewCellToolTipTextNeededEventArgs e)
+		{
+			e.ToolTipText = BuildIndependentBuffCellHint(grid, e.RowIndex, e.ColumnIndex);
+		};
+		grid.KeyDown += delegate(object sender, KeyEventArgs e)
+		{
+			if (e.KeyCode != Keys.Delete && e.KeyCode != Keys.Back)
+				return;
+			DeleteGridSelectedRows(grid, "属性参数");
+			e.Handled = true;
+			e.SuppressKeyPress = true;
+		};
+		ContextMenuStrip menu = new ContextMenuStrip();
+		menu.Items.Add("添加参数...", null, delegate
+		{
+			IndependentBuffGrid_AddParams(grid);
+		});
+		menu.Items.Add("删除当前参数", null, delegate
+		{
+			DeleteGridCurrentRow(grid, "属性参数");
+		});
+		menu.Items.Add("删除选中参数", null, delegate
+		{
+			DeleteGridSelectedRows(grid, "属性参数");
+		});
+		menu.Items.Add(new ToolStripSeparator());
+		menu.Items.Add("从来源技能读取属性", null, delegate
+		{
+			LoadIndependentBuffStatsFromSourceSkill();
+		});
+		menu.Items.Add("清空参数", null, delegate
+		{
+			if (MessageBox.Show("确认清空当前独立属性列表吗？", "确认", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) == DialogResult.Yes)
+				grid.Rows.Clear();
+		});
+		grid.ContextMenuStrip = menu;
+		return grid;
+	}
+
+	private static void ApplyImgInfoGridStyle(DataGridView grid)
+	{
+		if (grid == null)
+			return;
+		grid.BackgroundColor = Color.FromArgb(45, 45, 45);
+		grid.ForeColor = Color.White;
+		grid.GridColor = Color.FromArgb(70, 70, 70);
+		grid.BorderStyle = BorderStyle.FixedSingle;
+		grid.DefaultCellStyle.BackColor = Color.FromArgb(45, 45, 45);
+		grid.DefaultCellStyle.ForeColor = Color.White;
+		grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(72, 104, 151);
+		grid.DefaultCellStyle.SelectionForeColor = Color.White;
+		grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(50, 50, 50);
+		grid.AlternatingRowsDefaultCellStyle.ForeColor = Color.White;
+		grid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(60, 60, 60);
+		grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
+		grid.EnableHeadersVisualStyles = false;
+		grid.ShowCellErrors = false;
+		grid.ShowRowErrors = false;
+		grid.RowTemplate.Height = 22;
+	}
+
+	private DataGridViewTextBoxColumn CreateValueComboColumn(string name, string headerText)
+	{
+		var column = new DataGridViewTextBoxColumn
+		{
+			Name = name,
+			HeaderText = headerText,
+			FillWeight = 80
+		};
+		return column;
+	}
+
+	private static string GetPassiveBonusColumnHint(string columnName)
+	{
+		switch ((columnName ?? "").Trim())
+		{
+			case "TargetSkillIds":
+				return "被加强的技能ID列表，支持逗号分隔，例如 3101005,3101006。";
+			case "DamagePercent":
+				return "伤害百分比增加。可填固定值 40，也可填字段名 damRate。";
+			case "IgnoreDefensePercent":
+				return "无视防御百分比增加。可填固定值 30，也可填字段名 ignoreMob。";
+			case "AttackCount":
+				return "攻击段数整数增加。可填固定值 2，也可填字段名 attackCount。";
+			case "MobCount":
+				return "攻击怪物数量整数增加。可填固定值 1，也可填字段名 mobCount。";
+			default:
+				return "被动加成配置。";
+		}
+	}
+
+	private void PassiveBonusesGrid_CellToolTipTextNeeded(object sender, DataGridViewCellToolTipTextNeededEventArgs e)
+	{
+		if (!(sender is DataGridView grid) || e.RowIndex < 0 || e.ColumnIndex < 0 || e.ColumnIndex >= grid.Columns.Count)
+			return;
+		string columnName = grid.Columns[e.ColumnIndex].Name;
+		string baseHint = GetPassiveBonusColumnHint(columnName);
+		if (e.RowIndex >= grid.Rows.Count || grid.Rows[e.RowIndex].IsNewRow)
+		{
+			e.ToolTipText = baseHint;
+			return;
+		}
+
+		DataGridViewRow row = grid.Rows[e.RowIndex];
+		string currentValue = CellText(row, columnName);
+		if (string.IsNullOrWhiteSpace(currentValue))
+			e.ToolTipText = baseHint;
+		else
+			e.ToolTipText = currentValue + "\n" + baseHint;
+	}
+
+	private void AppendPassiveBonusTemplateRow(DataGridView grid, string template)
+	{
+		if (grid == null)
+			return;
+		string targetSkillIds = "";
+		string damage = "";
+		string ignore = "";
+		string attack = "";
+		string mob = "";
+		switch ((template ?? "").Trim().ToLowerInvariant())
+		{
+			case "damage":
+				damage = "damRate";
+				break;
+			case "ignore":
+				ignore = "ignoreMob";
+				break;
+			case "attack":
+				attack = "attackCount";
+				break;
+			case "mob":
+				mob = "mobCount";
+				break;
+			default:
+				damage = "damRate";
+				ignore = "ignoreMob";
+				attack = "attackCount";
+				mob = "mobCount";
+				break;
+		}
+		grid.Rows.Add(targetSkillIds, damage, ignore, attack, mob);
+	}
+
+	private void DeleteGridCurrentRow(DataGridView grid, string noun)
+	{
+		if (grid == null)
+			return;
+		if (grid.CurrentCell == null)
+			return;
+		int rowIndex = grid.CurrentCell.RowIndex;
+		if (rowIndex < 0 || rowIndex >= grid.Rows.Count || grid.Rows[rowIndex].IsNewRow)
+			return;
+		string key = grid.Rows[rowIndex].Cells[0].Value?.ToString() ?? "(空)";
+		if (MessageBox.Show($"确认删除{noun} \"{key}\" 吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) != DialogResult.Yes)
+			return;
+		grid.Rows.RemoveAt(rowIndex);
+	}
+
+	private void DeleteGridSelectedRows(DataGridView grid, string noun)
+	{
+		if (grid == null)
+			return;
+		List<int> rowIndexes = new List<int>();
+		foreach (DataGridViewRow row in grid.SelectedRows)
+		{
+			if (row != null && !row.IsNewRow && row.Index >= 0)
+				rowIndexes.Add(row.Index);
+		}
+		if (rowIndexes.Count == 0)
+		{
+			DeleteGridCurrentRow(grid, noun);
+			return;
+		}
+		if (MessageBox.Show($"确认删除选中的 {rowIndexes.Count} 个{noun}吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) != DialogResult.Yes)
+			return;
+		rowIndexes.Sort();
+		rowIndexes.Reverse();
+		foreach (int idx in rowIndexes)
+		{
+			if (idx >= 0 && idx < grid.Rows.Count && !grid.Rows[idx].IsNewRow)
+				grid.Rows.RemoveAt(idx);
+		}
+	}
+
+	private void IndependentBuffGrid_AddParams(DataGridView grid)
+	{
+		if (grid == null)
+			return;
+
+		HashSet<string> existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		foreach (DataGridViewRow row in grid.Rows)
+		{
+			if (row == null || row.IsNewRow)
+				continue;
+			string key = ((row.Tag as string) ?? CellText(row, "BonusKey")).Trim();
+			if (!string.IsNullOrWhiteSpace(key))
+				existing.Add(key);
+		}
+
+		List<string> selected = ShowIndependentBuffParamPicker(existing);
+		if (selected == null || selected.Count == 0)
+			return;
+		int added = 0;
+		foreach (string key in selected)
+		{
+			if (string.IsNullOrWhiteSpace(key) || existing.Contains(key))
+				continue;
+			AddOrUpdateIndependentBuffStatRow(grid, key, "");
+			existing.Add(key);
+			added++;
+		}
+		if (added <= 0)
+			MessageBox.Show("所选属性均已存在，未重复添加。", "提示");
+	}
+
+	private List<string> ShowIndependentBuffParamPicker(HashSet<string> existing)
+	{
+		List<string> keyList = new List<string>();
+		foreach (string raw in IndependentBuffBonusKeys)
+		{
+			string key = (raw ?? "").Trim();
+			if (!string.IsNullOrWhiteSpace(key))
+				keyList.Add(key);
+		}
+		if (keyList.Count == 0)
+		{
+			MessageBox.Show("没有可选属性。", "提示");
+			return null;
+		}
+
+		Form form = new Form
+		{
+			Text = "添加独立BUFF属性",
+			Size = new Size(760, 620),
+			StartPosition = FormStartPosition.Manual,
+			FormBorderStyle = FormBorderStyle.SizableToolWindow,
+			MinimizeBox = false,
+			MaximizeBox = false
+		};
+		try
+		{
+			int x = Left + Math.Max(20, (Width - form.Width) / 2);
+			int y = Top + Math.Max(120, (Height - form.Height) / 2 + 80);
+			form.Location = new Point(Math.Max(0, x), Math.Max(0, y));
+		}
+		catch
+		{
+		}
+
+		DataGridView picker = new DataGridView
+		{
+			Dock = DockStyle.Fill,
+			AllowUserToAddRows = false,
+			AllowUserToDeleteRows = false,
+			ReadOnly = false,
+			RowHeadersVisible = false,
+			SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+			MultiSelect = true,
+			AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+			BackgroundColor = SystemColors.Window
+		};
+		var addColumn = new DataGridViewCheckBoxColumn { Name = "Add", HeaderText = "添加", Width = 48, FillWeight = 8f };
+		var keyColumn = new DataGridViewTextBoxColumn { Name = "Param", HeaderText = "属性", ReadOnly = true, FillWeight = 20f };
+		var nameColumn = new DataGridViewTextBoxColumn { Name = "NameZh", HeaderText = "中文", ReadOnly = true, FillWeight = 18f };
+		var sampleColumn = new DataGridViewTextBoxColumn { Name = "Sample", HeaderText = "建议填写", ReadOnly = true, FillWeight = 15f };
+		var helpColumn = new DataGridViewTextBoxColumn { Name = "Help", HeaderText = "注释", ReadOnly = true, FillWeight = 39f };
+		picker.Columns.Add(addColumn);
+		picker.Columns.Add(keyColumn);
+		picker.Columns.Add(nameColumn);
+		picker.Columns.Add(sampleColumn);
+		picker.Columns.Add(helpColumn);
+		picker.CurrentCellDirtyStateChanged += delegate
+		{
+			if (picker.IsCurrentCellDirty)
+				picker.CommitEdit(DataGridViewDataErrorContexts.Commit);
+		};
+		picker.CellBeginEdit += delegate(object s, DataGridViewCellCancelEventArgs e)
+		{
+			if (e.RowIndex < 0 || e.RowIndex >= picker.Rows.Count)
+				return;
+			string key = picker.Rows[e.RowIndex].Tag as string;
+			if (existing != null && existing.Contains(key ?? ""))
+				e.Cancel = true;
+			if (e.ColumnIndex != 0)
+				e.Cancel = true;
+		};
+		picker.CellClick += delegate(object s, DataGridViewCellEventArgs e)
+		{
+			if (e.RowIndex < 0 || e.RowIndex >= picker.Rows.Count)
+				return;
+			string key = picker.Rows[e.RowIndex].Tag as string;
+			if (existing != null && existing.Contains(key ?? ""))
+				return;
+			if (e.ColumnIndex == 0)
+				return;
+			bool current = Convert.ToBoolean(picker.Rows[e.RowIndex].Cells[0].Value ?? false);
+			picker.Rows[e.RowIndex].Cells[0].Value = !current;
+		};
+
+		foreach (string key in keyList)
+		{
+			bool has = existing != null && existing.Contains(key);
+			int idx = picker.Rows.Add(false, key, GetIndependentBuffBonusChineseName(key), GetIndependentBuffSuggestedValue(key), BuildIndependentBuffBonusHelp(key));
+			DataGridViewRow row = picker.Rows[idx];
+			row.Tag = key;
+			foreach (DataGridViewCell cell in row.Cells)
+				cell.ToolTipText = BuildIndependentBuffBonusComment(key);
+			if (has)
+			{
+				row.Cells[0].ReadOnly = true;
+				row.DefaultCellStyle.ForeColor = Color.Gray;
+				row.DefaultCellStyle.BackColor = Color.FromArgb(235, 235, 235);
+				row.DefaultCellStyle.SelectionForeColor = Color.Gray;
+				row.DefaultCellStyle.SelectionBackColor = Color.FromArgb(220, 220, 220);
+				row.Cells[4].Value = BuildIndependentBuffBonusHelp(key) + "（已存在）";
+			}
+		}
+		form.Controls.Add(picker);
+
+		Panel panel = new Panel
+		{
+			Dock = DockStyle.Bottom,
+			Height = 44
+		};
+		Button btnAll = new Button { Text = "全选可添加", Location = new Point(8, 9), Width = 86 };
+		btnAll.Click += delegate
+		{
+			foreach (DataGridViewRow row in picker.Rows)
+			{
+				string key = row.Tag as string;
+				if (existing == null || !existing.Contains(key ?? ""))
+					row.Cells[0].Value = true;
+			}
+		};
+		panel.Controls.Add(btnAll);
+		Button btnNone = new Button { Text = "全不选", Location = new Point(100, 9), Width = 66 };
+		btnNone.Click += delegate
+		{
+			foreach (DataGridViewRow row in picker.Rows)
+				row.Cells[0].Value = false;
+		};
+		panel.Controls.Add(btnNone);
+		Button btnOk = new Button { Text = "添加", Anchor = AnchorStyles.Top | AnchorStyles.Right, Location = new Point(580, 9), Width = 72, DialogResult = DialogResult.OK };
+		panel.Controls.Add(btnOk);
+		Button btnCancel = new Button { Text = "取消", Anchor = AnchorStyles.Top | AnchorStyles.Right, Location = new Point(658, 9), Width = 72, DialogResult = DialogResult.Cancel };
+		panel.Controls.Add(btnCancel);
+		panel.Resize += delegate
+		{
+			btnCancel.Left = panel.Width - btnCancel.Width - 12;
+			btnOk.Left = btnCancel.Left - btnOk.Width - 8;
+		};
+		form.Controls.Add(panel);
+		form.AcceptButton = btnOk;
+		form.CancelButton = btnCancel;
+
+		if (form.ShowDialog(this) != DialogResult.OK)
+			return null;
+
+		List<string> result = new List<string>();
+		foreach (DataGridViewRow row in picker.Rows)
+		{
+			string key = row.Tag as string;
+			if (string.IsNullOrWhiteSpace(key))
+				continue;
+			if (existing != null && existing.Contains(key))
+				continue;
+			bool selected = Convert.ToBoolean(row.Cells[0].Value ?? false);
+			if (selected)
+				result.Add(key);
+		}
+		return result;
+	}
+
+	private void AddOrUpdateIndependentBuffStatRow(DataGridView grid, string key, string value)
+	{
+		if (grid == null || string.IsNullOrWhiteSpace(key))
+			return;
+		foreach (DataGridViewRow row in grid.Rows)
+		{
+			if (row == null || row.IsNewRow)
+				continue;
+			string existingKey = ((row.Tag as string) ?? CellText(row, "BonusKey")).Trim();
+			if (!string.Equals(existingKey, key, StringComparison.OrdinalIgnoreCase))
+				continue;
+			row.Cells["BonusValue"].Value = value ?? "";
+			UpdateIndependentBuffStatsGridRow(row);
+			return;
+		}
+		int rowIndex = grid.Rows.Add(key.Trim(), GetIndependentBuffBonusChineseName(key), value ?? "");
+		if (rowIndex >= 0 && rowIndex < grid.Rows.Count)
+			UpdateIndependentBuffStatsGridRow(grid.Rows[rowIndex]);
+	}
+
+	private void UpdateIndependentBuffStatsGridRow(DataGridViewRow row)
+	{
+		if (row == null || row.IsNewRow)
+			return;
+		string key = ((row.Tag as string) ?? row.Cells["BonusKey"]?.Value?.ToString() ?? "").Trim();
+		row.Tag = key;
+		row.Cells["BonusKey"].Value = key;
+		if (row.DataGridView != null && row.DataGridView.Columns.Contains("BonusNameZh"))
+			row.Cells["BonusNameZh"].Value = GetIndependentBuffBonusChineseName(key);
+		string comment = BuildIndependentBuffBonusComment(key);
+		foreach (DataGridViewCell cell in row.Cells)
+			cell.ToolTipText = comment;
+	}
+
+	private string BuildIndependentBuffCellHint(DataGridView grid, int rowIndex, int columnIndex)
+	{
+		if (grid == null || rowIndex < 0 || columnIndex < 0 || rowIndex >= grid.Rows.Count || columnIndex >= grid.Columns.Count)
+			return null;
+		if (grid.Rows[rowIndex].IsNewRow)
+			return "右键空白处可添加独立 BUFF 属性。";
+		string key = ((grid.Rows[rowIndex].Tag as string) ?? CellText(grid.Rows[rowIndex], "BonusKey")).Trim();
+		if (string.IsNullOrWhiteSpace(key))
+			return "右键空白处可添加独立 BUFF 属性。";
+		string zh = GetIndependentBuffBonusChineseName(key);
+		string help = BuildIndependentBuffBonusHelp(key);
+		string value = CellText(grid.Rows[rowIndex], "BonusValue");
+		switch (grid.Columns[columnIndex].Name)
+		{
+			case "BonusKey":
+				return string.IsNullOrWhiteSpace(zh) ? key : $"{key}（{zh}）\n{help}";
+			case "BonusNameZh":
+				return string.IsNullOrWhiteSpace(zh) ? BuildIndependentBuffBonusComment(key) : $"{zh}\n{help}";
+			case "BonusValue":
+				return string.IsNullOrWhiteSpace(value)
+					? $"当前还没填写数值。\n建议：{GetIndependentBuffSuggestedValue(key)}"
+					: $"当前填写：{value}\n{help}";
+			default:
+				return BuildIndependentBuffBonusComment(key);
+		}
+	}
+
+	private static string GetIndependentBuffSuggestedValue(string key)
+	{
+		switch ((key ?? "").Trim())
+		{
+			case "watk": return "pad";
+			case "matk": return "mad";
+			case "wdef": return "pdd";
+			case "mdef": return "mdd";
+			case "avoid": return "eva";
+			case "maxHp": return "hp";
+			case "maxMp": return "mp";
+			case "damagePercent": return "damRate";
+			case "bossDamagePercent": return "bossDamagePercent";
+			case "ignoreDefensePercent": return "ignoreMob";
+			case "attackSpeedStage": return "booster";
+			default: return "0";
+		}
+	}
+
+	private static bool HasConfiguredIndependentBuffStats(IndependentBuffDefinition buff)
+	{
+		return buff?.StatBonuses != null
+			&& buff.StatBonuses.Any(kv => !string.IsNullOrWhiteSpace(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value));
+	}
+
+	private static bool IsBuffSkill(WzSkillData data)
+	{
+		if (data == null)
+			return false;
+		if (data.InfoType == 50 || ContainsPassiveSignals(data))
+			return false;
+		if (!string.IsNullOrWhiteSpace(data.Action) && string.Equals(data.Action, "alert2", StringComparison.OrdinalIgnoreCase))
+			return true;
+		return data.InfoType == 2 || data.InfoType == 10;
+	}
+
+	private static bool IsBuffSkill(SkillDefinition skillDefinition)
+	{
+		if (skillDefinition == null)
+			return false;
+		if (skillDefinition.InfoType == 50)
+			return false;
+		if (!string.IsNullOrWhiteSpace(skillDefinition.Action) && string.Equals(skillDefinition.Action, "alert2", StringComparison.OrdinalIgnoreCase))
+			return true;
+		return skillDefinition.InfoType == 2 || skillDefinition.InfoType == 10;
+	}
+
+	private bool ResolveIsBuffSkillForIndependentBuff(SkillDefinition skillDefinition = null)
+	{
+		if (skillDefinition != null && (skillDefinition.InfoType != 0 || !string.IsNullOrWhiteSpace(skillDefinition.Action)))
+			return IsBuffSkill(skillDefinition);
+		if (_editState?.LoadedData != null)
+			return IsBuffSkill(_editState.LoadedData);
+		return IsBuffSkill(skillDefinition);
+	}
+
+	private void UpdateIndependentBuffControlsEnabled(bool? isBuffSkillOverride = null)
+	{
+		bool isBuffSkill = isBuffSkillOverride
+			?? ResolveIsBuffSkillForIndependentBuff(BuildCurrentSkillPreviewForIndependentBuffState());
+
+		if (chkIndependentBuffEnabled != null)
+		{
+			if (!isBuffSkill)
+				chkIndependentBuffEnabled.Checked = false;
+			chkIndependentBuffEnabled.Enabled = isBuffSkill;
+		}
+
+		bool independentBuffEnabled = isBuffSkill && (chkIndependentBuffEnabled?.Checked ?? false);
+		if (dgvIndependentBuffStats != null)
+			dgvIndependentBuffStats.Enabled = independentBuffEnabled;
+	}
+
+	private SkillDefinition BuildCurrentSkillPreviewForIndependentBuffState()
+	{
+		var preview = new SkillDefinition();
+		preview.InfoType = ResolveCurrentInfoTypeHint();
+		preview.Action = ResolveCurrentActionHint();
+		return preview;
+	}
+
+	private int ResolveCurrentInfoTypeHint()
+	{
+		if (_editState?.LoadedData != null)
+			return _editState.LoadedData.InfoType;
+		return 0;
+	}
+
+	private string ResolveCurrentActionHint()
+	{
+		if (_editState?.LoadedData != null)
+			return _editState.LoadedData.Action ?? "";
+		return "";
+	}
+
+	private int ResolveIndependentBuffSourceSkillId(SkillDefinition skillDefinition)
+	{
+		if (skillDefinition == null)
+			return 0;
+		if (skillDefinition.IndependentBuff != null && skillDefinition.IndependentBuff.SourceSkillId > 0)
+			return skillDefinition.IndependentBuff.SourceSkillId;
+		if (skillDefinition.SkillId > 0)
+			return skillDefinition.SkillId;
+		if (skillDefinition.BehaviorSkillId > 0)
+			return skillDefinition.BehaviorSkillId;
+		if (skillDefinition.ProxySkillId > 0)
+			return skillDefinition.ProxySkillId;
+		return 0;
+	}
+
+	private bool TryReadIndependentBuffStatsFromSkill(int sourceSkillId, out Dictionary<string, string> bonuses, out string message, out bool isError)
+	{
+		bonuses = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		message = "";
+		isError = false;
+		if (sourceSkillId <= 0)
+		{
+			message = "请先填写当前超级技能ID；独立BUFF来源默认使用当前超级技能ID。";
+			return false;
+		}
+
+		WzSkillData data;
+		try
+		{
+			data = _wzLoader.LoadSkill(sourceSkillId);
+		}
+		catch (Exception ex)
+		{
+			message = "读取来源技能失败: " + ex.Message;
+			isError = true;
+			return false;
+		}
+		if (data == null)
+		{
+			message = $"未找到技能 {sourceSkillId} 的 WZ 数据。";
+			return false;
+		}
+
+		bonuses = BuildIndependentBuffStatBonusesFromWz(data);
+		if (bonuses.Count > 0)
+			return true;
+
+		string rawFields = BuildIndependentBuffRawFieldSummary(data);
+		message =
+			$"技能 {sourceSkillId} 没有识别到可直接映射的独立 BUFF 属性。\n可在下方属性表右键手动添加，并把数值列填成原始字段名。\n当前技能检测到的原始字段：{rawFields}";
+		return false;
+	}
+
+	private void ApplyIndependentBuffStatsToControls(IDictionary<string, string> bonuses)
+	{
+		if (chkIndependentBuffEnabled != null)
+			chkIndependentBuffEnabled.Checked = true;
+		UpdateIndependentBuffControlsEnabled();
+		if (dgvIndependentBuffStats == null)
+			return;
+		dgvIndependentBuffStats.Rows.Clear();
+		foreach (KeyValuePair<string, string> kv in OrderIndependentBuffBonuses(bonuses))
+			AddOrUpdateIndependentBuffStatRow(dgvIndependentBuffStats, kv.Key, kv.Value);
+	}
+
+	private void TryAutoLoadIndependentBuffStatsFromLoadedSkill(SkillDefinition skillDefinition)
+	{
+		if (skillDefinition == null || HasConfiguredIndependentBuffStats(skillDefinition.IndependentBuff) || !ResolveIsBuffSkillForIndependentBuff(skillDefinition))
+			return;
+		int sourceSkillId = ResolveIndependentBuffSourceSkillId(skillDefinition);
+		if (!TryReadIndependentBuffStatsFromSkill(sourceSkillId, out Dictionary<string, string> bonuses, out string _, out bool _))
+			return;
+		ApplyIndependentBuffStatsToControls(bonuses);
+		TryAutoPopulateIndependentBuffControls(force: true);
+		UpdateIndependentBuffGuideText();
+		Console.WriteLine($"[GUI] 已自动读取 skill/{sourceSkillId} 的独立BUFF属性");
+	}
+
+	private void LoadIndependentBuffStatsFromSourceSkill()
+	{
+		int sourceSkillId = ResolveIndependentBuffSourceSkillId();
+		if (!TryReadIndependentBuffStatsFromSkill(sourceSkillId, out Dictionary<string, string> bonuses, out string message, out bool isError))
+		{
+			MessageBox.Show(message, isError ? "错误" : "提示");
+			return;
+		}
+
+		ApplyIndependentBuffStatsToControls(bonuses);
+		TryAutoPopulateIndependentBuffControls(force: true);
+		UpdateIndependentBuffGuideText();
+
+		string mapped = string.Join(", ", OrderIndependentBuffBonuses(bonuses).Select((KeyValuePair<string, string> kv) => $"{kv.Key}={kv.Value}"));
+		MessageBox.Show(
+			$"已从技能 {sourceSkillId} 读取 {bonuses.Count} 个独立 BUFF 属性。\n\n已映射：{mapped}\n\n右键属性表可继续补充、删除，或把数值改成固定值。",
+			"完成");
+	}
+
+	private int ResolveProxySkillId()
+	{
+		return int.TryParse((txtProxySkillId?.Text ?? "").Trim(), out int proxySkillId) && proxySkillId > 0
+			? proxySkillId
+			: 0;
+	}
+
+	private int ResolveBehaviorSkillId()
+	{
+		return int.TryParse((txtBehaviorSkillId?.Text ?? "").Trim(), out int behaviorSkillId) && behaviorSkillId > 0
+			? behaviorSkillId
+			: 0;
+	}
+
+	private int ResolvePassiveBonusSourceSkillId(SkillDefinition skillDefinition)
+	{
+		if (skillDefinition != null)
+		{
+			if (skillDefinition.ProxySkillId > 0)
+				return skillDefinition.ProxySkillId;
+			if (skillDefinition.BehaviorSkillId > 0)
+				return skillDefinition.BehaviorSkillId;
+			if (skillDefinition.SkillId > 0)
+				return skillDefinition.SkillId;
+		}
+		int proxySkillId = ResolveProxySkillId();
+		if (proxySkillId > 0)
+			return proxySkillId;
+		int behaviorSkillId = ResolveBehaviorSkillId();
+		if (behaviorSkillId > 0)
+			return behaviorSkillId;
+		return GetCurrentEditingSkillId();
+	}
+
+	private int ResolveIndependentBuffSourceSkillId()
+	{
+		int currentSkillId = GetCurrentEditingSkillId();
+		if (currentSkillId > 0)
+			return currentSkillId;
+		int sourceSkillId = ResolveBehaviorSkillId();
+		if (sourceSkillId > 0)
+			return sourceSkillId;
+		sourceSkillId = ResolveProxySkillId();
+		if (sourceSkillId > 0)
+			return sourceSkillId;
+		return GetCurrentEditingSkillId();
+	}
+
+	private Dictionary<string, string> BuildIndependentBuffStatBonusesFromWz(WzSkillData data)
+	{
+		Dictionary<string, string> availableFields = CollectIndependentBuffAvailableWzFields(data);
+		Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		foreach (string key in IndependentBuffBonusKeys)
+		{
+			string field = FindIndependentBuffWzFieldForKey(availableFields, key);
+			if (!string.IsNullOrWhiteSpace(field))
+				result[key] = field;
+		}
+		return result;
+	}
+
+	private static Dictionary<string, string> CollectIndependentBuffAvailableWzFields(WzSkillData data)
+	{
+		Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		if (data?.CommonParams != null)
+		{
+			foreach (KeyValuePair<string, string> kv in data.CommonParams)
+			{
+				string key = (kv.Key ?? "").Trim();
+				if (!string.IsNullOrWhiteSpace(key) && !result.ContainsKey(key))
+					result[key] = key;
+			}
+		}
+		if (data?.LevelParams != null && data.LevelParams.Count > 0)
+		{
+			int firstLevel = data.LevelParams.Keys.Where((int lv) => lv > 0).DefaultIfEmpty(0).Min();
+			if (firstLevel > 0 && data.LevelParams.TryGetValue(firstLevel, out Dictionary<string, string> levelParams) && levelParams != null)
+			{
+				foreach (KeyValuePair<string, string> kv in levelParams)
+				{
+					string key = (kv.Key ?? "").Trim();
+					if (!string.IsNullOrWhiteSpace(key) && !result.ContainsKey(key))
+						result[key] = key;
+				}
+			}
+		}
+		return result;
+	}
+
+	private static string FindIndependentBuffWzFieldForKey(Dictionary<string, string> availableFields, string key)
+	{
+		if (availableFields == null || availableFields.Count == 0)
+			return "";
+		foreach (string candidate in GetIndependentBuffWzFieldCandidates(key))
+		{
+			if (!string.IsNullOrWhiteSpace(candidate) && availableFields.TryGetValue(candidate, out string actual))
+				return actual;
+		}
+		return "";
+	}
+
+	private static IEnumerable<string> GetIndependentBuffWzFieldCandidates(string key)
+	{
+		switch ((key ?? "").Trim())
+		{
+			case "str": return new string[] { "str" };
+			case "dex": return new string[] { "dex" };
+			case "int": return new string[] { "int" };
+			case "luk": return new string[] { "luk" };
+			case "allStat": return new string[] { "allStat" };
+			case "strPercent": return new string[] { "strPercent", "strR" };
+			case "dexPercent": return new string[] { "dexPercent", "dexR" };
+			case "intPercent": return new string[] { "intPercent", "intR" };
+			case "lukPercent": return new string[] { "lukPercent", "lukR" };
+			case "allStatPercent": return new string[] { "allStatPercent" };
+			case "watk": return new string[] { "pad", "watk" };
+			case "matk": return new string[] { "mad", "matk" };
+			case "wdef": return new string[] { "pdd", "wdef" };
+			case "mdef": return new string[] { "mdd", "mdef" };
+			case "acc": return new string[] { "acc" };
+			case "avoid": return new string[] { "eva", "avoid" };
+			case "speed": return new string[] { "speed" };
+			case "jump": return new string[] { "jump" };
+			case "maxHp": return new string[] { "hp", "maxHp", "mhp" };
+			case "maxMp": return new string[] { "mp", "maxMp", "mmp" };
+			case "maxHpPercent": return new string[] { "maxHpPercent", "mhpR" };
+			case "maxMpPercent": return new string[] { "maxMpPercent", "mmpR" };
+			case "damagePercent": return new string[] { "damRate", "damagePercent", "damage" };
+			case "bossDamagePercent": return new string[] { "bossDamagePercent", "bdr" };
+			case "ignoreDefensePercent": return new string[] { "ignoreMob", "ignoreDefensePercent" };
+			case "criticalRate": return new string[] { "criticalRate", "cr" };
+			case "criticalMinDamage": return new string[] { "criticalMinDamage" };
+			case "criticalMaxDamage": return new string[] { "criticalMaxDamage" };
+			case "asr": return new string[] { "asr" };
+			case "ter": return new string[] { "ter" };
+			case "attackSpeedStage": return new string[] { "booster", "attackSpeedStage" };
+			default: return new string[] { key ?? "" };
+		}
+	}
+
+	private string BuildIndependentBuffRawFieldSummary(WzSkillData data)
+	{
+		Dictionary<string, string> availableFields = CollectIndependentBuffAvailableWzFields(data);
+		if (availableFields.Count == 0)
+			return "无";
+		return string.Join(", ", availableFields.Keys.OrderBy((string item) => item).Take(18));
+	}
+
+	private static IEnumerable<KeyValuePair<string, string>> OrderIndependentBuffBonuses(IDictionary<string, string> bonuses)
+	{
+		List<KeyValuePair<string, string>> result = new List<KeyValuePair<string, string>>();
+		if (bonuses == null || bonuses.Count == 0)
+			return result;
+
+		HashSet<string> used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		foreach (string key in IndependentBuffBonusKeys)
+		{
+			if (!bonuses.TryGetValue(key, out string value) || string.IsNullOrWhiteSpace(value))
+				continue;
+			result.Add(new KeyValuePair<string, string>(key, value));
+			used.Add(key);
+		}
+
+		foreach (KeyValuePair<string, string> kv in bonuses.OrderBy((KeyValuePair<string, string> item) => item.Key, StringComparer.OrdinalIgnoreCase))
+		{
+			if (used.Contains(kv.Key) || string.IsNullOrWhiteSpace(kv.Value))
+				continue;
+			result.Add(kv);
+		}
+		return result;
+	}
+
+	private static string GetIndependentBuffBonusChineseName(string key)
+	{
+		switch ((key ?? "").Trim())
+		{
+			case "str": return "力量";
+			case "dex": return "敏捷";
+			case "int": return "智力";
+			case "luk": return "运气";
+			case "allStat": return "全属性";
+			case "strPercent": return "力量%";
+			case "dexPercent": return "敏捷%";
+			case "intPercent": return "智力%";
+			case "lukPercent": return "运气%";
+			case "allStatPercent": return "全属性%";
+			case "watk": return "物攻";
+			case "matk": return "魔攻";
+			case "wdef": return "物防";
+			case "mdef": return "魔防";
+			case "acc": return "命中";
+			case "avoid": return "回避";
+			case "speed": return "移速";
+			case "jump": return "跳跃";
+			case "maxHp": return "最大HP";
+			case "maxMp": return "最大MP";
+			case "maxHpPercent": return "最大HP%";
+			case "maxMpPercent": return "最大MP%";
+			case "damagePercent": return "伤害%";
+			case "bossDamagePercent": return "BOSS伤害%";
+			case "ignoreDefensePercent": return "无视防御%";
+			case "criticalRate": return "暴击率";
+			case "criticalMinDamage": return "暴击最小伤害";
+			case "criticalMaxDamage": return "暴击最大伤害";
+			case "asr": return "异常抗性";
+			case "ter": return "属性抗性";
+			case "attackSpeedStage": return "攻速阶段";
+			default: return string.IsNullOrWhiteSpace(key) ? "" : key;
+		}
+	}
+
+	private static string BuildIndependentBuffBonusHelp(string key)
+	{
+		switch ((key ?? "").Trim())
+		{
+			case "str": return "角色力量固定加值。示例：20 或 str。";
+			case "dex": return "角色敏捷固定加值。示例：20 或 dex。";
+			case "int": return "角色智力固定加值。示例：20 或 int。";
+			case "luk": return "角色运气固定加值。示例：20 或 luk。";
+			case "allStat": return "四维一起增加。示例：10。";
+			case "strPercent": return "力量百分比加成。示例：10。";
+			case "dexPercent": return "敏捷百分比加成。示例：10。";
+			case "intPercent": return "智力百分比加成。示例：10。";
+			case "lukPercent": return "运气百分比加成。示例：10。";
+			case "allStatPercent": return "四维百分比加成。示例：5。";
+			case "watk": return "物理攻击力。可写固定值或 pad / watk。";
+			case "matk": return "魔法攻击力。可写固定值或 mad / matk。";
+			case "wdef": return "物理防御力。可写固定值或 pdd / wdef。";
+			case "mdef": return "魔法防御力。可写固定值或 mdd / mdef。";
+			case "acc": return "命中。可写固定值或 acc。";
+			case "avoid": return "回避。可写固定值或 avoid。";
+			case "speed": return "移动速度。可写固定值或 speed。";
+			case "jump": return "跳跃力。可写固定值或 jump。";
+			case "maxHp": return "最大HP固定值。可写固定值或 hp / maxHp。";
+			case "maxMp": return "最大MP固定值。可写固定值或 mp / maxMp。";
+			case "maxHpPercent": return "最大HP百分比。可写固定值或 maxHpPercent。";
+			case "maxMpPercent": return "最大MP百分比。可写固定值或 maxMpPercent。";
+			case "damagePercent": return "最终伤害增量。示例：500 或 damRate。";
+			case "bossDamagePercent": return "BOSS伤害增量。示例：30 或 bossDamagePercent。";
+			case "ignoreDefensePercent": return "无视防御增量。示例：30 或 ignoreMob。";
+			case "criticalRate": return "暴击率。示例：10 或 criticalRate。";
+			case "criticalMinDamage": return "暴击最小伤害。示例：15。";
+			case "criticalMaxDamage": return "暴击最大伤害。示例：20。";
+			case "asr": return "异常状态抗性。示例：20。";
+			case "ter": return "属性抗性。示例：20。";
+			case "attackSpeedStage": return "攻速阶段。当前工具/服务端能写出，但 PlayerStats 还未正式应用。";
+			default: return "右列填固定数值，或填技能字段名。空值或取消勾选都不会写出。";
+		}
+	}
+
+	private static string BuildIndependentBuffBonusComment(string key)
+	{
+		string zh = GetIndependentBuffBonusChineseName(key);
+		string help = BuildIndependentBuffBonusHelp(key);
+		return string.IsNullOrWhiteSpace(zh)
+			? help
+			: $"{key}（{zh}）\n{help}";
+	}
+
+	private static string FormatSkillIdListForGuide(List<int> skillIds)
+	{
+		if (skillIds == null || skillIds.Count == 0)
+			return "";
+		return string.Join(", ", skillIds.Distinct().OrderBy((int id) => id));
+	}
+
+	private string BuildIndependentBuffConflictGuide(int currentSkillId, string carrierBuffStat, string nativeBuffStat)
+	{
+		List<int> carrierConflicts = new List<int>();
+		List<int> nativeConflicts = new List<int>();
+		int editingIndex = (_editState != null && _editState.EditingListIndex.HasValue) ? _editState.EditingListIndex.Value : (-1);
+
+		if (_pendingSkills != null)
+		{
+			for (int i = 0; i < _pendingSkills.Count; i++)
+			{
+				SkillDefinition sd = _pendingSkills[i];
+				if (sd == null || sd.IndependentBuff == null || !sd.IndependentBuff.IsConfigured())
+					continue;
+				if (i == editingIndex)
+					continue;
+				if (currentSkillId > 0 && sd.SkillId == currentSkillId)
+					continue;
+
+				IndependentBuffDefinition otherBuff = sd.BuildResolvedIndependentBuff();
+				string otherCarrier = (otherBuff?.CarrierBuffStat ?? "").Trim();
+				string otherNative = (otherBuff?.ClientNativeBuffStat ?? "").Trim();
+				if (!string.IsNullOrWhiteSpace(carrierBuffStat) && string.Equals(otherCarrier, carrierBuffStat, StringComparison.OrdinalIgnoreCase))
+					carrierConflicts.Add(sd.SkillId);
+				if (!string.IsNullOrWhiteSpace(nativeBuffStat) && string.Equals(otherNative, nativeBuffStat, StringComparison.OrdinalIgnoreCase))
+					nativeConflicts.Add(sd.SkillId);
+			}
+		}
+
+		string text = "";
+		if (string.Equals(carrierBuffStat, nativeBuffStat, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(carrierBuffStat))
+		{
+			text += "当前警告：载体和原生类型提示写成了同一个 BuffStat。纯原生独立BUFF通常不建议这样写，容易让 carrier 改写失去意义。\r\n\r\n";
+		}
+		if (carrierConflicts.Count > 0)
+		{
+			text += $"服务端载体冲突：当前 carrier 与这些技能重复 -> {FormatSkillIdListForGuide(carrierConflicts)}。结果通常是服务端独立BUFF之间互相覆盖。\r\n\r\n";
+		}
+		else if (!string.IsNullOrWhiteSpace(carrierBuffStat))
+		{
+			text += $"服务端载体检查：当前 carrier `{carrierBuffStat}` 未发现与待处理列表中的其它独立BUFF重复，适合做不冲突配置。\r\n\r\n";
+		}
+
+		if (nativeConflicts.Count > 0)
+		{
+			text += $"客户端原生槽位冲突：当前 native 与这些技能重复 -> {FormatSkillIdListForGuide(nativeConflicts)}。结果通常是右上角图标互相覆盖；如果这是你故意要做的“可冲突BUFF”，可以保留。\r\n\r\n";
+		}
+		else if (!string.IsNullOrWhiteSpace(nativeBuffStat))
+		{
+			text += $"客户端原生槽位检查：当前 native `{nativeBuffStat}` 未发现与待处理列表中的其它独立BUFF重复，适合做纯原生不冲突显示。\r\n\r\n";
+		}
+		return text;
+	}
+
+	private int GetCurrentEditingSkillId()
+	{
+		if (int.TryParse((txtSkillId?.Text ?? "").Trim(), out int skillId) && skillId > 0)
+			return skillId;
+		if (int.TryParse((txtSkillIdInput?.Text ?? "").Trim(), out skillId) && skillId > 0)
+			return skillId;
+		return 0;
+	}
+
+	private string SuggestIndependentCarrierBuffStat(int currentSkillId, string preferredCarrier)
+	{
+		string preferred = (preferredCarrier ?? "").Trim();
+		if (string.IsNullOrWhiteSpace(preferred))
+			preferred = "DEFAULT_BUFFSTAT";
+
+		bool preferredUsed = false;
+		bool alternateUsed = false;
+		string alternate = string.Equals(preferred, "DEFAULT_BUFFSTAT2", StringComparison.OrdinalIgnoreCase)
+			? "DEFAULT_BUFFSTAT"
+			: "DEFAULT_BUFFSTAT2";
+		int editingIndex = (_editState != null && _editState.EditingListIndex.HasValue) ? _editState.EditingListIndex.Value : (-1);
+		if (_pendingSkills != null)
+		{
+			for (int i = 0; i < _pendingSkills.Count; i++)
+			{
+				SkillDefinition sd = _pendingSkills[i];
+				if (sd == null || sd.IndependentBuff == null || !sd.IndependentBuff.IsConfigured())
+					continue;
+				if (i == editingIndex)
+					continue;
+				if (currentSkillId > 0 && sd.SkillId == currentSkillId)
+					continue;
+				IndependentBuffDefinition otherBuff = sd.BuildResolvedIndependentBuff();
+				string otherCarrier = (otherBuff?.CarrierBuffStat ?? "").Trim();
+				if (string.Equals(otherCarrier, preferred, StringComparison.OrdinalIgnoreCase))
+					preferredUsed = true;
+				if (string.Equals(otherCarrier, alternate, StringComparison.OrdinalIgnoreCase))
+					alternateUsed = true;
+			}
+		}
+
+		if (!preferredUsed)
+			return preferred;
+		if (!alternateUsed)
+			return alternate;
+		return preferred;
+	}
+
+	private IndependentBuffDefinition BuildResolvedIndependentBuffPreview(bool preferAvailableCarrier)
+	{
+		SkillDefinition preview = new SkillDefinition
+		{
+			SkillId = GetCurrentEditingSkillId(),
+			IndependentBuff = CollectIndependentBuffFromControls()
+		};
+		IndependentBuffDefinition resolved = preview.BuildResolvedIndependentBuff();
+		if (preferAvailableCarrier && resolved != null)
+			resolved.CarrierBuffStat = SuggestIndependentCarrierBuffStat(preview.SkillId, resolved.CarrierBuffStat);
+		return resolved;
+	}
+
+	private void TryAutoPopulateIndependentBuffControls(bool force)
+	{
+		if (chkIndependentBuffEnabled == null || !(chkIndependentBuffEnabled.Checked || force))
+			return;
+		UpdateIndependentBuffControlsEnabled();
+		UpdateIndependentBuffGuideText();
+	}
+
+	private void UpdateIndependentBuffGuideText()
+	{
+		if (txtIndependentBuffGuide == null)
+			return;
+		IndependentBuffDefinition resolved = BuildResolvedIndependentBuffPreview(preferAvailableCarrier: true);
+		IndependentBuffAutoProfile profile = SkillDefinition.BuildIndependentBuffAutoProfile(CollectIndependentBuffFromControls());
+		List<string> configuredBonuses = new List<string>();
+		if (resolved?.StatBonuses != null)
+		{
+			foreach (KeyValuePair<string, string> kv in OrderIndependentBuffBonuses(resolved.StatBonuses))
+				configuredBonuses.Add($"{kv.Key}={kv.Value}");
+		}
+		txtIndependentBuffGuide.Text =
+			$"来源技能：{ResolveIndependentBuffSourceSkillId()}\r\n" +
+			$"主属性：{(string.IsNullOrWhiteSpace(profile.PrimaryBonusKey) ? "未识别" : profile.PrimaryBonusKey)}\r\n" +
+			$"自动载体：{resolved?.CarrierBuffStat ?? ""}\r\n" +
+			$"自动原生槽位：{resolved?.ClientNativeBuffStat ?? ""}\r\n" +
+			$"自动显示模式：{resolved?.ClientBuffDisplayMode ?? ""}\r\n" +
+			$"当前属性：{(configuredBonuses.Count > 0 ? string.Join(", ", configuredBonuses) : "无")}";
+	}
+
+	private static string GetIndependentBuffStatUsageHelp(string statName)
+	{
+		switch ((statName ?? "").Trim().ToUpperInvariant())
+		{
+			case "DEFAULT_BUFFSTAT": return "推荐默认独立载体，通常最适合先做隔离测试";
+			case "DEFAULT_BUFFSTAT2": return "第二个独立载体，适合和 DEFAULT_BUFFSTAT 并行挂第二个独立BUFF";
+			case "WDEF": return "原生物防槽位，容易和原版圣甲术/物防BUFF冲突";
+			case "MDEF": return "原生魔防槽位，容易和原版魔防BUFF冲突";
+			case "WATK": return "原生物攻槽位，容易和祝福/斗气类BUFF冲突";
+			case "MATK": return "原生魔攻槽位，容易和魔力相关BUFF冲突";
+			case "SPEED": return "原生移速槽位，适合显示移动类BUFF，但会和移速BUFF抢槽位";
+			case "JUMP": return "原生跳跃槽位，适合显示跳跃类BUFF，但会和跳跃BUFF抢槽位";
+			case "ENHANCED_WDEF": return "推荐用于独立物防显示槽位";
+			case "ENHANCED_MDEF": return "推荐用于独立魔防显示槽位";
+			case "ENHANCED_WATK": return "推荐用于独立物攻显示槽位";
+			case "ENHANCED_MATK": return "推荐用于独立魔攻显示槽位";
+			case "ANGEL_ACC": return "推荐用于独立命中显示槽位";
+			case "ANGEL_AVOID": return "推荐用于独立回避显示槽位";
+			case "ANGEL_SPEED": return "推荐用于独立移速显示槽位";
+			case "ANGEL_JUMP": return "推荐用于独立跳跃显示槽位";
+			case "MAGIC_SHIELD": return "可作为纯原生独立显示槽位之一，适合魔防/护盾类表现";
+			case "WATER_SHIELD": return "可作为纯原生独立显示槽位之一，适合防御/护盾类表现";
+			case "COMBAT_ORDERS": return "可作为纯原生独立显示槽位之一，但要避开真正战斗命令类BUFF";
+			case "DARK_AURA": return "可作为纯原生独立显示槽位之一，适合总伤/特殊增益表现";
+			case "BLUE_AURA": return "可作为纯原生独立显示槽位之一，适合防御/减伤表现";
+			case "YELLOW_AURA": return "可作为纯原生独立显示槽位之一，适合速度/命中类表现";
+			case "BLESS": return "可作为纯原生独立显示槽位之一，但要避开祝福类原版BUFF";
+			case "DAMAGE_BUFF": return "可作为纯原生独立显示槽位之一，适合总伤/BOSS伤表现";
+			case "ATTACK_BUFF": return "可作为纯原生独立显示槽位之一，适合攻击强化表现";
+			case "HOLY_MAGIC_SHELL": return "可作为纯原生独立显示槽位之一，但要避开圣灵魔法盾";
+			case "DEFENCE_BOOST_R": return "可作为纯原生独立显示槽位之一，适合防御强化表现";
+			case "DASH_SPEED": return "可作为纯原生独立显示槽位之一，适合移动速度类BUFF";
+			case "DASH_JUMP": return "可作为纯原生独立显示槽位之一，适合跳跃类BUFF";
+			case "COMBO": return "原生连击槽位，通常不建议拿来做通用显示";
+			case "SHADOWPARTNER": return "原生影分身槽位，只适合非常确定的特殊表现";
+			case "MAPLE_WARRIOR": return "原生冒险岛勇士槽位，可能和常驻BUFF冲突";
+			case "MONSTER_RIDING": return "骑宠槽位，通常只给骑宠技能用";
+			case "SOARING": return "飞行槽位，只给飞行/骑宠飞行类技能用";
+			case "DIVINE_BODY": return "客户端已验证过可用于独立显示的原生槽位之一";
+			default: return string.IsNullOrWhiteSpace(statName) ? "未选择" : "请确认这个槽位不会与原版BUFF冲突";
+		}
 	}
 
 	private void BuildSkillLibraryPanel(Control host)
@@ -2713,11 +4173,15 @@ public class MainForm : Form
 		btnMountClone.Click += BtnMountClone_Click;
 		top.Controls.Add(btnMountClone);
 
-		btnMountAddNode = new Button { Text = "新增动作节点", Location = new Point(482, 6), Width = 90 };
+		btnMountNewTamingMob = new Button { Text = "新建参数档", Location = new Point(482, 6), Width = 116 };
+		btnMountNewTamingMob.Click += BtnMountNewTamingMob_Click;
+		top.Controls.Add(btnMountNewTamingMob);
+
+		btnMountAddNode = new Button { Text = "新增动作节点", Location = new Point(604, 6), Width = 90 };
 		btnMountAddNode.Click += BtnMountAddNode_Click;
 		top.Controls.Add(btnMountAddNode);
 
-		btnMountRemoveNode = new Button { Text = "删除动作节点", Location = new Point(578, 6), Width = 90 };
+		btnMountRemoveNode = new Button { Text = "删除动作节点", Location = new Point(700, 6), Width = 90 };
 		btnMountRemoveNode.Click += BtnMountRemoveNode_Click;
 		top.Controls.Add(btnMountRemoveNode);
 
@@ -2803,7 +4267,7 @@ public class MainForm : Form
 		{
 			Dock = DockStyle.Fill,
 			Orientation = Orientation.Vertical,
-			SplitterDistance = 560
+			SplitterDistance = 680
 		};
 		root.Controls.Add(split, 0, 1);
 
@@ -2811,11 +4275,12 @@ public class MainForm : Form
 		{
 			Dock = DockStyle.Fill,
 			ColumnCount = 1,
-			RowCount = 4
+			RowCount = 5
 		};
 		left.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 		left.RowStyles.Add(new RowStyle(SizeType.Absolute, 26f));
-		left.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+		left.RowStyles.Add(new RowStyle(SizeType.Percent, 46f));
+		left.RowStyles.Add(new RowStyle(SizeType.Percent, 54f));
 		left.RowStyles.Add(new RowStyle(SizeType.Absolute, 18f));
 		left.RowStyles.Add(new RowStyle(SizeType.Absolute, 170f));
 		split.Panel1.Controls.Add(left);
@@ -2834,11 +4299,43 @@ public class MainForm : Form
 		cboMountActionNode = new ComboBox
 		{
 			Location = new Point(68, 0),
-			Width = 170,
+			Width = 140,
 			DropDownStyle = ComboBoxStyle.DropDownList
 		};
 		cboMountActionNode.SelectedIndexChanged += CboMountActionNode_SelectedIndexChanged;
 		nodeBar.Controls.Add(cboMountActionNode);
+		nodeBar.Controls.Add(new Label
+		{
+			Text = "顶点:",
+			AutoSize = true,
+			Location = new Point(216, 6)
+		});
+		cboMountNodePage = new ComboBox
+		{
+			Location = new Point(255, 0),
+			Width = 110,
+			DropDownStyle = ComboBoxStyle.DropDownList
+		};
+		cboMountNodePage.SelectedIndexChanged += CboMountNodePage_SelectedIndexChanged;
+		nodeBar.Controls.Add(cboMountNodePage);
+		Button btnMountLeftAddNode = new Button
+		{
+			Text = "+节点",
+			Location = new Point(372, 0),
+			Size = new Size(54, 22),
+			ForeColor = Color.LimeGreen
+		};
+		btnMountLeftAddNode.Click += BtnMountAddNode_Click;
+		nodeBar.Controls.Add(btnMountLeftAddNode);
+		Button btnMountLeftRemoveNode = new Button
+		{
+			Text = "-节点",
+			Location = new Point(430, 0),
+			Size = new Size(54, 22),
+			ForeColor = Color.OrangeRed
+		};
+		btnMountLeftRemoveNode.Click += BtnMountRemoveNode_Click;
+		nodeBar.Controls.Add(btnMountLeftRemoveNode);
 		left.Controls.Add(nodeBar, 0, 0);
 
 		lvMountFrames = new ListView
@@ -2855,6 +4352,7 @@ public class MainForm : Form
 		lvMountFrames.Columns.Add("延迟", 64);
 		lvMountFrames.Columns.Add("定位/参数", 320);
 		lvMountFrames.SelectedIndexChanged += LvMountFrames_SelectedChanged;
+		lvMountFrames.KeyDown += MountFrames_KeyDown;
 		lvMountFrames.DragEnter += MountFrames_DragEnter;
 		lvMountFrames.DragDrop += MountFrames_DragDrop;
 		left.Controls.Add(lvMountFrames, 0, 1);
@@ -2871,6 +4369,11 @@ public class MainForm : Form
 		mountFrameMenu.Items.Add("删除帧", null, MountMenu_DeleteFrame);
 		lvMountFrames.ContextMenuStrip = mountFrameMenu;
 
+		GroupBox gbNodeList = new GroupBox { Text = "顶点属性（右键增删改查）", Dock = DockStyle.Fill };
+		lvMountNodeChildren = CreateMountNodeChildrenList();
+		gbNodeList.Controls.Add(lvMountNodeChildren);
+		left.Controls.Add(gbNodeList, 0, 2);
+
 		Label previewTip = new Label
 		{
 			Text = "帧预览（拖拽图片到帧列表可快速添加）",
@@ -2878,7 +4381,7 @@ public class MainForm : Form
 			Dock = DockStyle.Fill,
 			TextAlign = ContentAlignment.MiddleLeft
 		};
-		left.Controls.Add(previewTip, 0, 2);
+		left.Controls.Add(previewTip, 0, 3);
 
 		picMountFramePreview = new PictureBox
 		{
@@ -2887,7 +4390,7 @@ public class MainForm : Form
 			SizeMode = PictureBoxSizeMode.Zoom,
 			BackColor = Color.FromArgb(40, 40, 40)
 		};
-		left.Controls.Add(picMountFramePreview, 0, 3);
+		left.Controls.Add(picMountFramePreview, 0, 4);
 
 		TableLayoutPanel right = new TableLayoutPanel
 		{
@@ -2896,8 +4399,8 @@ public class MainForm : Form
 			RowCount = 2
 		};
 		right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-		right.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
-		right.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+		right.RowStyles.Add(new RowStyle(SizeType.Percent, 74f));
+		right.RowStyles.Add(new RowStyle(SizeType.Percent, 26f));
 		split.Panel2.Controls.Add(right);
 
 		GroupBox gbActionInfo = new GroupBox { Text = "动作IMG info（含 tamingMob）", Dock = DockStyle.Fill };
@@ -2911,6 +4414,88 @@ public class MainForm : Form
 		WireMountInfoGridToolTips(dgvMountDataInfo);
 		gbDataInfo.Controls.Add(dgvMountDataInfo);
 		right.Controls.Add(gbDataInfo, 0, 1);
+	}
+
+	private TreeView CreateMountTreeView()
+	{
+		var tree = new TreeView
+		{
+			Dock = DockStyle.Fill,
+			HideSelection = false,
+			ShowNodeToolTips = true,
+			FullRowSelect = true,
+			BackColor = Color.FromArgb(35, 35, 35),
+			ForeColor = Color.White
+		};
+		tree.NodeMouseClick += TreeView_SelectNodeOnRightClick;
+		return tree;
+	}
+
+	private ListView CreateMountNodeChildrenList()
+	{
+		var list = new ListView
+		{
+			Dock = DockStyle.Fill,
+			View = View.Details,
+			FullRowSelect = true,
+			MultiSelect = false,
+			GridLines = true,
+			HideSelection = false
+		};
+		list.Columns.Add("节点", 120);
+		list.Columns.Add("类型", 80);
+		list.Columns.Add("值", 120);
+		list.Columns.Add("说明", 260);
+		list.SelectedIndexChanged += MountNodeList_SelectedIndexChanged;
+		list.DoubleClick += MountNodeList_DoubleClick;
+		list.ContextMenuStrip = BuildMountNodeListContextMenu();
+		return list;
+	}
+
+	private ContextMenuStrip BuildMountNodeListContextMenu()
+	{
+		var menu = new ContextMenuStrip();
+		menu.Items.Add("编辑节点值/属性...", null, delegate { MountNodeList_EditSelected(); });
+		menu.Items.Add("替换图片(Canvas)...", null, delegate { MountNodeList_ReplaceCanvasImage(); });
+		menu.Items.Add("重命名节点...", null, delegate { MountNodeList_RenameSelected(); });
+		menu.Items.Add("添加子节点...", null, delegate { MountNodeList_AddChild(); });
+		menu.Items.Add("删除节点", null, delegate { MountNodeList_DeleteSelected(); });
+		menu.Items.Add(new ToolStripSeparator());
+		menu.Items.Add("复制节点", null, delegate { MountNodeList_CopySelected(); });
+		menu.Items.Add("粘贴为子节点", null, delegate { MountNodeList_PasteIntoSelected(); });
+		menu.Items.Add(new ToolStripSeparator());
+		menu.Items.Add("复制节点路径", null, delegate { MountNodeList_CopyPath(); });
+		return menu;
+	}
+
+	private Label CreateMountTreeInfoLabel(string text)
+	{
+		return new Label
+		{
+			Dock = DockStyle.Bottom,
+			Height = 44,
+			Text = text,
+			ForeColor = Color.Gainsboro,
+			BackColor = Color.FromArgb(45, 45, 45),
+			TextAlign = ContentAlignment.MiddleLeft,
+			Padding = new Padding(4, 2, 4, 2)
+		};
+	}
+
+	private ContextMenuStrip BuildMountTreeContextMenu(TreeView tree, bool actionTree)
+	{
+		var menu = new ContextMenuStrip();
+		menu.Items.Add("编辑节点值/属性...", null, delegate { MountTree_EditSelected(tree, actionTree); });
+		menu.Items.Add("替换图片(Canvas)...", null, delegate { MountTree_ReplaceCanvasImage(tree, actionTree); });
+		menu.Items.Add("重命名节点...", null, delegate { MountTree_RenameSelected(tree, actionTree); });
+		menu.Items.Add("添加子节点...", null, delegate { MountTree_AddChild(tree, actionTree); });
+		menu.Items.Add("删除节点", null, delegate { MountTree_DeleteSelected(tree, actionTree); });
+		menu.Items.Add(new ToolStripSeparator());
+		menu.Items.Add("复制节点", null, delegate { MountTree_CopySelected(tree); });
+		menu.Items.Add("粘贴为子节点", null, delegate { MountTree_PasteIntoSelected(tree, actionTree); });
+		menu.Items.Add(new ToolStripSeparator());
+		menu.Items.Add("复制节点路径", null, delegate { MountTree_CopyPath(tree); });
+		return menu;
 	}
 
 	private DataGridView CreateMountInfoGrid()
@@ -2931,8 +4516,12 @@ public class MainForm : Form
 		grid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(60, 60, 60);
 		grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
 		grid.EnableHeadersVisualStyles = false;
-		grid.Columns.Add("Param", "参数");
-		grid.Columns.Add("Value", "值");
+		var paramColumn = new DataGridViewTextBoxColumn { Name = "Param", HeaderText = "参数", FillWeight = 28f };
+		var valueColumn = new DataGridViewTextBoxColumn { Name = "Value", HeaderText = "值", FillWeight = 20f };
+		var commentColumn = new DataGridViewTextBoxColumn { Name = "Comment", HeaderText = "注释", FillWeight = 52f, ReadOnly = true };
+		grid.Columns.Add(paramColumn);
+		grid.Columns.Add(valueColumn);
+		grid.Columns.Add(commentColumn);
 		return grid;
 	}
 
@@ -2947,6 +4536,7 @@ public class MainForm : Form
 		grid.MouseMove += MountInfoGrid_MouseMove;
 		grid.MouseLeave += MountInfoGrid_MouseLeave;
 		grid.MouseDown += MountInfoGrid_MouseDownSelectCell;
+		grid.CellEndEdit += MountInfoGrid_CellEndEdit;
 		ContextMenuStrip menu = new ContextMenuStrip();
 		menu.Items.Add("添加参数...", null, delegate
 		{
@@ -2970,6 +4560,15 @@ public class MainForm : Form
 		});
 		grid.ContextMenuStrip = menu;
 		_toolTip?.SetToolTip(grid, string.Empty);
+	}
+
+	private void MountInfoGrid_CellEndEdit(object sender, DataGridViewCellEventArgs e)
+	{
+		if (sender is not DataGridView grid || e.RowIndex < 0 || e.RowIndex >= grid.Rows.Count)
+			return;
+		if (e.ColumnIndex != 0 || grid.Rows[e.RowIndex].IsNewRow)
+			return;
+		UpdateMountInfoGridRowComment(grid, grid.Rows[e.RowIndex]);
 	}
 
 	private void MountInfoGrid_CellMouseEnter(object sender, DataGridViewCellEventArgs e)
@@ -3003,9 +4602,12 @@ public class MainForm : Form
 		if (hitTestInfo.RowIndex >= 0 && hitTestInfo.ColumnIndex >= 0
 			&& hitTestInfo.RowIndex < grid.Rows.Count && !grid.Rows[hitTestInfo.RowIndex].IsNewRow)
 		{
-			grid.ClearSelection();
 			grid.CurrentCell = grid.Rows[hitTestInfo.RowIndex].Cells[hitTestInfo.ColumnIndex];
-			grid.Rows[hitTestInfo.RowIndex].Selected = true;
+			if (!grid.Rows[hitTestInfo.RowIndex].Selected)
+			{
+				grid.ClearSelection();
+				grid.Rows[hitTestInfo.RowIndex].Selected = true;
+			}
 		}
 	}
 
@@ -3027,8 +4629,9 @@ public class MainForm : Form
 			if (!string.IsNullOrWhiteSpace(key))
 				existing.Add(key);
 		}
+		AddExistingMountInfoTreeKeys(existing, isActionInfo);
 
-		List<string> selected = ShowMountParamPicker(isActionInfo ? "添加动作参数" : "添加数据参数", allKeys, existing);
+		List<string> selected = ShowMountParamPicker(isActionInfo ? "添加动作参数" : "添加参数IMG参数", allKeys, existing, isActionInfo);
 		if (selected == null || selected.Count == 0)
 			return;
 
@@ -3037,13 +4640,31 @@ public class MainForm : Form
 		{
 			if (string.IsNullOrWhiteSpace(key) || existing.Contains(key))
 				continue;
-			grid.Rows.Add(key, GetMountParamDefaultValue(key, isActionInfo));
+			int rowIndex = grid.Rows.Add(key, GetMountParamDefaultValue(key, isActionInfo), BuildMountParamComment(key, isActionInfo));
+			if (rowIndex >= 0 && rowIndex < grid.Rows.Count)
+				UpdateMountInfoGridRowComment(grid, grid.Rows[rowIndex]);
 			existing.Add(key);
 			added++;
 		}
 
 		if (added <= 0)
 			MessageBox.Show("所选参数均已存在，未重复添加。", "提示");
+	}
+
+	private void AddExistingMountInfoTreeKeys(HashSet<string> existing, bool isActionInfo)
+	{
+		if (existing == null)
+			return;
+		WzNodeInfo root = isActionInfo ? _mountEditorData?.ActionTree : _mountEditorData?.DataTree;
+		WzNodeInfo info = FindChildInfo(root, "info");
+		if (info?.Children == null)
+			return;
+		foreach (var child in info.Children)
+		{
+			string key = (child?.Name ?? "").Trim();
+			if (!string.IsNullOrEmpty(key))
+				existing.Add(key);
+		}
 	}
 
 	private void MountInfoGrid_DeleteCurrent(DataGridView grid)
@@ -3093,7 +4714,14 @@ public class MainForm : Form
 			return "";
 		if (isActionInfo)
 		{
-			if (string.Equals(k, "tamingMob", StringComparison.OrdinalIgnoreCase))
+			string lower = k.ToLowerInvariant();
+			if (lower == "tamingmob")
+				return "1";
+			if (lower == "islot" || lower == "vslot")
+				return "Tm";
+			if (lower == "notsale" || lower == "tradeblock" || lower == "only")
+				return "1";
+			if (lower == "slotmax")
 				return "1";
 			if (k.StartsWith("passengerNavel", StringComparison.OrdinalIgnoreCase))
 				return "0";
@@ -3110,9 +4738,9 @@ public class MainForm : Form
 			return "1";
 		case "fs":
 		case "swim":
-		case "continentMove":
-		case "userSpeed":
-		case "userJump":
+		case "continentmove":
+		case "userspeed":
+		case "userjump":
 			return "0";
 		default:
 			return "0";
@@ -3133,16 +4761,53 @@ public class MainForm : Form
 		case "vslot": return "可视槽类型";
 		case "reqjob": return "需求职业";
 		case "reqlevel": return "需求等级";
+		case "tuc": return "可升级次数";
 		case "tradeblock": return "禁止交易";
 		case "notsale": return "不可出售";
+		case "only": return "唯一道具";
 		case "cash": return "现金标记";
+		case "slotmax": return "最大堆叠";
+		case "timelimited": return "限时标记";
+		case "dropblock": return "禁止丢弃";
+		case "type": return "坐骑类型";
+		case "avatarcount": return "外观数量";
+		case "partscount": return "部件数量";
+		case "partsquestid": return "部件任务";
 		case "passengernum": return "乘客数量";
+		case "vehicleskillistown": return "城镇技能";
+		case "vehiclenaviflyinglevel": return "导航飞行等级";
+		case "vehiclenewflyinglevel": return "新版飞行等级";
+		case "vehicleglidelevel": return "滑翔等级";
+		case "vehicledoublejumplevel": return "二段跳等级";
+		case "doskillactivebyattackkey": return "攻击键触发";
+		case "forcecharacteraction": return "强制角色动作";
+		case "forcecharacteractionframeindex": return "强制动作帧";
+		case "forcecharacteremotion": return "强制表情";
+		case "forcecharacterface": return "强制脸型";
+		case "forcecharacterfaceframeindex": return "强制脸帧";
+		case "forcecharacterflip": return "强制翻转";
 		case "removebody": return "隐藏身体";
+		case "removejobwing": return "隐藏职业翅膀";
+		case "removeeffect": return "隐藏特效";
+		case "removeeffectall": return "隐藏全部特效";
 		case "invisibleweapon": return "隐藏武器";
 		case "invisiblecape": return "隐藏披风";
+		case "hprecovery": return "HP恢复";
+		case "mprecovery": return "MP恢复";
 		case "incspeed": return "速度加成";
 		case "incjump": return "跳跃加成";
+		case "incswim": return "游泳加成";
 		case "incfatigue": return "疲劳修正";
+		case "incstr": return "力量加成";
+		case "incdex": return "敏捷加成";
+		case "incint": return "智力加成";
+		case "incluk": return "运气加成";
+		case "incpad": return "物攻加成";
+		case "incpdd": return "物防加成";
+		case "incmdd": return "魔防加成";
+		case "incmhp": return "最大HP加成";
+		case "incmmp": return "最大MP加成";
+		case "inceva": return "回避加成";
 		case "speed": return "移动速度";
 		case "jump": return "跳跃能力";
 		case "fs": return "摩擦系数";
@@ -3160,12 +4825,40 @@ public class MainForm : Form
 		}
 	}
 
-	private List<string> ShowMountParamPicker(string title, IEnumerable<string> allKeys, HashSet<string> existing)
+	private string BuildMountParamComment(string key, bool isActionInfo)
 	{
-		List<string> keyList = allKeys?.Where((string k) => !string.IsNullOrWhiteSpace(k))
-			.Distinct(StringComparer.OrdinalIgnoreCase)
-			.OrderBy((string k) => k, StringComparer.OrdinalIgnoreCase)
-			.ToList() ?? new List<string>();
+		string name = GetMountParamChineseName(key, isActionInfo);
+		string help = GetMountParamHelp(key, isActionInfo);
+		if (string.IsNullOrWhiteSpace(name))
+			return help ?? "";
+		if (string.IsNullOrWhiteSpace(help))
+			return name;
+		return name + "：" + help;
+	}
+
+	private void UpdateMountInfoGridRowComment(DataGridView grid, DataGridViewRow row)
+	{
+		if (grid == null || row == null || row.IsNewRow || grid.Columns.Count < 3)
+			return;
+		string key = row.Cells[0].Value?.ToString()?.Trim() ?? "";
+		bool isActionInfo = ReferenceEquals(grid, dgvMountActionInfo);
+		row.Cells[2].Value = string.IsNullOrWhiteSpace(key) ? "" : BuildMountParamComment(key, isActionInfo);
+	}
+
+	private List<string> ShowMountParamPicker(string title, IEnumerable<string> allKeys, HashSet<string> existing, bool isActionInfo)
+	{
+		List<string> keyList = new List<string>();
+		if (allKeys != null)
+		{
+			foreach (string raw in allKeys)
+			{
+				string key = (raw ?? "").Trim();
+				if (string.IsNullOrWhiteSpace(key))
+					continue;
+				if (!keyList.Exists((string k) => string.Equals(k, key, StringComparison.OrdinalIgnoreCase)))
+					keyList.Add(key);
+			}
+		}
 		if (keyList.Count == 0)
 		{
 			MessageBox.Show("没有可选参数。", "提示");
@@ -3175,7 +4868,7 @@ public class MainForm : Form
 		Form form = new Form
 		{
 			Text = title,
-			Size = new Size(430, 560),
+			Size = new Size(780, 640),
 			StartPosition = FormStartPosition.Manual,
 			FormBorderStyle = FormBorderStyle.SizableToolWindow,
 			MinimizeBox = false,
@@ -3191,55 +4884,108 @@ public class MainForm : Form
 		{
 		}
 
-		Label label = new Label
-		{
-			Text = "勾选参数（已存在项不会重复添加）",
-			Dock = DockStyle.Top,
-			Height = 22,
-			TextAlign = ContentAlignment.MiddleLeft
-		};
-		form.Controls.Add(label);
-
-		CheckedListBox checkedListBox = new CheckedListBox
+		DataGridView picker = new DataGridView
 		{
 			Dock = DockStyle.Fill,
-			CheckOnClick = true
+			AllowUserToAddRows = false,
+			AllowUserToDeleteRows = false,
+			ReadOnly = false,
+			RowHeadersVisible = false,
+			SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+			MultiSelect = true,
+			AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+			BackgroundColor = SystemColors.Window
 		};
-		Dictionary<int, string> map = new Dictionary<int, string>();
-		for (int i = 0; i < keyList.Count; i++)
+		var addColumn = new DataGridViewCheckBoxColumn { Name = "Add", HeaderText = "添加", Width = 48, FillWeight = 8f };
+		var keyColumn = new DataGridViewTextBoxColumn { Name = "Param", HeaderText = "参数", ReadOnly = true, FillWeight = 22f };
+		var nameColumn = new DataGridViewTextBoxColumn { Name = "NameZh", HeaderText = "中文", ReadOnly = true, FillWeight = 18f };
+		var defaultColumn = new DataGridViewTextBoxColumn { Name = "Default", HeaderText = "默认", ReadOnly = true, FillWeight = 12f };
+		var helpColumn = new DataGridViewTextBoxColumn { Name = "Help", HeaderText = "注释", ReadOnly = true, FillWeight = 40f };
+		picker.Columns.Add(addColumn);
+		picker.Columns.Add(keyColumn);
+		picker.Columns.Add(nameColumn);
+		picker.Columns.Add(defaultColumn);
+		picker.Columns.Add(helpColumn);
+		picker.CurrentCellDirtyStateChanged += delegate
 		{
-			string key = keyList[i];
+			if (picker.IsCurrentCellDirty)
+				picker.CommitEdit(DataGridViewDataErrorContexts.Commit);
+		};
+		picker.CellBeginEdit += delegate(object s, DataGridViewCellCancelEventArgs e)
+		{
+			if (e.RowIndex < 0 || e.RowIndex >= picker.Rows.Count)
+				return;
+			string key = picker.Rows[e.RowIndex].Tag as string;
+			if (existing != null && existing.Contains(key ?? ""))
+				e.Cancel = true;
+			if (e.ColumnIndex != 0)
+				e.Cancel = true;
+		};
+		picker.CellClick += delegate(object s, DataGridViewCellEventArgs e)
+		{
+			if (e.RowIndex < 0 || e.RowIndex >= picker.Rows.Count)
+				return;
+			string key = picker.Rows[e.RowIndex].Tag as string;
+			if (existing != null && existing.Contains(key ?? ""))
+				return;
+			if (e.ColumnIndex == 0)
+				return;
+			bool current = Convert.ToBoolean(picker.Rows[e.RowIndex].Cells[0].Value ?? false);
+			picker.Rows[e.RowIndex].Cells[0].Value = !current;
+		};
+
+		foreach (string key in keyList)
+		{
 			bool has = existing != null && existing.Contains(key);
-			bool isActionInfo = title.Contains("动作");
-			string display = key + "（" + GetMountParamChineseName(key, isActionInfo) + "）";
-			int idx = checkedListBox.Items.Add(has ? (display + "  (已存在)") : display, false);
-			map[idx] = key;
+			int idx = picker.Rows.Add(false, key, GetMountParamChineseName(key, isActionInfo), GetMountParamDefaultValue(key, isActionInfo), GetMountParamHelp(key, isActionInfo));
+			DataGridViewRow row = picker.Rows[idx];
+			row.Tag = key;
+			foreach (DataGridViewCell cell in row.Cells)
+				cell.ToolTipText = BuildMountParamComment(key, isActionInfo);
+			if (has)
+			{
+				row.Cells[0].ReadOnly = true;
+				row.DefaultCellStyle.ForeColor = Color.Gray;
+				row.DefaultCellStyle.BackColor = Color.FromArgb(235, 235, 235);
+				row.DefaultCellStyle.SelectionForeColor = Color.Gray;
+				row.DefaultCellStyle.SelectionBackColor = Color.FromArgb(220, 220, 220);
+				row.Cells[4].Value = GetMountParamHelp(key, isActionInfo) + "（已存在）";
+			}
 		}
-		form.Controls.Add(checkedListBox);
+		form.Controls.Add(picker);
 
 		Panel panel = new Panel
 		{
 			Dock = DockStyle.Bottom,
 			Height = 44
 		};
-		Button btnAll = new Button { Text = "全选", Location = new Point(8, 9), Width = 60 };
+		Button btnAll = new Button { Text = "全选可添加", Location = new Point(8, 9), Width = 86 };
 		btnAll.Click += delegate
 		{
-			for (int i = 0; i < checkedListBox.Items.Count; i++)
-				checkedListBox.SetItemChecked(i, true);
+			foreach (DataGridViewRow row in picker.Rows)
+			{
+				string key = row.Tag as string;
+				if (existing == null || !existing.Contains(key ?? ""))
+					row.Cells[0].Value = true;
+			}
 		};
 		panel.Controls.Add(btnAll);
-		Button btnNone = new Button { Text = "全不选", Location = new Point(74, 9), Width = 66 };
+		Button btnNone = new Button { Text = "全不选", Location = new Point(100, 9), Width = 66 };
 		btnNone.Click += delegate
 		{
-			for (int i = 0; i < checkedListBox.Items.Count; i++)
-				checkedListBox.SetItemChecked(i, false);
+			foreach (DataGridViewRow row in picker.Rows)
+				row.Cells[0].Value = false;
 		};
 		panel.Controls.Add(btnNone);
-		Button btnOk = new Button { Text = "添加", Location = new Point(248, 9), Width = 72, DialogResult = DialogResult.OK };
+		Button btnOk = new Button { Text = "添加", Anchor = AnchorStyles.Top | AnchorStyles.Right, Location = new Point(600, 9), Width = 72, DialogResult = DialogResult.OK };
 		panel.Controls.Add(btnOk);
-		Button btnCancel = new Button { Text = "取消", Location = new Point(326, 9), Width = 72, DialogResult = DialogResult.Cancel };
+		Button btnCancel = new Button { Text = "取消", Anchor = AnchorStyles.Top | AnchorStyles.Right, Location = new Point(678, 9), Width = 72, DialogResult = DialogResult.Cancel };
 		panel.Controls.Add(btnCancel);
+		panel.Resize += delegate
+		{
+			btnCancel.Left = panel.Width - btnCancel.Width - 12;
+			btnOk.Left = btnCancel.Left - btnOk.Width - 8;
+		};
 		form.Controls.Add(panel);
 		form.AcceptButton = btnOk;
 		form.CancelButton = btnCancel;
@@ -3248,9 +4994,15 @@ public class MainForm : Form
 			return null;
 
 		List<string> result = new List<string>();
-		foreach (int idx in checkedListBox.CheckedIndices)
+		foreach (DataGridViewRow row in picker.Rows)
 		{
-			if (map.TryGetValue(idx, out string key) && !string.IsNullOrWhiteSpace(key))
+			string key = row.Tag as string;
+			if (string.IsNullOrWhiteSpace(key))
+				continue;
+			if (existing != null && existing.Contains(key))
+				continue;
+			bool selected = Convert.ToBoolean(row.Cells[0].Value ?? false);
+			if (selected)
 				result.Add(key);
 		}
 		return result;
@@ -3313,6 +5065,13 @@ public class MainForm : Form
 			return $"参数名：{key}\n作用：{help}";
 		}
 
+		if (columnIndex == 2)
+		{
+			if (string.IsNullOrWhiteSpace(key))
+				return "参数注释会根据参数名自动显示。";
+			return BuildMountParamComment(key, isActionInfo);
+		}
+
 		if (string.IsNullOrWhiteSpace(key))
 			return "参数值。可填写整数或字符串。";
 
@@ -3330,6 +5089,60 @@ public class MainForm : Form
 		{
 		case "tamingmob":
 			return "动作文件绑定的 DataID，会指向 TamingMob/000x.img。";
+		case "icon":
+			return "动作IMG info 下的图标 Canvas。通常通过完整节点树编辑，不建议作为普通文本参数添加。";
+		case "iconraw":
+			return "动作IMG info 下的原始图标 Canvas。通常通过完整节点树编辑。";
+		case "islot":
+			return "装备道具槽标记，坐骑通常为 Tm。";
+		case "vslot":
+			return "显示槽标记，坐骑通常为 Tm。";
+		case "tuc":
+			return "可升级次数，坐骑一般为 0。";
+		case "only":
+			return "唯一道具标记，1 表示同类限制唯一。";
+		case "slotmax":
+			return "最大堆叠数量。";
+		case "timelimited":
+			return "限时道具标记。";
+		case "dropblock":
+			return "禁止丢弃标记。";
+		case "type":
+			return "道具/坐骑类型扩展标记。";
+		case "avatarcount":
+			return "坐骑可用外观/头像数量。";
+		case "partscount":
+			return "坐骑部件数量。";
+		case "partsquestid":
+			return "部件解锁或关联任务ID。";
+		case "passengernavel0":
+		case "passengernavel1":
+		case "passengernavel2":
+			return "乘客贴到坐骑上的锚点/肚脐位置索引。";
+		case "vehicleskillistown":
+			return "载具技能是否按城镇/区域规则处理。";
+		case "vehiclenaviflyinglevel":
+			return "导航飞行能力等级。";
+		case "vehiclenewflyinglevel":
+			return "新版飞行能力等级。";
+		case "vehicleglidelevel":
+			return "滑翔能力等级。";
+		case "vehicledoublejumplevel":
+			return "二段跳能力等级。";
+		case "doskillactivebyattackkey":
+			return "是否通过攻击键主动触发载具技能。";
+		case "forcecharacteraction":
+			return "骑乘时强制角色动作名/动作ID。";
+		case "forcecharacteractionframeindex":
+			return "强制角色动作时使用的帧索引。";
+		case "forcecharacteremotion":
+			return "骑乘时强制角色表情。";
+		case "forcecharacterface":
+			return "骑乘时强制角色脸部资源。";
+		case "forcecharacterfaceframeindex":
+			return "强制脸部资源时使用的帧索引。";
+		case "forcecharacterflip":
+			return "强制角色左右翻转。";
 		case "speed":
 			return "地面移动速度。";
 		case "jump":
@@ -3358,16 +5171,28 @@ public class MainForm : Form
 			return "现金道具资源标记。";
 		case "removebody":
 			return "隐藏角色身体。";
+		case "removejobwing":
+			return "隐藏职业翅膀/职业专属翅膀。";
+		case "removeeffect":
+			return "隐藏部分骑乘/角色附加特效。";
+		case "removeeffectall":
+			return "隐藏全部相关特效。";
 		case "invisibleweapon":
 			return "隐藏角色武器。";
 		case "invisiblecape":
 			return "隐藏角色披风。";
+		case "hprecovery":
+			return "骑乘时 HP 恢复相关值。";
+		case "mprecovery":
+			return "骑乘时 MP 恢复相关值。";
 		case "passengernum":
 			return "可乘坐人数。";
 		case "incspeed":
 			return "额外速度加成。";
 		case "incjump":
 			return "额外跳跃加成。";
+		case "incswim":
+			return "额外游泳/水中移动加成。";
 		case "incfatigue":
 			return "疲劳变化修正。";
 		case "incstr":
@@ -3376,12 +5201,17 @@ public class MainForm : Form
 		case "incluk":
 			return "属性加成字段。";
 		case "incpad":
+			return "物理攻击力加成字段。";
 		case "incpdd":
+			return "物理防御力加成字段。";
 		case "incmdd":
+			return "魔法防御力加成字段。";
 		case "incmhp":
+			return "最大 HP 加成字段。";
 		case "incmmp":
+			return "最大 MP 加成字段。";
 		case "inceva":
-			return "战斗属性加成字段。";
+			return "回避率加成字段。";
 		default:
 			if (text.StartsWith("passengernavel"))
 				return "乘客锚点位置（乘客贴图定位）。";
@@ -3458,6 +5288,71 @@ public class MainForm : Form
 		}
 	}
 
+	private void BtnMountNewTamingMob_Click(object sender, EventArgs e)
+	{
+		try
+		{
+			if (!SyncMountEditorIntoModel(requireActionFrames: false))
+				return;
+			if (_mountEditorData == null || _mountEditorData.MountItemId <= 0)
+			{
+				MessageBox.Show("请先加载一个坐骑，再新建 tamingMob。", "提示");
+				return;
+			}
+
+			int previousDataId = _mountEditorData.TamingMobId;
+			int preferredStart = previousDataId > 0
+				? previousDataId + 1
+				: Math.Max(1, Math.Abs(_mountEditorData.MountItemId % 10000));
+			int nextDataId = MountEditorService.FindNextAvailableTamingMobId(preferredStart);
+			if (nextDataId <= 0)
+			{
+				MessageBox.Show("未找到可用的 tamingMob/DataID。", "提示");
+				return;
+			}
+
+			if (_mountEditorData.ActionInfo == null)
+				_mountEditorData.ActionInfo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			if (_mountEditorData.DataInfo == null)
+				_mountEditorData.DataInfo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+			if (_mountEditorData.ActionTree == null)
+				_mountEditorData.ActionTree = MountEditorService.CreateEmptyImageTree(Path.GetFileName(PathConfig.GameMountActionImg(_mountEditorData.MountItemId)));
+			if (_mountEditorData.DataTree == null)
+				_mountEditorData.DataTree = MountEditorService.CreateEmptyImageTree(nextDataId.ToString("D4") + ".img");
+
+			_mountEditorData.TamingMobId = nextDataId;
+			_mountEditorData.DataImgPath = PathConfig.GameMountDataImg(nextDataId);
+			_mountEditorData.DataTree.Name = Path.GetFileName(_mountEditorData.DataImgPath);
+			_mountEditorData.ActionInfo["tamingMob"] = nextDataId.ToString();
+
+			MountEditorService.ApplyInfoMapToTree(_mountEditorData.ActionTree, _mountEditorData.ActionInfo);
+			MountEditorService.ApplyInfoMapToTree(_mountEditorData.DataTree, _mountEditorData.DataInfo);
+
+			_mountActionTreeDirty = true;
+			_mountDataTreeDirty = true;
+
+			if (txtMountEditorDataId != null)
+				txtMountEditorDataId.Text = nextDataId.ToString();
+			if (txtMountTamingMobId != null)
+				txtMountTamingMobId.Text = nextDataId.ToString();
+			if (lblMountEditorDataBinding != null)
+				lblMountEditorDataBinding.Text = "DataID 自动绑定: " + nextDataId;
+
+			PopulateMountInfoGrid(dgvMountActionInfo, _mountEditorData.ActionInfo);
+			PopulateMountInfoGrid(dgvMountDataInfo, _mountEditorData.DataInfo);
+			PopulateMountTrees();
+			RefreshMountNodeListForCurrentFrame();
+
+			Console.WriteLine($"[坐骑编辑] 已从当前加载数据新建 tamingMob: {previousDataId} -> {nextDataId} (mountItemId={_mountEditorData.MountItemId})");
+			MessageBox.Show($"已新建 tamingMob/DataID: {nextDataId}\n当前参数已从已加载内容复制，动作绑定也已切到新 DataID。\n保存后会写出新的参数IMG。", "完成");
+		}
+		catch (Exception ex)
+		{
+			MessageBox.Show("新增 tamingMob 失败: " + ex.Message, "错误");
+		}
+	}
+
 	private void BtnMountSaveAction_Click(object sender, EventArgs e)
 	{
 		try
@@ -3465,6 +5360,9 @@ public class MainForm : Form
 			if (!SyncMountEditorIntoModel(requireActionFrames: false))
 				return;
 			MountEditorService.SaveAction(_mountEditorData);
+			_mountActionFramesDirty = false;
+			_mountActionTreeDirty = false;
+			PopulateMountTrees();
 			TrackCustomMountId(_mountEditorData.MountItemId, refresh: true);
 			Console.WriteLine($"[坐骑编辑] 动作IMG已保存: {PathConfig.GameMountActionImg(_mountEditorData.MountItemId)}");
 		}
@@ -3486,6 +5384,8 @@ public class MainForm : Form
 				return;
 			}
 			MountEditorService.SaveData(_mountEditorData);
+			_mountDataTreeDirty = false;
+			PopulateMountTrees();
 			Console.WriteLine($"[坐骑编辑] 参数IMG已保存: {PathConfig.GameMountDataImg(_mountEditorData.TamingMobId)}");
 		}
 		catch (Exception ex)
@@ -3520,6 +5420,10 @@ public class MainForm : Form
 			if (_mountEditorData.TamingMobId > 0)
 				MountEditorService.SaveData(_mountEditorData);
 			MountEditorService.SyncXml(_mountEditorData);
+			_mountActionFramesDirty = false;
+			_mountActionTreeDirty = false;
+			_mountDataTreeDirty = false;
+			PopulateMountTrees();
 			TrackCustomMountId(_mountEditorData.MountItemId, refresh: true);
 			Console.WriteLine("[坐骑编辑] 已全部保存（动作+参数+XML）");
 			MessageBox.Show("坐骑资源保存完成", "完成");
@@ -3544,7 +5448,7 @@ public class MainForm : Form
 		if (cboMountResourceMode != null)
 			cboMountResourceMode.SelectedIndex = Math.Min(cboMountResourceMode.Items.Count - 1, 2);
 
-		// Advanced overrides are now managed by mount editor data file directly.
+		// Legacy text overrides are cleared here; mount editor data will be mirrored back during save.
 		if (txtMountSpeed != null) txtMountSpeed.Text = "";
 		if (txtMountJump != null) txtMountJump.Text = "";
 		if (txtMountFatigue != null) txtMountFatigue.Text = "";
@@ -3571,7 +5475,12 @@ public class MainForm : Form
 		_mountEditorData.ActionFramesByNode[name] = new List<WzEffectFrame>();
 		if (_mountEditorData.RemovedActionNodes != null)
 			_mountEditorData.RemovedActionNodes.Remove(name);
+		_mountActionFramesDirty = true;
+		if (_mountEditorData.ActionTree == null)
+			_mountEditorData.ActionTree = MountEditorService.CreateEmptyImageTree(Path.GetFileName(PathConfig.GameMountActionImg(_mountEditorData.MountItemId)));
+		MountEditorService.ApplyActionFramesToTree(_mountEditorData.ActionTree, _mountEditorData.ActionFramesByNode, _mountEditorData.RemovedActionNodes);
 
+		PopulateMountTrees();
 		RefreshMountActionNodeSelector(name, createIfMissing: false);
 		PopulateMountFrames(GetActiveMountFrames(createIfMissing: false));
 	}
@@ -3591,7 +5500,11 @@ public class MainForm : Form
 		if (_mountEditorData.ActionFramesByNode != null)
 			_mountEditorData.ActionFramesByNode.Remove(node);
 		_mountEditorData.RemovedActionNodes.Add(node);
+		_mountActionFramesDirty = true;
+		if (_mountEditorData.ActionTree != null)
+			MountEditorService.ApplyActionFramesToTree(_mountEditorData.ActionTree, _mountEditorData.ActionFramesByNode, _mountEditorData.RemovedActionNodes);
 
+		PopulateMountTrees();
 		RefreshMountActionNodeSelector(null, createIfMissing: false);
 		PopulateMountFrames(GetActiveMountFrames(createIfMissing: false));
 	}
@@ -3635,6 +5548,9 @@ public class MainForm : Form
 		bool actionExists = File.Exists(PathConfig.GameMountActionImg(mountItemId));
 		try { _mountEditorData?.Dispose(); } catch { }
 		_mountEditorData = MountEditorService.Load(mountItemId);
+		_mountActionFramesDirty = false;
+		_mountActionTreeDirty = false;
+		_mountDataTreeDirty = false;
 
 		txtMountEditorItemId.Text = mountItemId.ToString();
 		if (_mountEditorData.TamingMobId <= 0)
@@ -3645,6 +5561,8 @@ public class MainForm : Form
 				_mountEditorData.ActionInfo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 			_mountEditorData.ActionInfo["tamingMob"] = autoDataId.ToString();
 		}
+		if (_mountEditorData.ActionTree == null)
+			_mountEditorData.ActionTree = MountEditorService.CreateEmptyImageTree(Path.GetFileName(PathConfig.GameMountActionImg(mountItemId)));
 
 		txtMountEditorDataId.Text = (_mountEditorData.TamingMobId > 0) ? _mountEditorData.TamingMobId.ToString() : "";
 		if (lblMountEditorDataBinding != null)
@@ -3668,13 +5586,24 @@ public class MainForm : Form
 			_mountEditorData.DataInfo["fs"] = "0";
 			_mountEditorData.DataInfo["swim"] = "0";
 		}
+		if (_mountEditorData.TamingMobId > 0 && _mountEditorData.DataTree == null)
+			_mountEditorData.DataTree = MountEditorService.CreateEmptyImageTree(Path.GetFileName(PathConfig.GameMountDataImg(_mountEditorData.TamingMobId)));
+
+		MountEditorService.ApplyInfoMapToTree(_mountEditorData.ActionTree, _mountEditorData.ActionInfo);
+		if (_mountEditorData.DataTree != null)
+			MountEditorService.ApplyInfoMapToTree(_mountEditorData.DataTree, _mountEditorData.DataInfo);
 		if (!actionExists && _mountEditorData.ActionFramesByNode.Count == 0)
+		{
 			_mountEditorData.ActionFramesByNode["stand1"] = new List<WzEffectFrame>();
+			MountEditorService.ApplyActionFramesToTree(_mountEditorData.ActionTree, _mountEditorData.ActionFramesByNode, _mountEditorData.RemovedActionNodes);
+		}
 
 		PopulateMountInfoGrid(dgvMountActionInfo, _mountEditorData.ActionInfo);
 		PopulateMountInfoGrid(dgvMountDataInfo, _mountEditorData.DataInfo);
+		PopulateMountTrees();
 		RefreshMountActionNodeSelector("stand1", createIfMissing: false);
 		PopulateMountFrames(GetActiveMountFrames(createIfMissing: false));
+		RefreshMountNodeListForCurrentFrame();
 
 		if (!actionExists)
 			Console.WriteLine($"[坐骑编辑] 目标动作IMG不存在，当前为新建模式: {PathConfig.GameMountActionImg(mountItemId)}");
@@ -3703,6 +5632,9 @@ public class MainForm : Form
 
 		_mountEditorData.MountItemId = mountItemId;
 		_mountEditorData.ActionImgPath = PathConfig.GameMountActionImg(mountItemId);
+		if (_mountEditorData.ActionTree == null)
+			_mountEditorData.ActionTree = MountEditorService.CreateEmptyImageTree(Path.GetFileName(_mountEditorData.ActionImgPath));
+		_mountEditorData.ActionTree.Name = Path.GetFileName(_mountEditorData.ActionImgPath);
 
 		_mountEditorData.ActionInfo = ReadMountInfoGrid(dgvMountActionInfo);
 		_mountEditorData.DataInfo = ReadMountInfoGrid(dgvMountDataInfo);
@@ -3720,6 +5652,10 @@ public class MainForm : Form
 		}
 		_mountEditorData.TamingMobId = dataId;
 		_mountEditorData.DataImgPath = dataId > 0 ? PathConfig.GameMountDataImg(dataId) : "";
+		if (_mountEditorData.TamingMobId > 0 && _mountEditorData.DataTree == null)
+			_mountEditorData.DataTree = MountEditorService.CreateEmptyImageTree(Path.GetFileName(_mountEditorData.DataImgPath));
+		if (_mountEditorData.DataTree != null)
+			_mountEditorData.DataTree.Name = Path.GetFileName(_mountEditorData.DataImgPath);
 		if (_mountEditorData.TamingMobId > 0)
 			_mountEditorData.ActionInfo["tamingMob"] = _mountEditorData.TamingMobId.ToString();
 		if (txtMountEditorDataId != null)
@@ -3749,6 +5685,13 @@ public class MainForm : Form
 				return false;
 			}
 		}
+		MountEditorService.ApplyInfoMapToTree(_mountEditorData.ActionTree, _mountEditorData.ActionInfo);
+		if (_mountEditorData.DataTree != null)
+			MountEditorService.ApplyInfoMapToTree(_mountEditorData.DataTree, _mountEditorData.DataInfo);
+		if (_mountActionFramesDirty)
+			MountEditorService.ApplyActionFramesToTree(_mountEditorData.ActionTree, _mountEditorData.ActionFramesByNode, _mountEditorData.RemovedActionNodes);
+		if (_mountActionTreeDirty || _mountDataTreeDirty)
+			PopulateMountTrees();
 		return true;
 	}
 
@@ -3762,12 +5705,13 @@ public class MainForm : Form
 
 		var keys = new List<string>(map.Keys);
 		keys.Sort(StringComparer.OrdinalIgnoreCase);
+		bool isActionInfo = ReferenceEquals(grid, dgvMountActionInfo);
 		foreach (string key in keys)
 		{
 			if (string.IsNullOrWhiteSpace(key))
 				continue;
 			map.TryGetValue(key, out string value);
-			grid.Rows.Add(key, value ?? "");
+			grid.Rows.Add(key, value ?? "", BuildMountParamComment(key, isActionInfo));
 		}
 	}
 
@@ -3788,6 +5732,1460 @@ public class MainForm : Form
 			map[key] = value;
 		}
 		return map;
+	}
+
+	private WzNodeInfo GetMountNodeListCurrentNode()
+	{
+		if (cboMountNodePage?.SelectedItem is MountNodePageItem pageItem && pageItem.Node != null)
+			return pageItem.Node;
+		return GetSelectedMountFrameNode();
+	}
+
+	private WzNodeInfo GetMountNodeListSelectedNode()
+	{
+		if (lvMountNodeChildren == null || lvMountNodeChildren.SelectedItems.Count == 0)
+			return null;
+		return lvMountNodeChildren.SelectedItems[0].Tag as WzNodeInfo;
+	}
+
+	private WzNodeInfo GetSelectedMountFrameNode()
+	{
+		if (_mountEditorData?.ActionTree == null)
+			return null;
+		string actionName = GetSelectedMountActionNodeKey();
+		if (string.IsNullOrWhiteSpace(actionName))
+			return null;
+		WzNodeInfo actionNode = FindChildInfo(_mountEditorData.ActionTree, actionName);
+		if (actionNode == null)
+			return null;
+		int frameIndex = (lvMountFrames != null && lvMountFrames.SelectedIndices.Count > 0) ? lvMountFrames.SelectedIndices[0] : -1;
+		if (frameIndex < 0)
+			return null;
+		return FindChildInfo(actionNode, frameIndex.ToString());
+	}
+
+	private string GetSelectedMountFrameRawPath()
+	{
+		if (_mountEditorData?.ActionTree == null)
+			return "";
+		string actionName = GetSelectedMountActionNodeKey();
+		if (string.IsNullOrWhiteSpace(actionName))
+			return "";
+		int frameIndex = (lvMountFrames != null && lvMountFrames.SelectedIndices.Count > 0) ? lvMountFrames.SelectedIndices[0] : -1;
+		if (frameIndex < 0)
+			return "";
+		return (_mountEditorData.ActionTree.Name ?? "") + "/" + actionName + "/" + frameIndex;
+	}
+
+	private MountNodePageItem GetSelectedMountNodePageItem()
+	{
+		return cboMountNodePage?.SelectedItem as MountNodePageItem;
+	}
+
+	private void PopulateMountNodePageSelector()
+	{
+		if (cboMountNodePage == null)
+			return;
+
+		string preferredKey = GetSelectedMountNodePageItem()?.Key ?? "";
+		WzNodeInfo frameNode = GetSelectedMountFrameNode();
+		string frameRawPath = GetSelectedMountFrameRawPath();
+		var items = new List<MountNodePageItem>();
+		if (frameNode != null && !string.IsNullOrWhiteSpace(frameRawPath))
+		{
+			items.AddRange(BuildMountNodePageItems(frameNode, frameRawPath));
+			if (items.Count == 0)
+			{
+				items.Add(new MountNodePageItem
+				{
+					Key = "",
+					Display = "(整帧)",
+					RawPath = frameRawPath,
+					Node = frameNode
+				});
+			}
+		}
+
+		_suppressMountNodePageChange = true;
+		try
+		{
+			cboMountNodePage.BeginUpdate();
+			cboMountNodePage.Items.Clear();
+			foreach (MountNodePageItem item in items)
+				cboMountNodePage.Items.Add(item);
+			if (items.Count > 0)
+			{
+				object matched = null;
+				foreach (object obj in cboMountNodePage.Items)
+				{
+					if (obj is MountNodePageItem item && string.Equals(item.Key, preferredKey, StringComparison.OrdinalIgnoreCase))
+					{
+						matched = obj;
+						break;
+					}
+				}
+				if (matched == null)
+				{
+					matched = cboMountNodePage.Items[0];
+				}
+				cboMountNodePage.SelectedItem = matched;
+			}
+			else
+			{
+				cboMountNodePage.Text = "";
+			}
+		}
+		finally
+		{
+			cboMountNodePage.EndUpdate();
+			_suppressMountNodePageChange = false;
+		}
+	}
+
+	private IEnumerable<MountNodePageItem> BuildMountNodePageItems(WzNodeInfo frameNode, string frameRawPath)
+	{
+		var items = new List<MountNodePageItem>();
+		if (frameNode?.Children == null)
+			return items;
+
+		var directNodes = new List<WzNodeInfo>();
+		foreach (var child in frameNode.Children)
+		{
+			if (child != null && IsNumericNodeName(child.Name))
+				directNodes.Add(child);
+		}
+		directNodes.Sort(CompareMountNumericNodeNames);
+		foreach (WzNodeInfo directNode in directNodes)
+			AddMountNodePageItemsForDirectNode(items, directNode, frameRawPath);
+		return items;
+	}
+
+	private void AddMountNodePageItemsForDirectNode(List<MountNodePageItem> items, WzNodeInfo directNode, string frameRawPath)
+	{
+		if (items == null || directNode == null)
+			return;
+		var leaves = new List<MountNodePageItem>();
+		CollectMountNodePageLeaves(leaves, directNode, directNode.Name ?? "", frameRawPath, 0);
+		if (leaves.Count == 1
+			&& string.Equals(leaves[0].Key, (directNode.Name ?? "") + ".0", StringComparison.OrdinalIgnoreCase))
+		{
+			items.Add(new MountNodePageItem
+			{
+				Key = directNode.Name ?? "",
+				Display = directNode.Name ?? "",
+				RawPath = leaves[0].RawPath,
+				Node = leaves[0].Node
+			});
+			return;
+		}
+		items.AddRange(leaves);
+	}
+
+	private void CollectMountNodePageLeaves(List<MountNodePageItem> items, WzNodeInfo node, string displayPath, string frameRawPath, int depth)
+	{
+		if (items == null || node == null || depth > 6)
+			return;
+
+		var numericChildren = new List<WzNodeInfo>();
+		if (node.Children != null)
+		{
+			foreach (var child in node.Children)
+			{
+				if (child != null && IsNumericNodeName(child.Name))
+					numericChildren.Add(child);
+			}
+		}
+		numericChildren.Sort(CompareMountNumericNodeNames);
+		if (numericChildren.Count == 0)
+		{
+			items.Add(new MountNodePageItem
+			{
+				Key = (displayPath ?? "").Replace("/", "."),
+				Display = (displayPath ?? "").Replace("/", "."),
+				RawPath = frameRawPath + "/" + displayPath,
+				Node = node
+			});
+			return;
+		}
+
+		foreach (WzNodeInfo child in numericChildren)
+		{
+			string next = string.IsNullOrWhiteSpace(displayPath) ? (child.Name ?? "") : displayPath + "/" + (child.Name ?? "");
+			CollectMountNodePageLeaves(items, child, next, frameRawPath, depth + 1);
+		}
+	}
+
+	private static int CompareMountNumericNodeNames(WzNodeInfo a, WzNodeInfo b)
+	{
+		int av = 0;
+		int bv = 0;
+		int.TryParse(a?.Name ?? "", out av);
+		int.TryParse(b?.Name ?? "", out bv);
+		return av.CompareTo(bv);
+	}
+
+	private void CboMountNodePage_SelectedIndexChanged(object sender, EventArgs e)
+	{
+		if (_suppressMountNodePageChange)
+			return;
+		PopulateMountNodeChildrenList();
+		UpdateMountNodeListPreview(null);
+	}
+
+	private void RefreshMountNodeListForCurrentFrame()
+	{
+		if (lvMountNodeChildren == null)
+			return;
+		PopulateMountNodePageSelector();
+		PopulateMountNodeChildrenList();
+		UpdateMountNodeListPreview(null);
+	}
+
+	private void PopulateMountNodeChildrenList()
+	{
+		if (lvMountNodeChildren == null)
+			return;
+		WzNodeInfo current = GetMountNodeListCurrentNode();
+
+		lvMountNodeChildren.BeginUpdate();
+		try
+		{
+			lvMountNodeChildren.Items.Clear();
+			if (current?.Children == null)
+				return;
+			foreach (var child in current.Children)
+			{
+				if (child == null)
+					continue;
+				string displayName = child.Name ?? "";
+				var item = new ListViewItem(displayName);
+				item.SubItems.Add(GetMountTypeLabel(child.TypeName));
+				item.SubItems.Add(GetMountNodeDisplayValue(child));
+				item.SubItems.Add(DescribeMountNode(child, BuildMountNodeListRawPath(child), actionTree: true));
+				item.Tag = child;
+				lvMountNodeChildren.Items.Add(item);
+			}
+		}
+		finally
+		{
+			lvMountNodeChildren.EndUpdate();
+		}
+	}
+
+	private string BuildMountNodeListPath(WzNodeInfo selected)
+	{
+		string raw = BuildMountNodeListRawPath(selected);
+		return BuildMountCompactPath(raw);
+	}
+
+	private string BuildMountNodeListRawPath(WzNodeInfo selected)
+	{
+		string basePath = GetSelectedMountNodePageItem()?.RawPath ?? GetSelectedMountFrameRawPath();
+		WzNodeInfo current = GetMountNodeListCurrentNode();
+		if (selected != null && !ReferenceEquals(selected, current) && !string.IsNullOrWhiteSpace(selected.Name))
+		{
+			if (string.IsNullOrWhiteSpace(basePath))
+				return selected.Name ?? "";
+			return basePath + "/" + selected.Name;
+		}
+		return basePath ?? "";
+	}
+
+	private void MountNodeList_SelectedIndexChanged(object sender, EventArgs e)
+	{
+		WzNodeInfo selected = GetMountNodeListSelectedNode();
+		UpdateMountNodeListPreview(selected);
+	}
+
+	private void UpdateMountNodeListPreview(WzNodeInfo selected)
+	{
+		if (selected != null && string.Equals(selected.TypeName, "Canvas", StringComparison.OrdinalIgnoreCase) && selected.CanvasBitmap != null)
+		{
+			SafeSetImage(picMountFramePreview, selected.CanvasBitmap);
+			return;
+		}
+		WzNodeInfo current = GetMountNodeListCurrentNode();
+		if (current != null && string.Equals(current.TypeName, "Canvas", StringComparison.OrdinalIgnoreCase) && current.CanvasBitmap != null)
+		{
+			SafeSetImage(picMountFramePreview, current.CanvasBitmap);
+			return;
+		}
+		if (TryGetSelectedMountFrame(out var frame, out _))
+		{
+			SafeSetImage(picMountFramePreview, frame.Bitmap);
+		}
+	}
+
+	private void MountNodeList_DoubleClick(object sender, EventArgs e)
+	{
+		WzNodeInfo selected = GetMountNodeListSelectedNode();
+		if (selected == null)
+			return;
+		if (IsMountDoubleClickEditableNode(selected) || string.Equals(selected.TypeName, "Canvas", StringComparison.OrdinalIgnoreCase))
+			MountNodeList_EditSelected();
+	}
+
+	private void MountNodeList_EditSelected()
+	{
+		WzNodeInfo info = GetMountNodeListSelectedNode();
+		if (info == null)
+			info = GetMountNodeListCurrentNode();
+		if (info == null)
+			return;
+		if (string.Equals(info.TypeName, "ImgDir", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(info.TypeName, "SubProperty", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(info.TypeName, "Convex", StringComparison.OrdinalIgnoreCase))
+		{
+			MessageBox.Show("这是容器节点，没有直接值。\n请用上方“顶点”下拉框切换 0/1，或使用重命名/添加/删除编辑结构。", "节点说明");
+			return;
+		}
+
+		string prompt = BuildMountNodeHelp(info, BuildMountNodeListRawPath(info), actionTree: true) + "\n\n新值：";
+		string value = ShowInputBox("编辑节点值/属性", prompt, GetMountNodeDisplayValue(info));
+		if (value == null)
+			return;
+		if (string.Equals(info.TypeName, "Vector", StringComparison.OrdinalIgnoreCase)
+			&& !Regex.IsMatch(value.Trim(), @"^-?\d+\s*[, ]\s*-?\d+$"))
+		{
+			MessageBox.Show("坐标格式应为 x,y，例如 45,51。", "格式错误");
+			return;
+		}
+		if (string.Equals(info.TypeName, "Canvas", StringComparison.OrdinalIgnoreCase))
+		{
+			ParseCanvasValue(value, out int w, out int h);
+			if (w > 0 && h > 0)
+			{
+				info.CanvasWidth = w;
+				info.CanvasHeight = h;
+			}
+		}
+		info.Value = value.Trim();
+		MarkMountNodeListDirty();
+		PopulateMountNodeChildrenList();
+	}
+
+	private void MountNodeList_ReplaceCanvasImage()
+	{
+		WzNodeInfo info = GetMountNodeListSelectedNode();
+		if (info == null || !string.Equals(info.TypeName, "Canvas", StringComparison.OrdinalIgnoreCase))
+			info = GetMountNodeListCurrentNode();
+		if (info == null)
+			return;
+		if (!string.Equals(info.TypeName, "Canvas", StringComparison.OrdinalIgnoreCase))
+		{
+			MessageBox.Show("请先选中图片 Canvas 节点，例如 walk1[0].1.0。", "提示");
+			return;
+		}
+		using (OpenFileDialog ofd = new OpenFileDialog())
+		{
+			ofd.Title = "替换 Canvas 图片";
+			ofd.Filter = "图片文件|*.png;*.bmp;*.gif;*.jpg;*.jpeg|所有文件|*.*";
+			if (ofd.ShowDialog() != DialogResult.OK)
+				return;
+			try
+			{
+				Bitmap replacement;
+				using (Bitmap loaded = new Bitmap(ofd.FileName))
+					replacement = CloneBitmapForNode(loaded);
+				try { info.CanvasBitmap?.Dispose(); } catch { }
+				info.CanvasBitmap = replacement;
+				info.CanvasCompressedBytes = null;
+				info.CanvasPngFormat = 0;
+				info.CanvasWidth = replacement.Width;
+				info.CanvasHeight = replacement.Height;
+				info.Value = replacement.Width + "x" + replacement.Height;
+				MarkMountNodeListDirty();
+				PopulateMountNodeChildrenList();
+				SafeSetImage(picMountFramePreview, replacement);
+			}
+			catch (Exception ex)
+			{
+				MessageBox.Show("替换图片失败: " + ex.Message, "错误");
+			}
+		}
+	}
+
+	private void MountNodeList_RenameSelected()
+	{
+		WzNodeInfo parent = GetMountNodeListCurrentNode();
+		WzNodeInfo info = GetMountNodeListSelectedNode();
+		if (parent?.Children == null || info == null)
+			return;
+		string newName = ShowInputBox("重命名节点", "当前名称: " + info.Name + "\n新名称:", info.Name ?? "");
+		if (string.IsNullOrWhiteSpace(newName))
+			return;
+		newName = newName.Trim();
+		foreach (var sibling in parent.Children)
+		{
+			if (!ReferenceEquals(sibling, info) && sibling != null && string.Equals(sibling.Name, newName, StringComparison.OrdinalIgnoreCase))
+			{
+				MessageBox.Show("同级节点已存在同名节点。", "提示");
+				return;
+			}
+		}
+		info.Name = newName;
+		MarkMountNodeListDirty();
+		PopulateMountNodeChildrenList();
+	}
+
+	private void MountNodeList_AddChild()
+	{
+		WzNodeInfo selected = GetMountNodeListSelectedNode();
+		WzNodeInfo parent = (selected != null && IsMountContainerNode(selected)) ? selected : GetMountNodeListCurrentNode();
+		if (parent == null || !IsMountContainerNode(parent))
+		{
+			MessageBox.Show("当前节点不能添加子节点。", "提示");
+			return;
+		}
+		string name = ShowInputBox("添加子节点", "节点名称（例如 delay/origin/lt/rb/z/0/1）:", "");
+		if (string.IsNullOrWhiteSpace(name))
+			return;
+		name = name.Trim();
+		if (FindChildInfo(parent, name) != null)
+		{
+			MessageBox.Show("该名称已存在于当前目录。", "提示");
+			return;
+		}
+		string type = ShowInputBox("添加子节点",
+			"节点类型：\nSubProperty=目录，Canvas=图片，Int=整数，String=文本，Vector=坐标x,y，UOL=引用路径，Short/Long/Float/Double/Null=其它类型",
+			GuessMountNodeType(name));
+		if (string.IsNullOrWhiteSpace(type))
+			return;
+		type = NormalizeMountNodeType(type.Trim());
+		string value = "";
+		if (!IsMountContainerType(type) || string.Equals(type, "Canvas", StringComparison.OrdinalIgnoreCase))
+		{
+			value = ShowInputBox("添加子节点", GetMountNewNodeValuePrompt(type, name), GetMountDefaultNodeValue(type, name));
+			if (value == null)
+				return;
+		}
+		if (parent.Children == null)
+			parent.Children = new List<WzNodeInfo>();
+		parent.Children.Add(CreateMountNodeInfo(name, type, value));
+		MarkMountNodeListDirty();
+		PopulateMountNodeChildrenList();
+	}
+
+	private void MountNodeList_DeleteSelected()
+	{
+		WzNodeInfo parent = GetMountNodeListCurrentNode();
+		WzNodeInfo info = GetMountNodeListSelectedNode();
+		if (parent?.Children == null || info == null)
+			return;
+		if (MessageBox.Show("确认删除节点 \"" + info.Name + "\" 及其所有子节点吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) != DialogResult.Yes)
+			return;
+		parent.Children.Remove(info);
+		MarkMountNodeListDirty();
+		PopulateMountNodeChildrenList();
+	}
+
+	private void MountNodeList_CopySelected()
+	{
+		WzNodeInfo info = GetMountNodeListSelectedNode();
+		if (info == null)
+			info = GetMountNodeListCurrentNode();
+		if (info == null)
+			return;
+		_clipboardNode = DeepCopyNode(info);
+		Console.WriteLine("[坐骑节点列表] 已复制节点 " + info.Name);
+	}
+
+	private void MountNodeList_PasteIntoSelected()
+	{
+		if (_clipboardNode == null)
+			return;
+		WzNodeInfo selected = GetMountNodeListSelectedNode();
+		WzNodeInfo parent = (selected != null && IsMountContainerNode(selected)) ? selected : GetMountNodeListCurrentNode();
+		if (parent == null || !IsMountContainerNode(parent))
+		{
+			MessageBox.Show("当前节点不能包含子节点，请选中目录、图片(Canvas)或当前帧。", "提示");
+			return;
+		}
+		WzNodeInfo pasted = DeepCopyNode(_clipboardNode);
+		if (FindChildInfo(parent, pasted.Name) != null)
+		{
+			string unique = GenerateUniqueChildName(parent, pasted.Name);
+			string renamed = ShowInputBox("粘贴节点", "同级已存在 \"" + pasted.Name + "\"，请输入粘贴后的名称:", unique);
+			if (string.IsNullOrWhiteSpace(renamed))
+				return;
+			pasted.Name = renamed.Trim();
+		}
+		if (parent.Children == null)
+			parent.Children = new List<WzNodeInfo>();
+		parent.Children.Add(pasted);
+		MarkMountNodeListDirty();
+		PopulateMountNodeChildrenList();
+	}
+
+	private void MountNodeList_CopyPath()
+	{
+		WzNodeInfo selected = GetMountNodeListSelectedNode();
+		if (selected == null)
+			selected = GetMountNodeListCurrentNode();
+		string path = BuildMountNodeListPath(selected);
+		if (string.IsNullOrWhiteSpace(path))
+			return;
+		try { Clipboard.SetText(path); } catch { }
+		Console.WriteLine("[坐骑节点列表] 已复制路径 " + path);
+	}
+
+	private void MarkMountNodeListDirty()
+	{
+		MarkMountTreeDirty(actionTree: true);
+		SyncMountInfoGridFromTree(actionTree: true);
+		PopulateMountNodePageSelector();
+	}
+
+	private void PopulateMountTrees()
+	{
+		PopulateMountTree(treeMountActionTree, _mountEditorData?.ActionTree, actionTree: true);
+		PopulateMountTree(treeMountDataTree, _mountEditorData?.DataTree, actionTree: false);
+	}
+
+	private void PopulateMountTree(TreeView tree, WzNodeInfo root, bool actionTree)
+	{
+		if (tree == null)
+			return;
+		string selectedPath = BuildTreeNodePath(tree.SelectedNode);
+
+		tree.BeginUpdate();
+		try
+		{
+			tree.Nodes.Clear();
+			if (root != null)
+			{
+				TreeNode rootNode = BuildMountTreeNode(root, "", actionTree);
+				tree.Nodes.Add(rootNode);
+				rootNode.Expand();
+				CollapseDeep(tree.Nodes, 0, 4);
+			}
+		}
+		finally
+		{
+			tree.EndUpdate();
+		}
+
+		if (!string.IsNullOrWhiteSpace(selectedPath))
+		{
+			TreeNode restored = FindTreeNodeByPath(tree, selectedPath);
+			if (restored != null)
+			{
+				_suppressMountTreeSelectionSync = true;
+				try
+				{
+					tree.SelectedNode = restored;
+					restored.EnsureVisible();
+				}
+				finally
+				{
+					_suppressMountTreeSelectionSync = false;
+				}
+			}
+		}
+		UpdateMountTreeInfoLabel(tree, actionTree);
+	}
+
+	private TreeNode BuildMountTreeNode(WzNodeInfo info, string parentPath, bool actionTree)
+	{
+		string path = string.IsNullOrEmpty(parentPath) ? (info?.Name ?? "") : parentPath + "/" + (info?.Name ?? "");
+		TreeNode node = new TreeNode(BuildMountNodeText(info, actionTree));
+		node.Tag = info;
+		node.ToolTipText = BuildMountNodeHelp(info, path, actionTree);
+
+		if (info?.Children != null)
+		{
+			foreach (var child in info.Children)
+				node.Nodes.Add(BuildMountTreeNode(child, path, actionTree));
+		}
+		return node;
+	}
+
+	private string BuildMountNodeText(WzNodeInfo info, bool actionTree)
+	{
+		if (info == null)
+			return "(空节点)";
+		string type = GetMountTypeLabel(info.TypeName);
+		string name = info.Name ?? "";
+		string zh = GetMountNodeNameLabel(name, actionTree);
+		string value = GetMountNodeDisplayValue(info);
+		string displayName = string.IsNullOrEmpty(zh) ? name : name + "（" + zh + "）";
+		return string.IsNullOrEmpty(value)
+			? "[" + type + "] " + displayName
+			: "[" + type + "] " + displayName + " = " + value;
+	}
+
+	private string GetMountNodeDisplayValue(WzNodeInfo info)
+	{
+		if (info == null)
+			return "";
+		if (string.Equals(info.TypeName, "Canvas", StringComparison.OrdinalIgnoreCase)
+			&& string.IsNullOrWhiteSpace(info.Value)
+			&& info.CanvasWidth > 0
+			&& info.CanvasHeight > 0)
+		{
+			return info.CanvasWidth + "x" + info.CanvasHeight;
+		}
+		return info.Value ?? "";
+	}
+
+	private string GetMountTypeLabel(string typeName)
+	{
+		string type = typeName ?? "";
+		if (string.Equals(type, "ImgDir", StringComparison.OrdinalIgnoreCase)) return "IMG根";
+		if (string.Equals(type, "SubProperty", StringComparison.OrdinalIgnoreCase)) return "目录";
+		if (string.Equals(type, "Canvas", StringComparison.OrdinalIgnoreCase)) return "图片";
+		if (string.Equals(type, "Vector", StringComparison.OrdinalIgnoreCase)) return "坐标";
+		if (string.Equals(type, "Int", StringComparison.OrdinalIgnoreCase)) return "整数";
+		if (string.Equals(type, "Short", StringComparison.OrdinalIgnoreCase)) return "短整数";
+		if (string.Equals(type, "Long", StringComparison.OrdinalIgnoreCase)) return "长整数";
+		if (string.Equals(type, "Float", StringComparison.OrdinalIgnoreCase)) return "小数";
+		if (string.Equals(type, "Double", StringComparison.OrdinalIgnoreCase)) return "双精度";
+		if (string.Equals(type, "String", StringComparison.OrdinalIgnoreCase)) return "文本";
+		if (string.Equals(type, "UOL", StringComparison.OrdinalIgnoreCase)) return "引用";
+		if (string.Equals(type, "Null", StringComparison.OrdinalIgnoreCase)) return "空值";
+		return string.IsNullOrWhiteSpace(type) ? "节点" : type;
+	}
+
+	private string GetMountNodeNameLabel(string name, bool actionTree)
+	{
+		string key = (name ?? "").Trim();
+		if (string.IsNullOrEmpty(key))
+			return "";
+		if (actionTree && MountActionNodeLabels.TryGetValue(key, out string actionLabel))
+			return actionLabel;
+		switch (key.ToLowerInvariant())
+		{
+			case "info": return "基础参数";
+			case "tamingmob": return "绑定的DataID";
+			case "icon": return "图标";
+			case "iconraw": return "原始图标";
+			case "delay": return "帧延迟";
+			case "origin": return "图片基准点";
+			case "lt": return "左上范围";
+			case "rb": return "右下范围";
+			case "z": return "渲染层";
+			case "speed": return "移动速度";
+			case "jump": return "跳跃力";
+			case "fatigue": return "疲劳消耗";
+			case "fs": return "飞行/特殊状态";
+			case "swim": return "游泳";
+			default:
+				return "";
+		}
+	}
+
+	private string BuildMountNodeHelp(WzNodeInfo info, string path, bool actionTree)
+	{
+		string compact = BuildMountCompactPath(path);
+		string desc = DescribeMountNode(info, path, actionTree);
+		string value = GetMountNodeDisplayValue(info);
+		string text = "路径: " + path;
+		if (!string.IsNullOrWhiteSpace(compact) && !string.Equals(compact, path, StringComparison.OrdinalIgnoreCase))
+			text += " / 简写: " + compact;
+		if (!string.IsNullOrWhiteSpace(value))
+			text += "\n当前值: " + value;
+		if (!string.IsNullOrWhiteSpace(desc))
+			text += "\n说明: " + desc;
+		return text;
+	}
+
+	private string DescribeMountNode(WzNodeInfo info, string path, bool actionTree)
+	{
+		if (info == null)
+			return "";
+		string name = (info.Name ?? "").Trim();
+		string lower = name.ToLowerInvariant();
+		if (string.Equals(info.TypeName, "ImgDir", StringComparison.OrdinalIgnoreCase))
+			return actionTree ? "坐骑动作文件根节点，对应 Character.wz/TamingMob/0190xxxx.img。" : "坐骑参数文件根节点，对应 TamingMob.wz/000x.img。";
+		if (actionTree && MountActionNodeLabels.TryGetValue(name, out string actionLabel))
+			return actionLabel + "动作分组，下面的数字节点是动画帧。";
+		if (IsNumericNodeName(name) && actionTree)
+			return "数字帧节点。常见子节点 delay=播放延迟，origin=基准点，lt/rb=范围，z=图层，0/1/... 可能是图片部位或UOL引用。";
+		if (string.Equals(info.TypeName, "Canvas", StringComparison.OrdinalIgnoreCase))
+			return "图片画布节点，图片数据本身保存在这里，下面还可以挂 origin、lt、rb、delay、z 等参数。";
+		if (string.Equals(info.TypeName, "Vector", StringComparison.OrdinalIgnoreCase))
+			return "二维坐标，格式为 x,y。origin 是图片落点，lt/rb 通常用于范围框。";
+		switch (lower)
+		{
+			case "info": return "基础参数目录。动作IMG的 tamingMob 会绑定到参数IMG编号。";
+			case "tamingmob": return "绑定的坐骑 DataID，例如 1 对应 TamingMob.wz/0001.img。";
+			case "delay": return "该帧播放时长，单位毫秒。";
+			case "origin": return "图片基准点，角色/坐骑对齐时主要看这个坐标。";
+			case "lt": return "左上范围坐标，常用于碰撞/选区/显示范围。";
+			case "rb": return "右下范围坐标，通常与 lt 配对。";
+			case "z": return "渲染层名称，例如 tamingMobMid、backTamingMobMid。";
+			case "speed": return "坐骑移动速度。";
+			case "jump": return "坐骑跳跃力。";
+			case "fatigue": return "疲劳消耗相关参数。";
+			default:
+				if (IsNumericNodeName(name))
+					return "数字子节点，常见于多部位图片或引用结构。";
+				return actionTree ? "动作资源节点，可右键继续添加、复制、删除或编辑。" : "坐骑参数节点，可右键继续添加、复制、删除或编辑。";
+		}
+	}
+
+	private string BuildMountCompactPath(string path)
+	{
+		if (string.IsNullOrWhiteSpace(path))
+			return "";
+		string[] parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+		if (parts.Length == 0)
+			return "";
+
+		int start = parts[0].EndsWith(".img", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+		var sb = new StringBuilder();
+		for (int i = start; i < parts.Length; i++)
+		{
+			string part = parts[i];
+			if (sb.Length == 0)
+				sb.Append(part);
+			else if (IsNumericNodeName(part) && i == start + 1)
+				sb.Append("[").Append(part).Append("]");
+			else
+				sb.Append(".").Append(part);
+		}
+		return sb.ToString();
+	}
+
+	private static bool IsNumericNodeName(string name)
+	{
+		return int.TryParse((name ?? "").Trim(), out _);
+	}
+
+	private void MountTree_NodeMouseDoubleClick(object sender, TreeNodeMouseClickEventArgs e)
+	{
+		if (sender is not TreeView tree || e.Node?.Tag is not WzNodeInfo info)
+			return;
+
+		if (!IsMountDoubleClickEditableNode(info))
+			return;
+
+		tree.SelectedNode = e.Node;
+		MountTree_EditSelected(tree, ReferenceEquals(tree, treeMountActionTree));
+	}
+
+	private bool IsMountDoubleClickEditableNode(WzNodeInfo info)
+	{
+		if (info == null)
+			return false;
+		return !string.Equals(info.TypeName, "ImgDir", StringComparison.OrdinalIgnoreCase)
+			&& !string.Equals(info.TypeName, "SubProperty", StringComparison.OrdinalIgnoreCase)
+			&& !string.Equals(info.TypeName, "Convex", StringComparison.OrdinalIgnoreCase);
+	}
+
+	private void MountTree_AfterSelect(object sender, TreeViewEventArgs e)
+	{
+		if (sender is TreeView tree)
+		{
+			bool actionTree = ReferenceEquals(tree, treeMountActionTree);
+			UpdateMountTreeInfoLabel(tree, actionTree);
+			if (actionTree)
+				SyncMountFrameListFromActionTreeSelection(e.Node);
+		}
+	}
+
+	private void SyncMountFrameListFromActionTreeSelection(TreeNode node)
+	{
+		if (_suppressMountTreeSelectionSync || node == null || _mountEditorData == null)
+			return;
+		if (!TryGetMountActionFrameFromTreeNode(node, out string actionName, out int frameIndex))
+			return;
+
+		_suppressMountNodeChange = true;
+		_suppressMountFrameSelectionSync = true;
+		try
+		{
+			SelectMountActionNodeCombo(actionName);
+			PopulateMountFrames(GetActiveMountFrames(createIfMissing: false));
+			SelectMountFrameListIndex(frameIndex);
+		}
+		finally
+		{
+			_suppressMountFrameSelectionSync = false;
+			_suppressMountNodeChange = false;
+		}
+
+		UpdateMountPreviewFromActionTreeSelection(node, actionName, frameIndex);
+	}
+
+	private bool TryGetMountActionFrameFromTreeNode(TreeNode node, out string actionName, out int frameIndex)
+	{
+		actionName = "";
+		frameIndex = -1;
+		string path = BuildTreeNodePath(node);
+		if (string.IsNullOrWhiteSpace(path))
+			return false;
+
+		string[] parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+		int start = parts.Length > 0 && parts[0].EndsWith(".img", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+		if (parts.Length <= start)
+			return false;
+
+		string candidate = (parts[start] ?? "").Trim();
+		if (string.IsNullOrWhiteSpace(candidate) || string.Equals(candidate, "info", StringComparison.OrdinalIgnoreCase))
+			return false;
+
+		actionName = candidate;
+		if (parts.Length > start + 1 && int.TryParse(parts[start + 1], out int parsedFrame))
+			frameIndex = parsedFrame;
+		return true;
+	}
+
+	private bool SelectMountActionNodeCombo(string actionName)
+	{
+		if (cboMountActionNode == null || string.IsNullOrWhiteSpace(actionName))
+			return false;
+		foreach (object obj in cboMountActionNode.Items)
+		{
+			if (obj is MountActionNodeItem item
+				&& string.Equals(item.Key, actionName, StringComparison.OrdinalIgnoreCase))
+			{
+				cboMountActionNode.SelectedItem = obj;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private void SelectMountFrameListIndex(int frameIndex)
+	{
+		if (lvMountFrames == null)
+			return;
+		for (int i = 0; i < lvMountFrames.Items.Count; i++)
+			lvMountFrames.Items[i].Selected = false;
+		if (frameIndex < 0 || frameIndex >= lvMountFrames.Items.Count)
+			return;
+		lvMountFrames.Items[frameIndex].Selected = true;
+		lvMountFrames.Items[frameIndex].Focused = true;
+		lvMountFrames.EnsureVisible(frameIndex);
+	}
+
+	private void UpdateMountPreviewFromActionTreeSelection(TreeNode node, string actionName, int frameIndex)
+	{
+		if (picMountFramePreview == null)
+			return;
+
+		WzNodeInfo canvas = FindNearestCanvasNode(node);
+		if (canvas?.CanvasBitmap != null)
+		{
+			SafeSetImage(picMountFramePreview, canvas.CanvasBitmap);
+			return;
+		}
+
+		if (!string.IsNullOrWhiteSpace(actionName)
+			&& frameIndex >= 0
+			&& _mountEditorData?.ActionFramesByNode != null
+			&& _mountEditorData.ActionFramesByNode.TryGetValue(actionName, out List<WzEffectFrame> frames)
+			&& frames != null
+			&& frameIndex < frames.Count)
+		{
+			SafeSetImage(picMountFramePreview, frames[frameIndex]?.Bitmap);
+		}
+	}
+
+	private WzNodeInfo FindNearestCanvasNode(TreeNode node)
+	{
+		for (TreeNode cur = node; cur != null; cur = cur.Parent)
+		{
+			if (cur.Tag is WzNodeInfo info
+				&& string.Equals(info.TypeName, "Canvas", StringComparison.OrdinalIgnoreCase))
+			{
+				return info;
+			}
+		}
+		return null;
+	}
+
+	private void SelectMountActionTreeNode(string actionName, int frameIndex)
+	{
+		if (treeMountActionTree == null || string.IsNullOrWhiteSpace(actionName))
+			return;
+		TreeNode target = FindMountActionTreeNode(actionName, frameIndex);
+		if (target == null)
+			return;
+
+		_suppressMountTreeSelectionSync = true;
+		try
+		{
+			treeMountActionTree.SelectedNode = target;
+			target.EnsureVisible();
+			target.Expand();
+		}
+		finally
+		{
+			_suppressMountTreeSelectionSync = false;
+		}
+		UpdateMountTreeInfoLabel(treeMountActionTree, actionTree: true);
+	}
+
+	private TreeNode FindMountActionTreeNode(string actionName, int frameIndex)
+	{
+		if (treeMountActionTree?.Nodes.Count <= 0)
+			return null;
+		TreeNode root = treeMountActionTree.Nodes[0];
+		TreeNode action = FindChildTreeNode(root, actionName);
+		if (action == null || frameIndex < 0)
+			return action;
+		return FindChildTreeNode(action, frameIndex.ToString()) ?? action;
+	}
+
+	private TreeNode FindChildTreeNode(TreeNode parent, string name)
+	{
+		if (parent == null || string.IsNullOrWhiteSpace(name))
+			return null;
+		foreach (TreeNode child in parent.Nodes)
+		{
+			if (child.Tag is WzNodeInfo info
+				&& string.Equals(info.Name, name, StringComparison.OrdinalIgnoreCase))
+			{
+				return child;
+			}
+		}
+		return null;
+	}
+
+	private void UpdateMountTreeInfoLabel(TreeView tree, bool actionTree)
+	{
+		Label label = actionTree ? lblMountActionTreeInfo : lblMountDataTreeInfo;
+		if (label == null)
+			return;
+		if (tree?.SelectedNode?.Tag is WzNodeInfo info)
+			label.Text = BuildMountNodeHelp(info, BuildTreeNodePath(tree.SelectedNode), actionTree).Replace("\n", "  ");
+		else
+			label.Text = actionTree
+				? "动作IMG完整树：可编辑 walk1/stand1/fly 下每一帧的 delay、origin、lt、rb、z、图片部位/引用。"
+				: "参数IMG完整树：可编辑 info 下 speed、jump、fatigue 等，也可添加自定义参数节点。";
+	}
+
+	private string BuildTreeNodePath(TreeNode node)
+	{
+		if (node == null)
+			return "";
+		var parts = new List<string>();
+		for (TreeNode cur = node; cur != null; cur = cur.Parent)
+		{
+			if (cur.Tag is WzNodeInfo info)
+				parts.Add(info.Name ?? "");
+		}
+		parts.Reverse();
+		return string.Join("/", parts);
+	}
+
+	private TreeNode FindTreeNodeByPath(TreeView tree, string path)
+	{
+		if (tree == null || string.IsNullOrWhiteSpace(path))
+			return null;
+		string[] parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+		TreeNodeCollection nodes = tree.Nodes;
+		TreeNode current = null;
+		foreach (string part in parts)
+		{
+			current = null;
+			foreach (TreeNode node in nodes)
+			{
+				if (node.Tag is WzNodeInfo info
+					&& string.Equals(info.Name, part, StringComparison.OrdinalIgnoreCase))
+				{
+					current = node;
+					break;
+				}
+			}
+			if (current == null)
+				return null;
+			nodes = current.Nodes;
+		}
+		return current;
+	}
+
+	private void MountTree_EditSelected(TreeView tree, bool actionTree)
+	{
+		if (tree?.SelectedNode?.Tag is not WzNodeInfo info)
+			return;
+		if (string.Equals(info.TypeName, "ImgDir", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(info.TypeName, "SubProperty", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(info.TypeName, "Convex", StringComparison.OrdinalIgnoreCase))
+		{
+			MessageBox.Show("这是容器节点，没有直接值。\n请使用“重命名节点”或“添加子节点/删除节点”编辑结构。", "节点说明");
+			return;
+		}
+
+		string prompt = BuildMountNodeHelp(info, BuildTreeNodePath(tree.SelectedNode), actionTree)
+			+ "\n\n新值：";
+		string value = ShowInputBox("编辑节点值/属性", prompt, GetMountNodeDisplayValue(info));
+		if (value == null)
+			return;
+
+		if (string.Equals(info.TypeName, "Vector", StringComparison.OrdinalIgnoreCase)
+			&& !Regex.IsMatch(value.Trim(), @"^-?\d+\s*[, ]\s*-?\d+$"))
+		{
+			MessageBox.Show("坐标格式应为 x,y，例如 45,51。", "格式错误");
+			return;
+		}
+
+		if (string.Equals(info.TypeName, "Canvas", StringComparison.OrdinalIgnoreCase))
+		{
+			ParseCanvasValue(value, out int w, out int h);
+			if (w > 0 && h > 0)
+			{
+				info.CanvasWidth = w;
+				info.CanvasHeight = h;
+			}
+		}
+		info.Value = value.Trim();
+		tree.SelectedNode.Text = BuildMountNodeText(info, actionTree);
+		tree.SelectedNode.ToolTipText = BuildMountNodeHelp(info, BuildTreeNodePath(tree.SelectedNode), actionTree);
+		MarkMountTreeDirty(actionTree);
+		SyncMountInfoGridFromTree(actionTree);
+		RefreshMountActionUiAfterTreeChange(tree, actionTree);
+		UpdateMountTreeInfoLabel(tree, actionTree);
+	}
+
+	private void MountTree_ReplaceCanvasImage(TreeView tree, bool actionTree)
+	{
+		if (tree?.SelectedNode?.Tag is not WzNodeInfo info)
+			return;
+		if (!string.Equals(info.TypeName, "Canvas", StringComparison.OrdinalIgnoreCase))
+		{
+			MessageBox.Show("请先选中图片 Canvas 节点，例如 walk1[0].1.0。", "提示");
+			return;
+		}
+
+		using (OpenFileDialog ofd = new OpenFileDialog())
+		{
+			ofd.Title = "替换 Canvas 图片";
+			ofd.Filter = "图片文件|*.png;*.bmp;*.gif;*.jpg;*.jpeg|所有文件|*.*";
+			if (ofd.ShowDialog() != DialogResult.OK)
+				return;
+
+			try
+			{
+				Bitmap replacement;
+				using (Bitmap loaded = new Bitmap(ofd.FileName))
+					replacement = CloneBitmapForNode(loaded);
+				try { info.CanvasBitmap?.Dispose(); } catch { }
+				info.CanvasBitmap = replacement;
+				info.CanvasCompressedBytes = null;
+				info.CanvasPngFormat = 0;
+				info.CanvasWidth = replacement.Width;
+				info.CanvasHeight = replacement.Height;
+				info.Value = replacement.Width + "x" + replacement.Height;
+				tree.SelectedNode.Text = BuildMountNodeText(info, actionTree);
+				tree.SelectedNode.ToolTipText = BuildMountNodeHelp(info, BuildTreeNodePath(tree.SelectedNode), actionTree);
+				MarkMountTreeDirty(actionTree);
+				SyncMountInfoGridFromTree(actionTree);
+				RefreshMountActionUiAfterTreeChange(tree, actionTree);
+				UpdateMountTreeInfoLabel(tree, actionTree);
+				if (actionTree)
+					UpdateMountPreviewFromActionTreeSelection(tree.SelectedNode, "", -1);
+				Console.WriteLine("[坐骑编辑] 已替换 Canvas 图片: " + BuildTreeNodePath(tree.SelectedNode));
+			}
+			catch (Exception ex)
+			{
+				MessageBox.Show("替换图片失败: " + ex.Message, "错误");
+			}
+		}
+	}
+
+	private void MountTree_RenameSelected(TreeView tree, bool actionTree)
+	{
+		if (tree?.SelectedNode?.Tag is not WzNodeInfo info)
+			return;
+		if (tree.SelectedNode.Parent == null)
+		{
+			MessageBox.Show("根节点名称由文件名决定，不建议手动改。保存时会自动使用当前 ItemId/DataID 文件名。", "提示");
+			return;
+		}
+
+		string newName = ShowInputBox("重命名节点", "当前名称: " + info.Name + "\n新名称:", info.Name ?? "");
+		if (string.IsNullOrWhiteSpace(newName))
+			return;
+		newName = newName.Trim();
+		if (HasSiblingNamed(tree.SelectedNode, newName))
+		{
+			MessageBox.Show("同级节点已存在同名节点。", "提示");
+			return;
+		}
+		string oldName = info.Name ?? "";
+		bool topLevelAction = actionTree && IsMountTopLevelActionNode(tree.SelectedNode);
+		info.Name = newName;
+		if (topLevelAction)
+			RenameMountActionFrameMapKey(oldName, newName);
+		tree.SelectedNode.Text = BuildMountNodeText(info, actionTree);
+		tree.SelectedNode.ToolTipText = BuildMountNodeHelp(info, BuildTreeNodePath(tree.SelectedNode), actionTree);
+		MarkMountTreeDirty(actionTree);
+		SyncMountInfoGridFromTree(actionTree);
+		RefreshMountActionUiAfterTreeChange(tree, actionTree);
+		UpdateMountTreeInfoLabel(tree, actionTree);
+	}
+
+	private void MountTree_AddChild(TreeView tree, bool actionTree)
+	{
+		if (tree?.SelectedNode?.Tag is not WzNodeInfo parent)
+			return;
+		if (!IsMountContainerNode(parent))
+		{
+			MessageBox.Show("当前节点是标量值，不能添加子节点。\n请选中目录、图片(Canvas)或根节点后再添加。", "提示");
+			return;
+		}
+
+		string name = ShowInputBox("添加子节点", "节点名称（例如 delay/origin/lt/rb/z/0/1）:", "");
+		if (string.IsNullOrWhiteSpace(name))
+			return;
+		name = name.Trim();
+		bool addTopLevelAction = actionTree
+			&& tree.SelectedNode.Parent == null
+			&& !string.Equals(name, "info", StringComparison.OrdinalIgnoreCase);
+		if (FindChildInfo(parent, name) != null)
+		{
+			MessageBox.Show("该名称已存在于当前目录。", "提示");
+			return;
+		}
+
+		string type = ShowInputBox("添加子节点",
+			"节点类型：\n" +
+			"SubProperty=目录，Canvas=图片，Int=整数，String=文本，Vector=坐标x,y，UOL=引用路径，Short/Long/Float/Double/Null=其它类型",
+			GuessMountNodeType(name));
+		if (string.IsNullOrWhiteSpace(type))
+			return;
+		type = NormalizeMountNodeType(type.Trim());
+		string value = "";
+		if (!IsMountContainerType(type) || string.Equals(type, "Canvas", StringComparison.OrdinalIgnoreCase))
+		{
+			value = ShowInputBox("添加子节点", GetMountNewNodeValuePrompt(type, name), GetMountDefaultNodeValue(type, name));
+			if (value == null)
+				return;
+		}
+
+		WzNodeInfo child = CreateMountNodeInfo(name, type, value);
+		if (parent.Children == null)
+			parent.Children = new List<WzNodeInfo>();
+		parent.Children.Add(child);
+		if (addTopLevelAction)
+			EnsureMountActionFrameMapKey(child.Name);
+		TreeNode tn = BuildMountTreeNode(child, BuildTreeNodePath(tree.SelectedNode), actionTree);
+		tree.SelectedNode.Nodes.Add(tn);
+		tree.SelectedNode.Expand();
+		tree.SelectedNode = tn;
+		MarkMountTreeDirty(actionTree);
+		SyncMountInfoGridFromTree(actionTree);
+		RefreshMountActionUiAfterTreeChange(tree, actionTree);
+		UpdateMountTreeInfoLabel(tree, actionTree);
+	}
+
+	private void MountTree_DeleteSelected(TreeView tree, bool actionTree)
+	{
+		if (tree?.SelectedNode?.Tag is not WzNodeInfo info)
+			return;
+		if (tree.SelectedNode.Parent == null)
+		{
+			MessageBox.Show("不能删除根节点。", "提示");
+			return;
+		}
+		if (MessageBox.Show("确认删除节点 \"" + info.Name + "\" 及其所有子节点吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation) != DialogResult.Yes)
+			return;
+
+		bool deleteTopLevelAction = actionTree && IsMountTopLevelActionNode(tree.SelectedNode);
+		TreeNode parentNode = tree.SelectedNode.Parent;
+		if (parentNode?.Tag is WzNodeInfo parent && parent.Children != null)
+			parent.Children.Remove(info);
+		if (deleteTopLevelAction)
+			RemoveMountActionFrameMapKey(info.Name);
+		tree.SelectedNode.Remove();
+		tree.SelectedNode = parentNode;
+		MarkMountTreeDirty(actionTree);
+		SyncMountInfoGridFromTree(actionTree);
+		RefreshMountActionUiAfterTreeChange(tree, actionTree);
+		UpdateMountTreeInfoLabel(tree, actionTree);
+	}
+
+	private void MountTree_CopySelected(TreeView tree)
+	{
+		if (tree?.SelectedNode?.Tag is WzNodeInfo info)
+		{
+			_clipboardNode = DeepCopyNode(info);
+			Console.WriteLine("[节点树] 已复制节点 " + info.Name);
+		}
+	}
+
+	private void MountTree_PasteIntoSelected(TreeView tree, bool actionTree)
+	{
+		if (tree?.SelectedNode?.Tag is not WzNodeInfo parent || _clipboardNode == null)
+			return;
+		if (!IsMountContainerNode(parent))
+		{
+			MessageBox.Show("当前节点不能包含子节点，请选中目录、图片(Canvas)或根节点。", "提示");
+			return;
+		}
+
+		WzNodeInfo pasted = DeepCopyNode(_clipboardNode);
+		if (FindChildInfo(parent, pasted.Name) != null)
+		{
+			string unique = GenerateUniqueChildName(parent, pasted.Name);
+			string renamed = ShowInputBox("粘贴节点", "同级已存在 \"" + pasted.Name + "\"，请输入粘贴后的名称:", unique);
+			if (string.IsNullOrWhiteSpace(renamed))
+				return;
+			pasted.Name = renamed.Trim();
+		}
+		if (parent.Children == null)
+			parent.Children = new List<WzNodeInfo>();
+		parent.Children.Add(pasted);
+		bool pasteTopLevelAction = actionTree
+			&& tree.SelectedNode.Parent == null
+			&& !string.Equals(pasted.Name, "info", StringComparison.OrdinalIgnoreCase);
+		if (pasteTopLevelAction)
+			EnsureMountActionFrameMapKey(pasted.Name);
+		TreeNode tn = BuildMountTreeNode(pasted, BuildTreeNodePath(tree.SelectedNode), actionTree);
+		tree.SelectedNode.Nodes.Add(tn);
+		tree.SelectedNode.Expand();
+		tree.SelectedNode = tn;
+		MarkMountTreeDirty(actionTree);
+		SyncMountInfoGridFromTree(actionTree);
+		RefreshMountActionUiAfterTreeChange(tree, actionTree);
+		Console.WriteLine("[节点树] 已粘贴节点 " + pasted.Name + " -> " + parent.Name);
+	}
+
+	private void MountTree_CopyPath(TreeView tree)
+	{
+		if (tree?.SelectedNode == null)
+			return;
+		string path = BuildTreeNodePath(tree.SelectedNode);
+		try { Clipboard.SetText(path); } catch { }
+		Console.WriteLine("[节点树] 已复制路径 " + path);
+	}
+
+	private void MarkMountTreeDirty(bool actionTree)
+	{
+		if (actionTree)
+			_mountActionTreeDirty = true;
+		else
+			_mountDataTreeDirty = true;
+	}
+
+	private void SyncMountInfoGridFromTree(bool actionTree)
+	{
+		if (_mountEditorData == null)
+			return;
+		if (actionTree)
+		{
+			_mountEditorData.ActionInfo = MountEditorService.ExtractInfoMapFromTree(_mountEditorData.ActionTree);
+			PopulateMountInfoGrid(dgvMountActionInfo, _mountEditorData.ActionInfo);
+		}
+		else
+		{
+			_mountEditorData.DataInfo = MountEditorService.ExtractInfoMapFromTree(_mountEditorData.DataTree);
+			PopulateMountInfoGrid(dgvMountDataInfo, _mountEditorData.DataInfo);
+		}
+	}
+
+	private void RefreshMountActionUiAfterTreeChange(TreeView tree, bool actionTree)
+	{
+		if (!actionTree || tree == null)
+			return;
+		string preferred = "";
+		int frameIndex = -1;
+		if (tree.SelectedNode != null)
+			TryGetMountActionFrameFromTreeNode(tree.SelectedNode, out preferred, out frameIndex);
+		if (string.IsNullOrWhiteSpace(preferred))
+			preferred = GetSelectedMountActionNodeKey();
+		RefreshMountActionNodeSelector(preferred, createIfMissing: false);
+		if (tree.SelectedNode != null)
+			SyncMountFrameListFromActionTreeSelection(tree.SelectedNode);
+		else if (!string.IsNullOrWhiteSpace(preferred))
+			SelectMountActionTreeNode(preferred, frameIndex);
+	}
+
+	private bool IsMountTopLevelActionNode(TreeNode node)
+	{
+		if (node?.Parent == null || node.Parent.Parent != null)
+			return false;
+		if (node.Tag is not WzNodeInfo info)
+			return false;
+		string name = (info.Name ?? "").Trim();
+		return !string.IsNullOrEmpty(name)
+			&& !string.Equals(name, "info", StringComparison.OrdinalIgnoreCase);
+	}
+
+	private void EnsureMountActionFrameMapKey(string name)
+	{
+		name = (name ?? "").Trim();
+		if (string.IsNullOrEmpty(name) || _mountEditorData == null)
+			return;
+		if (_mountEditorData.ActionFramesByNode == null)
+			_mountEditorData.ActionFramesByNode = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
+		if (!_mountEditorData.ActionFramesByNode.ContainsKey(name))
+			_mountEditorData.ActionFramesByNode[name] = new List<WzEffectFrame>();
+	}
+
+	private void RenameMountActionFrameMapKey(string oldName, string newName)
+	{
+		oldName = (oldName ?? "").Trim();
+		newName = (newName ?? "").Trim();
+		if (string.IsNullOrEmpty(oldName)
+			|| string.IsNullOrEmpty(newName)
+			|| string.Equals(oldName, newName, StringComparison.OrdinalIgnoreCase)
+			|| _mountEditorData?.ActionFramesByNode == null)
+		{
+			return;
+		}
+		if (_mountEditorData.ActionFramesByNode.TryGetValue(oldName, out List<WzEffectFrame> frames))
+		{
+			_mountEditorData.ActionFramesByNode.Remove(oldName);
+			if (!_mountEditorData.ActionFramesByNode.ContainsKey(newName))
+				_mountEditorData.ActionFramesByNode[newName] = frames;
+		}
+		if (_mountEditorData.RemovedActionNodes != null)
+		{
+			_mountEditorData.RemovedActionNodes.Remove(newName);
+			if (_mountEditorData.RemovedActionNodes.Remove(oldName))
+				_mountEditorData.RemovedActionNodes.Add(newName);
+		}
+	}
+
+	private void RemoveMountActionFrameMapKey(string name)
+	{
+		name = (name ?? "").Trim();
+		if (string.IsNullOrEmpty(name) || _mountEditorData == null)
+			return;
+		_mountEditorData.ActionFramesByNode?.Remove(name);
+		_mountEditorData.RemovedActionNodes?.Add(name);
+	}
+
+	private bool IsMountContainerNode(WzNodeInfo node)
+	{
+		return node != null && IsMountContainerType(node.TypeName);
+	}
+
+	private bool IsMountContainerType(string type)
+	{
+		return string.Equals(type, "ImgDir", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(type, "SubProperty", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(type, "Convex", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(type, "Canvas", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(type, "自定义", StringComparison.OrdinalIgnoreCase);
+	}
+
+	private WzNodeInfo FindChildInfo(WzNodeInfo parent, string name)
+	{
+		if (parent?.Children == null || string.IsNullOrWhiteSpace(name))
+			return null;
+		foreach (var child in parent.Children)
+		{
+			if (child != null && string.Equals(child.Name, name, StringComparison.OrdinalIgnoreCase))
+				return child;
+		}
+		return null;
+	}
+
+	private bool HasSiblingNamed(TreeNode node, string name)
+	{
+		if (node?.Parent == null || string.IsNullOrWhiteSpace(name))
+			return false;
+		foreach (TreeNode sibling in node.Parent.Nodes)
+		{
+			if (ReferenceEquals(sibling, node))
+				continue;
+			if (sibling.Tag is WzNodeInfo info && string.Equals(info.Name, name, StringComparison.OrdinalIgnoreCase))
+				return true;
+		}
+		return false;
+	}
+
+	private string GenerateUniqueChildName(WzNodeInfo parent, string baseName)
+	{
+		string root = string.IsNullOrWhiteSpace(baseName) ? "node" : baseName.Trim();
+		string candidate = root + "_copy";
+		int index = 2;
+		while (FindChildInfo(parent, candidate) != null)
+			candidate = root + "_copy" + index++;
+		return candidate;
+	}
+
+	private string GuessMountNodeType(string name)
+	{
+		string key = (name ?? "").Trim().ToLowerInvariant();
+		if (key == "origin" || key == "lt" || key == "rb" || key == "head")
+			return "Vector";
+		if (key == "delay" || key == "tamingmob" || key == "speed" || key == "jump" || key == "fatigue" || key == "fs" || key == "swim")
+			return "Int";
+		if (key == "z" || key == "islot" || key == "vslot")
+			return "String";
+		if (IsNumericNodeName(key))
+			return "Canvas";
+		return "SubProperty";
+	}
+
+	private string NormalizeMountNodeType(string type)
+	{
+		string t = (type ?? "").Trim();
+		if (string.Equals(t, "目录", StringComparison.OrdinalIgnoreCase)) return "SubProperty";
+		if (string.Equals(t, "图片", StringComparison.OrdinalIgnoreCase)) return "Canvas";
+		if (string.Equals(t, "整数", StringComparison.OrdinalIgnoreCase)) return "Int";
+		if (string.Equals(t, "文本", StringComparison.OrdinalIgnoreCase)) return "String";
+		if (string.Equals(t, "坐标", StringComparison.OrdinalIgnoreCase)) return "Vector";
+		if (string.Equals(t, "引用", StringComparison.OrdinalIgnoreCase)) return "UOL";
+		string[] known = { "SubProperty", "Canvas", "Int", "String", "Vector", "UOL", "Short", "Long", "Float", "Double", "Null", "Convex" };
+		foreach (string item in known)
+		{
+			if (string.Equals(t, item, StringComparison.OrdinalIgnoreCase))
+				return item;
+		}
+		return "SubProperty";
+	}
+
+	private string GetMountNewNodeValuePrompt(string type, string name)
+	{
+		if (string.Equals(type, "Vector", StringComparison.OrdinalIgnoreCase))
+			return "坐标值 x,y（例如 origin 可填 45,51）:";
+		if (string.Equals(type, "Canvas", StringComparison.OrdinalIgnoreCase))
+			return "图片尺寸 宽x高（新建空白图用；已有图片复制会保留原图）:";
+		if (string.Equals(type, "UOL", StringComparison.OrdinalIgnoreCase))
+			return "引用路径（例如 ../../walk1/0/0）:";
+		return "节点值:";
+	}
+
+	private string GetMountDefaultNodeValue(string type, string name)
+	{
+		string key = (name ?? "").Trim().ToLowerInvariant();
+		if (string.Equals(type, "Vector", StringComparison.OrdinalIgnoreCase))
+			return key == "origin" ? "0,0" : "0,0";
+		if (string.Equals(type, "Canvas", StringComparison.OrdinalIgnoreCase))
+			return "1x1";
+		if (key == "delay")
+			return "100";
+		if (key == "z")
+			return "tamingMobMid";
+		return "";
+	}
+
+	private WzNodeInfo CreateMountNodeInfo(string name, string type, string value)
+	{
+		var node = new WzNodeInfo
+		{
+			Name = name ?? "",
+			TypeName = type ?? "SubProperty",
+			Value = value ?? "",
+			Children = new List<WzNodeInfo>()
+		};
+		if (string.Equals(type, "Canvas", StringComparison.OrdinalIgnoreCase))
+		{
+			ParseCanvasValue(value, out int w, out int h);
+			node.CanvasWidth = w > 0 ? w : 1;
+			node.CanvasHeight = h > 0 ? h : 1;
+			node.Value = node.CanvasWidth + "x" + node.CanvasHeight;
+		}
+		return node;
+	}
+
+	private void ParseCanvasValue(string value, out int width, out int height)
+	{
+		width = 0;
+		height = 0;
+		string[] parts = (value ?? "").Split(new[] { 'x', 'X', ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+		if (parts.Length >= 2)
+		{
+			int.TryParse(parts[0], out width);
+			int.TryParse(parts[1], out height);
+		}
 	}
 
 	private string FindGridValue(DataGridView grid, string key)
@@ -3840,15 +7238,14 @@ public class MainForm : Form
 		var nodes = new List<string>();
 		foreach (string key in MountActionDefaultNodeKeys)
 		{
-			if (!nodes.Exists((string n) => string.Equals(n, key, StringComparison.OrdinalIgnoreCase)))
-				nodes.Add(key);
+			AddUniqueMountActionNodeName(nodes, key);
 		}
+		AddMountActionNodeNamesFromTree(nodes);
 		var extraNodes = new List<string>(_mountEditorData.ActionFramesByNode.Keys);
 		extraNodes.Sort(StringComparer.OrdinalIgnoreCase);
 		foreach (string key in extraNodes)
 		{
-			if (!nodes.Exists((string n) => string.Equals(n, key, StringComparison.OrdinalIgnoreCase)))
-				nodes.Add(key);
+			AddUniqueMountActionNodeName(nodes, key);
 		}
 
 		string selected = preferredNode;
@@ -3908,6 +7305,8 @@ public class MainForm : Form
 		if (_suppressMountNodeChange)
 			return;
 		PopulateMountFrames(GetActiveMountFrames(createIfMissing: false));
+		RefreshMountNodeListForCurrentFrame();
+		SelectMountActionTreeNode(GetSelectedMountActionNodeKey(), -1);
 	}
 
 	private void PopulateMountFrames(List<WzEffectFrame> frames)
@@ -3935,6 +7334,50 @@ public class MainForm : Form
 		}
 	}
 
+	private static void AddUniqueMountActionNodeName(List<string> nodes, string key)
+	{
+		key = (key ?? "").Trim();
+		if (string.IsNullOrEmpty(key) || nodes == null)
+			return;
+		if (!nodes.Exists((string n) => string.Equals(n, key, StringComparison.OrdinalIgnoreCase)))
+			nodes.Add(key);
+	}
+
+	private void AddMountActionNodeNamesFromTree(List<string> nodes)
+	{
+		if (nodes == null || _mountEditorData?.ActionTree?.Children == null)
+			return;
+		var found = new List<string>();
+		foreach (var child in _mountEditorData.ActionTree.Children)
+		{
+			string name = (child?.Name ?? "").Trim();
+			if (string.IsNullOrEmpty(name)
+				|| string.Equals(name, "info", StringComparison.OrdinalIgnoreCase)
+				|| IsNumericNodeName(name))
+			{
+				continue;
+			}
+			found.Add(name);
+		}
+		found.Sort(StringComparer.OrdinalIgnoreCase);
+		foreach (string name in found)
+			AddUniqueMountActionNodeName(nodes, name);
+	}
+
+	private void MarkMountActionFramesDirtyAndRefreshTree()
+	{
+		_mountActionFramesDirty = true;
+		if (_mountEditorData?.ActionTree != null)
+		{
+			MountEditorService.ApplyActionFramesToTree(
+				_mountEditorData.ActionTree,
+				_mountEditorData.ActionFramesByNode,
+				_mountEditorData.RemovedActionNodes);
+			PopulateMountTrees();
+			RefreshMountNodeListForCurrentFrame();
+		}
+	}
+
 	private void LvMountFrames_SelectedChanged(object sender, EventArgs e)
 	{
 		List<WzEffectFrame> frames = GetActiveMountFrames(createIfMissing: false);
@@ -3945,9 +7388,17 @@ public class MainForm : Form
 		}
 		int idx = lvMountFrames.SelectedIndices[0];
 		if (idx >= 0 && idx < frames.Count)
+		{
 			SafeSetImage(picMountFramePreview, frames[idx].Bitmap);
+			RefreshMountNodeListForCurrentFrame();
+			if (!_suppressMountFrameSelectionSync)
+				SelectMountActionTreeNode(GetSelectedMountActionNodeKey(), idx);
+		}
 		else
+		{
 			picMountFramePreview.Image = null;
+			RefreshMountNodeListForCurrentFrame();
+		}
 	}
 
 	private bool TryGetSelectedMountFrame(out WzEffectFrame frame, out int index)
@@ -3985,6 +7436,7 @@ public class MainForm : Form
 					Height = bmp.Height,
 					Delay = delay > 0 ? delay : 100
 				});
+				MarkMountActionFramesDirtyAndRefreshTree();
 				PopulateMountFrames(frames);
 			}
 			catch (Exception ex)
@@ -4011,6 +7463,7 @@ public class MainForm : Form
 				frames[idx].Bitmap = bmp;
 				frames[idx].Width = bmp.Width;
 				frames[idx].Height = bmp.Height;
+				MarkMountActionFramesDirtyAndRefreshTree();
 				PopulateMountFrames(frames);
 			}
 			catch (Exception ex)
@@ -4028,6 +7481,7 @@ public class MainForm : Form
 		if (text == null) return;
 		if (int.TryParse(text, out int delay))
 			frame.Delay = delay > 0 ? delay : frame.Delay;
+		MarkMountActionFramesDirtyAndRefreshTree();
 		PopulateMountFrames(GetActiveMountFrames(createIfMissing: false));
 	}
 
@@ -4049,6 +7503,7 @@ public class MainForm : Form
 
 		frame.Vectors = vectors;
 		frame.FrameProps = frameProps;
+		MarkMountActionFramesDirtyAndRefreshTree();
 		PopulateMountFrames(GetActiveMountFrames(createIfMissing: false));
 		if (lvMountFrames != null && idx >= 0 && idx < lvMountFrames.Items.Count)
 		{
@@ -4063,27 +7518,27 @@ public class MainForm : Form
 		if (frames == null || lvMountFrames == null || lvMountFrames.SelectedIndices.Count == 0)
 			return;
 
-		_clipboardFrames = new List<WzEffectFrame>();
-		foreach (int idx in lvMountFrames.SelectedIndices)
+		List<WzEffectFrame> selectedFrames = new List<WzEffectFrame>();
+		foreach (int idx in GetSortedSelectedIndices(lvMountFrames))
 		{
 			if (idx >= 0 && idx < frames.Count)
-			{
-				var cloned = WzEffectFrame.CloneShallowBitmap(frames[idx]);
-				if (cloned != null)
-					_clipboardFrames.Add(cloned);
-			}
+				selectedFrames.Add(frames[idx]);
 		}
+		StoreFramesInClipboard(selectedFrames, "[坐骑编辑]");
 		Console.WriteLine($"[坐骑编辑] 已复制 {_clipboardFrames.Count} 帧");
 	}
 
 	private void MountMenu_PasteFrames(object sender, EventArgs e)
 	{
-		if (_clipboardFrames == null || _clipboardFrames.Count == 0)
+		List<WzEffectFrame> clipboardFrames = GetFramesFromClipboard("[坐骑编辑]");
+		if (clipboardFrames == null || clipboardFrames.Count == 0)
 			return;
 		List<WzEffectFrame> frames = GetActiveMountFrames(createIfMissing: true);
 		if (frames == null) return;
+		PushUndoSnapshot();
+		int insertStart = frames.Count;
 
-		foreach (WzEffectFrame src in _clipboardFrames)
+		foreach (WzEffectFrame src in clipboardFrames)
 		{
 			WzEffectFrame cloned = WzEffectFrame.CloneShallowBitmap(src);
 			if (cloned != null)
@@ -4092,7 +7547,24 @@ public class MainForm : Form
 				frames.Add(cloned);
 			}
 		}
+		MarkMountActionFramesDirtyAndRefreshTree();
 		PopulateMountFrames(frames);
+		SelectPastedFrames(lvMountFrames, insertStart, clipboardFrames.Count);
+		Console.WriteLine($"[坐骑编辑] 已粘贴 {clipboardFrames.Count} 帧");
+	}
+
+	private void MountFrames_KeyDown(object sender, KeyEventArgs e)
+	{
+		if (e.Control && e.KeyCode == Keys.C)
+		{
+			MountMenu_CopyFrames(sender, EventArgs.Empty);
+			e.SuppressKeyPress = true;
+		}
+		else if (e.Control && e.KeyCode == Keys.V)
+		{
+			MountMenu_PasteFrames(sender, EventArgs.Empty);
+			e.SuppressKeyPress = true;
+		}
 	}
 
 	private void MountMenu_DeleteFrame(object sender, EventArgs e)
@@ -4117,6 +7589,7 @@ public class MainForm : Form
 			frames.RemoveAt(indexes[i]);
 
 		ReindexEffectFrames(frames);
+		MarkMountActionFramesDirtyAndRefreshTree();
 		PopulateMountFrames(frames);
 		Console.WriteLine($"[坐骑编辑] 已删除 {indexes.Count} 帧");
 
@@ -4170,6 +7643,7 @@ public class MainForm : Form
 		}
 		if (imported > 0)
 		{
+			MarkMountActionFramesDirtyAndRefreshTree();
 			PopulateMountFrames(frames);
 			Console.WriteLine($"[坐骑编辑] 拖拽导入 {imported} 帧");
 		}
@@ -4282,10 +7756,19 @@ public class MainForm : Form
 			"special_attack：特殊攻击包（0xAA）");
 		SetControlTip(txtProxySkillId, "代理技能ID（发包/逻辑复用）。");
 		SetControlTip(txtVisualSkillId, "外观技能ID（只借用特效与展示）。");
+		SetControlTip(txtBehaviorSkillId, "行为技能ID（behaviorSkillId）。优先作为客户端/服务端逻辑映射目标，不填则继续按 donor/proxy 规则推导。");
 		SetControlTip(cboReleaseClass, "释放分类实现类。通常保持默认。");
 		SetControlTip(chkBorrowDonorVisual, "优先借用代理技能的可视表现。");
+		SetControlTip(txtVisibleJobId, "可见职业限制（visibleJobId）。填写后，只有该职业会在客户端超级技能面板里看到这个技能。");
 		SetControlTip(txtMountItemId, "坐骑ItemId（mountItemId）。其余 tamingMob/Data 参数由坐骑资源自动读取并绑定。");
+		SetControlTip(txtFlightMountItemId, "飞行坐骑ItemId（flightMountItemId）。需要和服务端飞行/坐骑配置一致；不填则使用普通 mountItemId。");
+		SetControlTip(dgvPassiveBonuses, "定制被动加成。每行=1条被动效果；来源自动优先使用代理技能ID，再回退 behaviorSkillId / 当前技能ID；目标技能可填多个；右键可直接追加模板。");
+		SetControlTip(chkIndependentBuffEnabled, "启用独立BUFF配置。现在主界面只保留独立属性表，图标/载体/原生槽位/来源技能等复杂参数都会自动生成。");
+		SetControlTip(dgvIndependentBuffStats, "独立BUFF数值表。加载技能时默认按当前超级技能ID读取；右键仍可添加、重读或清空属性。");
+		SetControlTip(txtIndependentBuffGuide, "独立BUFF复杂参数现已改为自动推导；该说明框保留为兼容占位。");
 		SetControlTip(chkAllowMountedFlight, "是否写出 allowMountedFlight=true。勾选后仅在“上坐骑+跳”且满足飞行技能条件时进入飞行。");
+		SetControlTip(chkMountedDoubleJump, "启用坐骑二段跳。当前固定写 mountedDoubleJumpSkillId=3101003，只写 super_skills.json，不再改动作 IMG。");
+		SetControlTip(chkMountedDemonJump, "启用坐骑恶魔跳跃。当前固定写 mountedDemonJumpSkillId=30010110；资源同步时会补齐 vehicleNewFlyingLevel / vehicleNaviFlyingLevel / vehicleGlideLevel，关闭时不会强制清零这 3 个已有飞行字段。");
 		SetControlTip(cboMountResourceMode,
 			"坐骑资源同步模式：\n" +
 			"仅写配置：只写 mountItemId，不改资源文件；\n" +
@@ -4295,9 +7778,12 @@ public class MainForm : Form
 		SetControlTip(lblMountEditorDataBinding, "当前绑定的 DataID（来自动作文件 info/tamingMob，或自动分配的新ID）。");
 		SetControlTip(cboMountActionNode, "坐骑动作节点（stand1/walk1/jump/fly...）。");
 		SetControlTip(lvMountFrames, "坐骑帧列表。支持右键编辑延迟、锚点、标量参数，也支持拖拽图片追加帧。");
+		SetControlTip(cboMountNodePage, "当前帧的顶点/部件切换。常见为 0、1，复杂结构会显示为 1.0、1.1。");
+		SetControlTip(lvMountNodeChildren, "当前顶点/部件的属性列表。右键可编辑 origin/lt/rb/z、替换图片、添加或删除节点。");
 		SetControlTip(picMountFramePreview, "当前选中坐骑帧预览。");
 		SetControlTip(btnMountLoad, "加载当前目标坐骑资源到编辑器。");
 		SetControlTip(btnMountClone, "输入来源坐骑ID，自动克隆动作与参数，并自动绑定可用 DataID。");
+		SetControlTip(btnMountNewTamingMob, "基于当前已加载的坐骑，自动分配新的 tamingMob/DataID，复制当前参数，并把动作绑定切到新的 DataID。");
 		SetControlTip(btnMountSaveAction, "保存 Character/TamingMob/0190xxxx.img。");
 		SetControlTip(btnMountSaveData, "保存 TamingMob/000x.img。");
 		SetControlTip(btnMountSyncXml, "把当前坐骑 .img 同步为服务端 XML。");
@@ -4310,6 +7796,7 @@ public class MainForm : Form
 		SetControlTip(btnMountKnownRefresh, "重新读取坐骑ID列表。");
 
 		SetControlTip(chkHideFromNative, "在原生技能窗隐藏该技能。");
+		SetControlTip(chkHideFromSuper, "在超级技能窗隐藏该技能。会写入 super_skills.json 的 hiddenSkills.hideFromSuperSkillWnd。");
 		SetControlTip(chkShowInNativeWhenLearned, "学习后在原生技能窗显示。");
 		SetControlTip(chkShowInSuperWhenLearned, "学习后在超级技能窗显示。");
 		SetControlTip(chkAllowNativeFallback, "允许逻辑回退到原生技能处理。");
@@ -4696,7 +8183,8 @@ public class MainForm : Form
 		PathConfig.RegisterCarrierSkillId(defaultSuperSpCarrierSkillId);
 		PathConfig.DefaultSuperSpCarrierSkillId = result;
 		PathConfig.RegisterCarrierSkillId(result);
-		SettingsManager.Save();
+		if (!TrySaveSettingsWithMessage())
+			return false;
 		SyncCarrierSkillIdEditors(source);
 		int num = RemapCarrierSkillOverridesInQueues(defaultSuperSpCarrierSkillId, result);
 		int num2 = RemoveCarrierSkillsFromQueues(defaultSuperSpCarrierSkillId, result);
@@ -4890,7 +8378,7 @@ public class MainForm : Form
 
 	private void MainForm_KeyDown(object sender, KeyEventArgs e)
 	{
-		if (e == null || !e.Control || IsTextInputControl(base.ActiveControl))
+		if (e == null || !e.Control || ShouldBypassGlobalUndoRedo())
 		{
 			return;
 		}
@@ -4906,6 +8394,57 @@ public class MainForm : Form
 		{
 			e.SuppressKeyPress = true;
 		}
+	}
+
+	private bool ShouldBypassGlobalUndoRedo()
+	{
+		Control control = FindFocusedControl(this) ?? base.ActiveControl;
+		if (IsTextInputControl(control))
+		{
+			return true;
+		}
+		for (Control control2 = control; control2 != null; control2 = control2.Parent)
+		{
+			if (control2 is IDataGridViewEditingControl)
+			{
+				return true;
+			}
+			if (control2 is DataGridView dataGridView && dataGridView.IsCurrentCellInEditMode)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private Control FindFocusedControl(Control root)
+	{
+		if (root == null || !root.ContainsFocus)
+		{
+			return null;
+		}
+		if (root is ContainerControl containerControl && containerControl.ActiveControl != null)
+		{
+			Control control = FindFocusedControl(containerControl.ActiveControl);
+			if (control != null)
+			{
+				return control;
+			}
+			if (containerControl.ActiveControl.ContainsFocus)
+			{
+				return containerControl.ActiveControl;
+			}
+		}
+		foreach (Control control2 in root.Controls)
+		{
+			if (!control2.ContainsFocus)
+			{
+				continue;
+			}
+			Control control3 = FindFocusedControl(control2);
+			return control3 ?? control2;
+		}
+		return root;
 	}
 
 	private bool IsTextInputControl(Control control)
@@ -5015,6 +8554,8 @@ public class MainForm : Form
 			BorrowDonorVisual = source.BorrowDonorVisual,
 			ProxySkillId = source.ProxySkillId,
 			VisualSkillId = source.VisualSkillId,
+			BehaviorSkillId = source.BehaviorSkillId,
+			VisibleJobId = source.VisibleJobId,
 			CloneFromSkillId = source.CloneFromSkillId,
 			PreserveClonedNode = source.PreserveClonedNode,
 			Action = source.Action,
@@ -5022,6 +8563,7 @@ public class MainForm : Form
 			SourceLabel = source.SourceLabel,
 			ExistsInImg = source.ExistsInImg,
 			HideFromNativeSkillWnd = source.HideFromNativeSkillWnd,
+			HideFromSuperSkillWnd = source.HideFromSuperSkillWnd,
 			ShowInNativeWhenLearned = source.ShowInNativeWhenLearned,
 			ShowInSuperWhenLearned = source.ShowInSuperWhenLearned,
 			AllowNativeUpgradeFallback = source.AllowNativeUpgradeFallback,
@@ -5029,17 +8571,68 @@ public class MainForm : Form
 			InjectEnabled = source.InjectEnabled,
 			DonorSkillId = source.DonorSkillId,
 			MountItemId = source.MountItemId,
+			FlightMountItemId = source.FlightMountItemId,
 			AllowMountedFlight = source.AllowMountedFlight,
+			MountedDoubleJumpEnabled = source.MountedDoubleJumpEnabled,
+			MountedDoubleJumpSkillId = source.MountedDoubleJumpSkillId,
+			MountedDemonJumpEnabled = source.MountedDemonJumpEnabled,
+			MountedDemonJumpSkillId = source.MountedDemonJumpSkillId,
 			MountResourceMode = source.MountResourceMode,
 			MountSourceItemId = source.MountSourceItemId,
 			MountTamingMobId = source.MountTamingMobId,
 			MountSpeedOverride = source.MountSpeedOverride,
 			MountJumpOverride = source.MountJumpOverride,
 			MountFatigueOverride = source.MountFatigueOverride,
+			MountFsOverride = source.MountFsOverride,
+			MountSwimOverride = source.MountSwimOverride,
 			SuperSpCarrierSkillId = source.SuperSpCarrierSkillId,
 			ServerEnabled = source.ServerEnabled,
 			HasManualEffectOverride = source.HasManualEffectOverride
 		};
+		if (source.PassiveBonuses != null && source.PassiveBonuses.Count > 0)
+		{
+			skillDefinition.PassiveBonuses = new List<PassiveBonusDefinition>();
+			foreach (PassiveBonusDefinition bonus in source.PassiveBonuses)
+			{
+				if (bonus == null)
+				{
+					continue;
+				}
+				var clonedBonus = new PassiveBonusDefinition
+				{
+					SourceSkillId = bonus.SourceSkillId,
+					DamagePercent = bonus.DamagePercent,
+					IgnoreDefensePercent = bonus.IgnoreDefensePercent,
+					AttackCount = bonus.AttackCount,
+					MobCount = bonus.MobCount
+				};
+				if (bonus.TargetSkillIds != null)
+				{
+					clonedBonus.TargetSkillIds.AddRange(bonus.TargetSkillIds);
+				}
+				skillDefinition.PassiveBonuses.Add(clonedBonus);
+			}
+		}
+		if (source.IndependentBuff != null)
+		{
+			skillDefinition.IndependentBuff = new IndependentBuffDefinition
+			{
+				Enabled = source.IndependentBuff.Enabled,
+				SourceSkillId = source.IndependentBuff.SourceSkillId,
+				CarrierBuffStat = source.IndependentBuff.CarrierBuffStat,
+				IconSkillId = source.IndependentBuff.IconSkillId,
+				CarrierValue = source.IndependentBuff.CarrierValue,
+				ClientBuffDisplayMode = source.IndependentBuff.ClientBuffDisplayMode,
+				ClientNativeBuffStat = source.IndependentBuff.ClientNativeBuffStat,
+				ClientNativeValueField = source.IndependentBuff.ClientNativeValueField,
+				IndependentNativeDisplaySkillId = source.IndependentBuff.IndependentNativeDisplaySkillId,
+				ClientLocalBonusKey = source.IndependentBuff.ClientLocalBonusKey,
+				ClientLocalValueField = source.IndependentBuff.ClientLocalValueField,
+				StatBonuses = source.IndependentBuff.StatBonuses != null
+					? new Dictionary<string, string>(source.IndependentBuff.StatBonuses, StringComparer.OrdinalIgnoreCase)
+					: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+			};
+		}
 		if (source.Common != null)
 		{
 			foreach (KeyValuePair<string, string> item in source.Common)
@@ -5108,6 +8701,7 @@ public class MainForm : Form
 		if (source.CachedTree != null)
 		{
 			skillDefinition.CachedTree = DeepCopyNode(source.CachedTree);
+			skillDefinition.HasManualTreeOverride = source.HasManualTreeOverride;
 		}
 		skillDefinition.NormalizeTextFields();
 		return skillDefinition;
@@ -5143,6 +8737,7 @@ public class MainForm : Form
 
 	private void RestoreQueueSnapshot(SkillQueueSnapshot snapshot)
 	{
+		ApplyExecutedStateDiffToSnapshot(snapshot);
 		_isRestoringSnapshot = true;
 		try
 		{
@@ -5196,7 +8791,10 @@ public class MainForm : Form
 			ReleaseClassIndex = (cboReleaseClass != null && cboReleaseClass.SelectedIndex >= 0) ? cboReleaseClass.SelectedIndex : 0,
 			ProxySkillId = txtProxySkillId?.Text ?? "",
 			VisualSkillId = txtVisualSkillId?.Text ?? "",
+			BehaviorSkillId = txtBehaviorSkillId?.Text ?? "",
+			VisibleJobId = txtVisibleJobId?.Text ?? "",
 			MountItemId = txtMountItemId?.Text ?? "",
+			FlightMountItemId = txtFlightMountItemId?.Text ?? "",
 			MountResourceModeIndex = (cboMountResourceMode != null && cboMountResourceMode.SelectedIndex >= 0) ? cboMountResourceMode.SelectedIndex : 0,
 			MountSourceItemId = txtMountSourceItemId?.Text ?? "",
 			MountTamingMobId = txtMountTamingMobId?.Text ?? "",
@@ -5205,11 +8803,14 @@ public class MainForm : Form
 			MountFatigue = txtMountFatigue?.Text ?? "",
 			BorrowDonorVisual = chkBorrowDonorVisual?.Checked ?? false,
 			HideFromNative = chkHideFromNative?.Checked ?? false,
+			HideFromSuper = chkHideFromSuper?.Checked ?? false,
 			ShowInNativeWhenLearned = chkShowInNativeWhenLearned?.Checked ?? false,
 			ShowInSuperWhenLearned = chkShowInSuperWhenLearned?.Checked ?? false,
 			AllowNativeFallback = chkAllowNativeFallback?.Checked ?? false,
 			InjectToNative = chkInjectToNative?.Checked ?? false,
 			AllowMountedFlight = chkAllowMountedFlight?.Checked ?? false,
+			MountedDoubleJumpEnabled = chkMountedDoubleJump?.Checked ?? false,
+			MountedDemonJumpEnabled = chkMountedDemonJump?.Checked ?? false,
 			SelectedSkillIndex = (lvSkills != null && lvSkills.SelectedIndices.Count > 0) ? lvSkills.SelectedIndices[0] : -1,
 			SelectedEffectIndex = (lvEffectFrames != null && lvEffectFrames.SelectedIndices.Count > 0) ? lvEffectFrames.SelectedIndices[0] : -1,
 			SelectedEffectNodeName = (cboEffectNode?.SelectedItem as string) ?? (_editState?.SelectedEffectNodeName ?? "effect")
@@ -5233,7 +8834,10 @@ public class MainForm : Form
 		if (cboReleaseClass != null && snapshot.ReleaseClassIndex >= 0 && snapshot.ReleaseClassIndex < cboReleaseClass.Items.Count) cboReleaseClass.SelectedIndex = snapshot.ReleaseClassIndex;
 		if (txtProxySkillId != null) txtProxySkillId.Text = snapshot.ProxySkillId ?? "";
 		if (txtVisualSkillId != null) txtVisualSkillId.Text = snapshot.VisualSkillId ?? "";
+		if (txtBehaviorSkillId != null) txtBehaviorSkillId.Text = snapshot.BehaviorSkillId ?? "";
+		if (txtVisibleJobId != null) txtVisibleJobId.Text = snapshot.VisibleJobId ?? "";
 		if (txtMountItemId != null) txtMountItemId.Text = snapshot.MountItemId ?? "";
+		if (txtFlightMountItemId != null) txtFlightMountItemId.Text = snapshot.FlightMountItemId ?? "";
 		if (cboMountResourceMode != null && snapshot.MountResourceModeIndex >= 0 && snapshot.MountResourceModeIndex < cboMountResourceMode.Items.Count) cboMountResourceMode.SelectedIndex = snapshot.MountResourceModeIndex;
 		if (txtMountSourceItemId != null) txtMountSourceItemId.Text = snapshot.MountSourceItemId ?? "";
 		if (txtMountTamingMobId != null) txtMountTamingMobId.Text = snapshot.MountTamingMobId ?? "";
@@ -5242,11 +8846,14 @@ public class MainForm : Form
 		if (txtMountFatigue != null) txtMountFatigue.Text = snapshot.MountFatigue ?? "";
 		if (chkBorrowDonorVisual != null) chkBorrowDonorVisual.Checked = snapshot.BorrowDonorVisual;
 		if (chkHideFromNative != null) chkHideFromNative.Checked = snapshot.HideFromNative;
+		if (chkHideFromSuper != null) chkHideFromSuper.Checked = snapshot.HideFromSuper;
 		if (chkShowInNativeWhenLearned != null) chkShowInNativeWhenLearned.Checked = snapshot.ShowInNativeWhenLearned;
 		if (chkShowInSuperWhenLearned != null) chkShowInSuperWhenLearned.Checked = snapshot.ShowInSuperWhenLearned;
 		if (chkAllowNativeFallback != null) chkAllowNativeFallback.Checked = snapshot.AllowNativeFallback;
 		if (chkInjectToNative != null) chkInjectToNative.Checked = snapshot.InjectToNative;
 		if (chkAllowMountedFlight != null) chkAllowMountedFlight.Checked = snapshot.AllowMountedFlight;
+		if (chkMountedDoubleJump != null) chkMountedDoubleJump.Checked = snapshot.MountedDoubleJumpEnabled;
+		if (chkMountedDemonJump != null) chkMountedDemonJump.Checked = snapshot.MountedDemonJumpEnabled;
 
 		SafeSetImage(picIcon, _editState.GetEffectiveIcon());
 		SafeSetImage(picIconMO, _editState.GetEffectiveIconMO());
@@ -5341,7 +8948,8 @@ public class MainForm : Form
 			EditedTree = (_editState.EditedTree != null) ? DeepCopyNode(_editState.EditedTree) : null,
 			EditedLevelParams = CloneLevelParams(_editState.EditedLevelParams) ?? new Dictionary<int, Dictionary<string, string>>(),
 			SelectedEffectNodeName = _editState.SelectedEffectNodeName ?? "effect",
-			HasManualEffectEdit = _hasManualEffectEdit
+			HasManualEffectEdit = _hasManualEffectEdit,
+			HasManualTreeEdit = _hasManualTreeEdit
 		};
 
 		if (_editState.EditedEffectsByNode != null && _editState.EditedEffectsByNode.Count > 0)
@@ -5386,6 +8994,7 @@ public class MainForm : Form
 	{
 		_editState.Clear();
 		_hasManualEffectEdit = false;
+		_hasManualTreeEdit = false;
 
 		if (snapshot == null)
 		{
@@ -5446,6 +9055,7 @@ public class MainForm : Form
 		}
 		_editState.SetSelectedEffectNode(snapshot.SelectedEffectNodeName ?? "effect", createIfMissing: true);
 		_hasManualEffectEdit = snapshot.HasManualEffectEdit;
+		_hasManualTreeEdit = snapshot.HasManualTreeEdit;
 	}
 
 	private WzSkillDataSnapshot CaptureWzSkillDataSnapshot(WzSkillData source)
@@ -5551,6 +9161,327 @@ public class MainForm : Form
 			Vectors = WzEffectFrame.CloneVectors(snapshot.Vectors),
 			FrameProps = WzEffectFrame.CloneFrameProps(snapshot.FrameProps)
 		};
+	}
+
+	private List<EffectFrameSnapshot> CaptureEffectFrameSnapshots(IEnumerable<WzEffectFrame> frames)
+	{
+		var snapshots = new List<EffectFrameSnapshot>();
+		if (frames == null)
+			return snapshots;
+
+		foreach (WzEffectFrame frame in frames)
+		{
+			EffectFrameSnapshot snapshot = CaptureEffectFrameSnapshot(frame);
+			if (snapshot != null)
+				snapshots.Add(snapshot);
+		}
+		return snapshots;
+	}
+
+	private List<WzEffectFrame> RestoreEffectFrameSnapshots(IEnumerable<EffectFrameSnapshot> snapshots)
+	{
+		var frames = new List<WzEffectFrame>();
+		if (snapshots == null)
+			return frames;
+
+		foreach (EffectFrameSnapshot snapshot in snapshots)
+		{
+			WzEffectFrame frame = RestoreEffectFrameSnapshot(snapshot);
+			if (frame != null)
+				frames.Add(frame);
+		}
+		return frames;
+	}
+
+	private string SerializeFrameClipboardPayload(IEnumerable<WzEffectFrame> frames)
+	{
+		var root = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+		{
+			["type"] = FrameClipboardType,
+			["version"] = FrameClipboardVersion
+		};
+
+		var arr = new List<object>();
+		foreach (EffectFrameSnapshot snapshot in CaptureEffectFrameSnapshots(frames))
+			arr.Add(SerializeEffectFrameSnapshotObject(snapshot));
+		root["frames"] = arr;
+		return SimpleJson.Serialize(root, 2);
+	}
+
+	private bool TryDeserializeFrameClipboardPayload(string json, out List<WzEffectFrame> frames)
+	{
+		frames = null;
+		if (string.IsNullOrWhiteSpace(json))
+			return false;
+
+		try
+		{
+			Dictionary<string, object> root = SimpleJson.ParseObject(json);
+			if (!string.Equals(SimpleJson.GetString(root, "type"), FrameClipboardType, StringComparison.Ordinal))
+				return false;
+
+			List<object> arr = SimpleJson.GetArray(root, "frames");
+			if (arr == null || arr.Count == 0)
+				return false;
+
+			var snapshots = new List<EffectFrameSnapshot>();
+			foreach (object item in arr)
+			{
+				if (item is Dictionary<string, object> obj)
+				{
+					EffectFrameSnapshot snapshot = DeserializeEffectFrameSnapshotObject(obj);
+					if (snapshot != null)
+						snapshots.Add(snapshot);
+				}
+			}
+
+			frames = RestoreEffectFrameSnapshots(snapshots);
+			return frames.Count > 0;
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	private void ApplyExecutedStateDiffToSnapshot(SkillQueueSnapshot snapshot)
+	{
+		if (snapshot == null || _appliedSkillsAfterLastExecute == null || _appliedSkillsAfterLastExecute.Count == 0)
+		{
+			return;
+		}
+		snapshot.PendingSkills ??= new List<SkillDefinition>();
+		snapshot.DeletedSkills ??= new List<SkillDefinition>();
+		HashSet<int> hashSet = new HashSet<int>(snapshot.PendingSkills.Where((SkillDefinition s) => s != null).Select((SkillDefinition s) => s.SkillId));
+		HashSet<int> hashSet2 = new HashSet<int>(snapshot.DeletedSkills.Where((SkillDefinition s) => s != null).Select((SkillDefinition s) => s.SkillId));
+		List<int> list = new List<int>();
+		foreach (KeyValuePair<int, SkillDefinition> item in _appliedSkillsAfterLastExecute)
+		{
+			SkillDefinition value = item.Value;
+			if (value == null || value.SkillId <= 0 || IsCarrierSkillId(value.SkillId))
+			{
+				continue;
+			}
+			if (hashSet.Contains(value.SkillId) || hashSet2.Contains(value.SkillId))
+			{
+				continue;
+			}
+			if (IsNativeSkillDeleteProtected(value))
+			{
+				continue;
+			}
+			snapshot.DeletedSkills.Add(CloneSkillDefinition(value));
+			hashSet2.Add(value.SkillId);
+			list.Add(value.SkillId);
+		}
+		if (list.Count > 0)
+		{
+			list.Sort();
+			Console.WriteLine("[GUI] 回退/恢复后自动补入删除队列: " + string.Join(", ", list));
+		}
+	}
+
+	private void RecordAppliedSkillsAfterExecute()
+	{
+		_appliedSkillsAfterLastExecute = new Dictionary<int, SkillDefinition>();
+		if (_pendingSkills == null)
+		{
+			return;
+		}
+		foreach (SkillDefinition pendingSkill in _pendingSkills)
+		{
+			if (pendingSkill == null || pendingSkill.SkillId <= 0 || IsCarrierSkillId(pendingSkill.SkillId))
+			{
+				continue;
+			}
+			_appliedSkillsAfterLastExecute[pendingSkill.SkillId] = CloneSkillDefinition(pendingSkill);
+		}
+	}
+
+	private string BuildSkillUndoFingerprint(SkillDefinition skill)
+	{
+		if (skill == null)
+		{
+			return "";
+		}
+		SkillDefinition skillDefinition = CloneSkillDefinition(skill);
+		return SimpleJson.Serialize(skillDefinition.ToJsonDict());
+	}
+
+	private bool AreSkillDefinitionsEquivalentForUndo(SkillDefinition left, SkillDefinition right)
+	{
+		return string.Equals(BuildSkillUndoFingerprint(left), BuildSkillUndoFingerprint(right), StringComparison.Ordinal);
+	}
+
+	private Dictionary<string, object> SerializeEffectFrameSnapshotObject(EffectFrameSnapshot snapshot)
+	{
+		var obj = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+		{
+			["index"] = snapshot?.Index ?? 0,
+			["width"] = snapshot?.Width ?? 0,
+			["height"] = snapshot?.Height ?? 0,
+			["delay"] = snapshot?.Delay ?? 100
+		};
+
+		if (!string.IsNullOrEmpty(snapshot?.BitmapBase64))
+			obj["bitmapBase64"] = snapshot.BitmapBase64;
+
+		if (snapshot?.Vectors != null && snapshot.Vectors.Count > 0)
+		{
+			var vectors = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+			foreach (KeyValuePair<string, WzFrameVector> kv in snapshot.Vectors)
+			{
+				if (string.IsNullOrWhiteSpace(kv.Key) || kv.Value == null)
+					continue;
+				vectors[kv.Key] = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+				{
+					["x"] = kv.Value.X,
+					["y"] = kv.Value.Y
+				};
+			}
+			if (vectors.Count > 0)
+				obj["vectors"] = vectors;
+		}
+
+		if (snapshot?.FrameProps != null && snapshot.FrameProps.Count > 0)
+		{
+			var props = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+			foreach (KeyValuePair<string, string> kv in snapshot.FrameProps)
+			{
+				if (string.IsNullOrWhiteSpace(kv.Key))
+					continue;
+				props[kv.Key] = kv.Value ?? "";
+			}
+			if (props.Count > 0)
+				obj["frameProps"] = props;
+		}
+
+		return obj;
+	}
+
+	private EffectFrameSnapshot DeserializeEffectFrameSnapshotObject(Dictionary<string, object> obj)
+	{
+		if (obj == null)
+			return null;
+
+		var snapshot = new EffectFrameSnapshot
+		{
+			Index = SimpleJson.GetInt(obj, "index", 0),
+			Width = SimpleJson.GetInt(obj, "width", 0),
+			Height = SimpleJson.GetInt(obj, "height", 0),
+			Delay = SimpleJson.GetInt(obj, "delay", 100),
+			BitmapBase64 = SimpleJson.GetString(obj, "bitmapBase64", "")
+		};
+
+		Dictionary<string, object> vectorsObj = SimpleJson.GetObject(obj, "vectors");
+		if (vectorsObj != null)
+		{
+			foreach (KeyValuePair<string, object> kv in vectorsObj)
+			{
+				if (string.IsNullOrWhiteSpace(kv.Key) || !(kv.Value is Dictionary<string, object> vecObj))
+					continue;
+				snapshot.Vectors[kv.Key] = new WzFrameVector(
+					SimpleJson.GetInt(vecObj, "x", 0),
+					SimpleJson.GetInt(vecObj, "y", 0));
+			}
+		}
+
+		Dictionary<string, object> propsObj = SimpleJson.GetObject(obj, "frameProps") ?? SimpleJson.GetObject(obj, "props");
+		if (propsObj != null)
+		{
+			foreach (KeyValuePair<string, object> kv in propsObj)
+			{
+				if (string.IsNullOrWhiteSpace(kv.Key))
+					continue;
+				snapshot.FrameProps[kv.Key] = kv.Value?.ToString() ?? "";
+			}
+		}
+
+		return snapshot;
+	}
+
+	private List<WzEffectFrame> CloneFramesForClipboard(IEnumerable<WzEffectFrame> frames)
+	{
+		var clones = new List<WzEffectFrame>();
+		if (frames == null)
+			return clones;
+
+		foreach (WzEffectFrame frame in frames)
+		{
+			WzEffectFrame cloned = WzEffectFrame.CloneShallowBitmap(frame);
+			if (cloned != null)
+				clones.Add(cloned);
+		}
+		return clones;
+	}
+
+	private List<int> GetSortedSelectedIndices(ListView listView)
+	{
+		var indexes = new List<int>();
+		if (listView == null)
+			return indexes;
+
+		foreach (int idx in listView.SelectedIndices)
+			indexes.Add(idx);
+		indexes.Sort();
+		return indexes;
+	}
+
+	private void StoreFramesInClipboard(IEnumerable<WzEffectFrame> frames, string logPrefix)
+	{
+		_clipboardFrames = CloneFramesForClipboard(frames);
+		if (_clipboardFrames.Count == 0)
+			return;
+
+		try
+		{
+			Clipboard.SetText(SerializeFrameClipboardPayload(_clipboardFrames));
+		}
+		catch (Exception ex)
+		{
+			Console.WriteLine($"{logPrefix} 写入系统剪贴板失败: {ex.Message}");
+		}
+	}
+
+	private List<WzEffectFrame> GetFramesFromClipboard(string logPrefix)
+	{
+		try
+		{
+			if (Clipboard.ContainsText())
+			{
+				string text = Clipboard.GetText();
+				if (TryDeserializeFrameClipboardPayload(text, out List<WzEffectFrame> clipboardFrames))
+					return clipboardFrames;
+			}
+		}
+		catch (Exception ex)
+		{
+			Console.WriteLine($"{logPrefix} 读取系统剪贴板失败: {ex.Message}");
+		}
+
+		return CloneFramesForClipboard(_clipboardFrames);
+	}
+
+	private void SelectPastedFrames(ListView listView, int startIndex, int pastedCount)
+	{
+		if (listView == null || pastedCount <= 0)
+			return;
+
+		foreach (ListViewItem item in listView.Items)
+			item.Selected = false;
+
+		for (int i = 0; i < pastedCount; i++)
+		{
+			int idx = startIndex + i;
+			if (idx >= 0 && idx < listView.Items.Count)
+				listView.Items[idx].Selected = true;
+		}
+
+		if (startIndex >= 0 && startIndex < listView.Items.Count)
+		{
+			listView.Items[startIndex].Focused = true;
+			listView.EnsureVisible(startIndex);
+		}
 	}
 
 	private static Dictionary<int, Dictionary<string, string>> CloneLevelParams(Dictionary<int, Dictionary<string, string>> source)
@@ -5876,6 +9807,7 @@ public class MainForm : Form
 			PushUndoSnapshot();
 			_editState.LoadFromSkillData(wzSkillData);
 			_hasManualEffectEdit = false;
+			_hasManualTreeEdit = false;
 			RefreshAnimLevelSelector(preserveSelection: false);
 			RefreshEffectNodeSelector("effect", createIfMissing: true);
 			int value = wzSkillData.JobId;
@@ -5889,7 +9821,7 @@ public class MainForm : Form
 			txtName.Text = wzSkillData.Name ?? "";
 			txtDesc.Text = wzSkillData.Desc ?? "";
 			int loadedMaxLevel = ResolveMaxLevelFromWzData(wzSkillData, 20);
-			nudMaxLevel.Value = Math.Min(Math.Max(loadedMaxLevel, 1), 30);
+			nudMaxLevel.Value = Math.Min(nudMaxLevel.Maximum, Math.Max(nudMaxLevel.Minimum, loadedMaxLevel));
 			cboTab.SelectedIndex = ((wzSkillData.InfoType == 50) ? 1 : 0);
 			lblAction.Text = (string.IsNullOrEmpty(wzSkillData.Action) ? "" : ("动作: " + wzSkillData.Action));
 			AutoFillRoute(wzSkillData, result);
@@ -5900,12 +9832,18 @@ public class MainForm : Form
 				ProxySkillId = (int.TryParse(txtProxySkillId.Text.Trim(), out var result2) ? result2 : 0),
 				VisualSkillId = (int.TryParse(txtVisualSkillId.Text.Trim(), out var result3) ? result3 : 0),
 				ReleaseClass = ((cboReleaseClass.SelectedItem as string) ?? ReleaseClassNames[0]),
+				VisibleJobId = (int.TryParse((txtVisibleJobId?.Text ?? "").Trim(), out int visibleJobId) && visibleJobId > 0) ? visibleJobId : 0,
 				HideFromNativeSkillWnd = chkHideFromNative.Checked,
+				HideFromSuperSkillWnd = chkHideFromSuper.Checked,
 				ShowInNativeWhenLearned = chkShowInNativeWhenLearned.Checked,
 				ShowInSuperWhenLearned = chkShowInSuperWhenLearned.Checked,
 				AllowNativeUpgradeFallback = chkAllowNativeFallback.Checked,
 				InjectToNative = chkInjectToNative.Checked,
-				AllowMountedFlight = chkAllowMountedFlight?.Checked ?? false
+				AllowMountedFlight = chkAllowMountedFlight?.Checked ?? false,
+				MountedDoubleJumpEnabled = chkMountedDoubleJump?.Checked ?? false,
+				MountedDoubleJumpSkillId = 3101003,
+				MountedDemonJumpEnabled = chkMountedDemonJump?.Checked ?? false,
+				MountedDemonJumpSkillId = 30010110
 			};
 			ApplyConfigHints(skillDefinition);
 			EnsureRecommendedRoute(skillDefinition, wzSkillData);
@@ -5919,7 +9857,13 @@ public class MainForm : Form
 			}
 			txtProxySkillId.Text = ((skillDefinition.ProxySkillId > 0) ? skillDefinition.ProxySkillId.ToString() : "");
 			txtVisualSkillId.Text = ((skillDefinition.VisualSkillId > 0) ? skillDefinition.VisualSkillId.ToString() : "");
+			if (txtBehaviorSkillId != null)
+				txtBehaviorSkillId.Text = ((skillDefinition.BehaviorSkillId > 0) ? skillDefinition.BehaviorSkillId.ToString() : "");
+			if (txtVisibleJobId != null)
+				txtVisibleJobId.Text = (skillDefinition.VisibleJobId > 0) ? skillDefinition.VisibleJobId.ToString() : "";
 			txtMountItemId.Text = ((skillDefinition.MountItemId > 0) ? skillDefinition.MountItemId.ToString() : "");
+			if (txtFlightMountItemId != null)
+				txtFlightMountItemId.Text = ((skillDefinition.FlightMountItemId > 0) ? skillDefinition.FlightMountItemId.ToString() : "");
 			SetSelectedMountResourceMode(skillDefinition.MountResourceMode);
 			int mountSourceHint = ResolveMountSourceHint(skillDefinition);
 			txtMountSourceItemId.Text = ((skillDefinition.MountSourceItemId > 0) ? skillDefinition.MountSourceItemId.ToString() : ((mountSourceHint > 0) ? mountSourceHint.ToString() : ""));
@@ -5931,6 +9875,7 @@ public class MainForm : Form
 			int num2 = Array.IndexOf(ReleaseClassNames, skillDefinition.ReleaseClass ?? "");
 			cboReleaseClass.SelectedIndex = ((num2 >= 0) ? num2 : 0);
 			chkHideFromNative.Checked = skillDefinition.HideFromNativeSkillWnd;
+			chkHideFromSuper.Checked = skillDefinition.HideFromSuperSkillWnd;
 			chkShowInNativeWhenLearned.Checked = skillDefinition.ShowInNativeWhenLearned;
 			chkShowInSuperWhenLearned.Checked = skillDefinition.ShowInSuperWhenLearned;
 			chkAllowNativeFallback.Checked = skillDefinition.AllowNativeUpgradeFallback;
@@ -5939,6 +9884,16 @@ public class MainForm : Form
 			{
 				chkAllowMountedFlight.Checked = skillDefinition.AllowMountedFlight;
 			}
+			if (chkMountedDoubleJump != null)
+			{
+				chkMountedDoubleJump.Checked = skillDefinition.MountedDoubleJumpEnabled;
+			}
+			if (chkMountedDemonJump != null)
+			{
+				chkMountedDemonJump.Checked = skillDefinition.MountedDemonJumpEnabled;
+			}
+			PopulatePassiveBonusesGrid(skillDefinition);
+			PopulateIndependentBuffControls(skillDefinition);
 			TrySyncMountEditorFromSkill(skillDefinition);
 			PopulateTreeView(wzSkillData.RootNode);
 			PopulateSkillParams(wzSkillData);
@@ -5961,10 +9916,10 @@ public class MainForm : Form
 		int num = data?.InfoType ?? 0;
 		if (num == 50 || ContainsPassiveSignals(data))
 		{
-			grpRoute.Enabled = false;
+			SetRouteEditorPassiveMode(true);
 			return;
 		}
-		grpRoute.Enabled = true;
+		SetRouteEditorPassiveMode(false);
 		string text = InferPacketRouteByQuickRules(data);
 		if (string.Equals(text, "special_move", StringComparison.OrdinalIgnoreCase))
 		{
@@ -5975,6 +9930,52 @@ public class MainForm : Form
 			cboPacketRoute.SelectedIndex = 0;
 		}
 		txtProxySkillId.Text = skillId.ToString();
+	}
+
+	private void CboTab_SelectedIndexChanged(object sender, EventArgs e)
+	{
+		bool isPassive = IsPassiveTabSelected();
+		SetRouteEditorPassiveMode(isPassive);
+		UpdatePassiveBonusesControlsEnabled(isPassive);
+	}
+
+	private bool IsPassiveTabSelected()
+	{
+		return string.Equals(cboTab?.SelectedItem as string, "passive", StringComparison.OrdinalIgnoreCase);
+	}
+
+	private bool IsPassiveSkillDefinition(SkillDefinition sd)
+	{
+		return sd != null
+			&& (sd.InfoType == 50
+				|| string.Equals(sd.Tab ?? "", "passive", StringComparison.OrdinalIgnoreCase)
+				|| string.Equals(sd.Type ?? "", "passive", StringComparison.OrdinalIgnoreCase));
+	}
+
+	private bool ResolveIsPassiveSkillForPassiveBonuses(SkillDefinition sd = null)
+	{
+		if (IsPassiveTabSelected())
+			return true;
+		if (IsPassiveSkillDefinition(sd))
+			return true;
+		return _editState?.LoadedData?.InfoType == 50;
+	}
+
+	private void UpdatePassiveBonusesControlsEnabled(bool? isPassiveOverride = null)
+	{
+		bool isPassive = isPassiveOverride ?? ResolveIsPassiveSkillForPassiveBonuses();
+		if (dgvPassiveBonuses != null)
+			dgvPassiveBonuses.Enabled = isPassive;
+	}
+
+	private void SetRouteEditorPassiveMode(bool passive)
+	{
+		if (grpRoute == null)
+			return;
+
+		grpRoute.Enabled = !passive;
+		if (passive && cboPacketRoute != null && cboPacketRoute.Items.Count > 0 && cboPacketRoute.SelectedIndex < 0)
+			cboPacketRoute.SelectedIndex = 0;
 	}
 
 	private void EnsureRecommendedRoute(SkillDefinition sd, WzSkillData data)
@@ -6054,15 +10055,17 @@ public class MainForm : Form
 		bool flag3 = ContainsSpecialMoveDescSignal(data.Desc);
 		bool flag = false;
 		bool flag2 = false;
+		bool flag7 = false;
 		if (!string.IsNullOrEmpty(data.Action))
 		{
 			flag = string.Equals(data.Action, "alert2", StringComparison.OrdinalIgnoreCase);
 			flag2 = string.Equals(data.Action, "fly", StringComparison.OrdinalIgnoreCase);
+			flag7 = ContainsSpecialMoveActionSignal(data.Action);
 		}
 		bool flag4 = HasNodeName(data.RootNode, "vehicleID") || HasNodeName(data.RootNode, "ride");
 		bool flag5 = HasNodeName(data.RootNode, "morph");
 		bool flag6 = data.InfoType == 33 || HasNodeName(data.RootNode, "summon") || HasNodeName(data.RootNode, "minionAttack");
-		if (flag2 || flag3 || flag4 || flag5 || flag6 || flag || data.InfoType == 2 || data.InfoType == 10)
+		if (flag2 || flag3 || flag4 || flag5 || flag6 || flag || flag7 || data.InfoType == 2 || data.InfoType == 10)
 		{
 			return "special_move";
 		}
@@ -6098,6 +10101,30 @@ public class MainForm : Form
 		foreach (string keyword in keywords)
 		{
 			if (desc.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static bool ContainsSpecialMoveActionSignal(string action)
+	{
+		if (string.IsNullOrWhiteSpace(action))
+		{
+			return false;
+		}
+		string[] keywords = new string[5]
+		{
+			"doublejump",
+			"flashjump",
+			"dashjump",
+			"rocketbooster",
+			"demonfly"
+		};
+		foreach (string keyword in keywords)
+		{
+			if (action.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0)
 			{
 				return true;
 			}
@@ -6192,8 +10219,7 @@ public class MainForm : Form
 
 	private TreeNode BuildTreeNode(WzNodeInfo info)
 	{
-		string text = (string.IsNullOrEmpty(info.Value) ? ("[" + info.TypeName + "] " + info.Name) : $"[{info.TypeName}] {info.Name} = {info.Value}");
-		TreeNode treeNode = new TreeNode(text);
+		TreeNode treeNode = new TreeNode(BuildTreeNodeText(info));
 		treeNode.Tag = info;
 		if (info.Children != null)
 		{
@@ -6203,6 +10229,15 @@ public class MainForm : Form
 			}
 		}
 		return treeNode;
+	}
+
+	private string BuildTreeNodeText(WzNodeInfo info)
+	{
+		if (info == null)
+			return "";
+		return string.IsNullOrEmpty(info.Value)
+			? ("[" + info.TypeName + "] " + info.Name)
+			: $"[{info.TypeName}] {info.Name} = {info.Value}";
 	}
 
 	private void CollapseDeep(TreeNodeCollection nodes, int depth, int maxDepth)
@@ -6224,7 +10259,7 @@ public class MainForm : Form
 	{
 		dgvLevelParams.Columns.Clear();
 		dgvLevelParams.Rows.Clear();
-		if (data.CommonParams != null && data.CommonParams.Count > 0)
+		if (data.CommonParams != null)
 		{
 			_lblParamType.Text = "公式参数（公共节点，可编辑）：";
 			dgvLevelParams.Columns.Add("Param", "参数");
@@ -7188,6 +11223,12 @@ public class MainForm : Form
 		}
 	}
 
+	private void TreeView_SelectNodeOnRightClick(object sender, TreeNodeMouseClickEventArgs e)
+	{
+		if (e.Button == MouseButtons.Right && sender is TreeView tree && e.Node != null)
+			tree.SelectedNode = e.Node;
+	}
+
 	private void TreeNode_DoubleClick(object sender, TreeNodeMouseClickEventArgs e)
 	{
 		if (e.Node.Tag is WzNodeInfo wzNodeInfo && (wzNodeInfo.Children == null || wzNodeInfo.Children.Count <= 0))
@@ -7204,43 +11245,311 @@ public class MainForm : Form
 		}
 	}
 
+	private void TreeMenu_RenameNode(object sender, EventArgs e)
+	{
+		TreeNode selectedNode = treeSkillData.SelectedNode;
+		if (selectedNode == null || !(selectedNode.Tag is WzNodeInfo info))
+			return;
+		if (selectedNode.Parent == null)
+		{
+			MessageBox.Show("根节点名称由技能ID决定，执行时会自动使用当前技能ID。", "提示");
+			return;
+		}
+
+		string newName = ShowInputBox("编辑节点名", "当前名称: " + info.Name + "\n新名称:", info.Name ?? "");
+		if (string.IsNullOrWhiteSpace(newName))
+			return;
+		newName = newName.Trim();
+		if (string.Equals(newName, info.Name ?? "", StringComparison.Ordinal))
+			return;
+		if (HasSiblingNamed(selectedNode, newName))
+		{
+			MessageBox.Show("同级节点已存在同名节点。", "提示");
+			return;
+		}
+
+		PushUndoSnapshot();
+		info.Name = newName;
+		selectedNode.Text = BuildTreeNodeText(info);
+		_hasManualTreeEdit = true;
+	}
+
 	private void EditNodeValue(TreeNode tn, WzNodeInfo info)
 	{
 		string text = ShowInputBox("编辑节点值", "节点: " + info.Name + "\n当前: " + info.Value, info.Value ?? "");
 		if (text != null)
 		{
 			PushUndoSnapshot();
+			text = text.Trim();
+			if (IsEditableEmptyContainerAsScalar(info, text))
+				info.TypeName = GuessTreeScalarTypeFromValue(text);
 			info.Value = text;
-			tn.Text = (string.IsNullOrEmpty(info.Value) ? ("[" + info.TypeName + "] " + info.Name) : $"[{info.TypeName}] {info.Name} = {info.Value}");
+			tn.Text = BuildTreeNodeText(info);
+			_hasManualTreeEdit = true;
 		}
+	}
+
+	private bool IsEditableEmptyContainerAsScalar(WzNodeInfo info, string value)
+	{
+		return info != null
+			&& !string.IsNullOrWhiteSpace(value)
+			&& IsMountContainerType(info.TypeName)
+			&& (info.Children == null || info.Children.Count == 0);
+	}
+
+	private string GuessTreeScalarTypeFromValue(string value)
+	{
+		string text = (value ?? "").Trim();
+		if (Regex.IsMatch(text, @"^-?\d+\s*[, ]\s*-?\d+$"))
+			return "Vector";
+		if (int.TryParse(text, out _))
+			return "Int";
+		if (long.TryParse(text, out _))
+			return "Long";
+		if (float.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _))
+			return "Float";
+		return "String";
 	}
 
 	private void TreeMenu_AddChild(object sender, EventArgs e)
 	{
-		if (treeSkillData.SelectedNode == null || !(treeSkillData.SelectedNode.Tag is WzNodeInfo wzNodeInfo))
+		AddTreeChildWithType(null);
+	}
+
+	private void TreeMenu_AddStringValue(object sender, EventArgs e)
+	{
+		AddTreeQuickValue("String");
+	}
+
+	private void TreeMenu_AddIntValue(object sender, EventArgs e)
+	{
+		AddTreeQuickValue("Int");
+	}
+
+	private void TreeMenu_AddFolderNode(object sender, EventArgs e)
+	{
+		if (!TryGetSelectedTreeContainer(out TreeNode selectedNode, out WzNodeInfo parent))
+			return;
+
+		string name = ShowInputBox("添加目录", "目录名（例如 info/common/level/psdSkill）:", "");
+		if (string.IsNullOrWhiteSpace(name))
+			return;
+		name = name.Trim();
+		if (FindChildInfo(parent, name) != null)
+		{
+			MessageBox.Show("该名称已存在于当前目录。", "提示");
+			return;
+		}
+
+		AddTreeChildNode(selectedNode, parent, CreateMountNodeInfo(name, "SubProperty", ""));
+	}
+
+	private void TreeMenu_AddVectorValue(object sender, EventArgs e)
+	{
+		AddTreeQuickValue("Vector");
+	}
+
+	private void TreeMenu_AddUolValue(object sender, EventArgs e)
+	{
+		AddTreeQuickValue("UOL");
+	}
+
+	private void AddTreeQuickValue(string type)
+	{
+		type = NormalizeMountNodeType(type);
+		if (!TryGetSelectedTreeContainer(out TreeNode selectedNode, out WzNodeInfo parent))
+			return;
+
+		string example = GetTreeQuickValueExample(type);
+		string input = ShowInputBox(
+			"添加" + GetTreeTypeFriendlyName(type),
+			"只填一次，格式：节点名=值\n例：" + example + "\n也可以只填节点名，值会用默认值。",
+			example);
+		if (string.IsNullOrWhiteSpace(input))
+			return;
+
+		if (!TryParseTreeQuickValueInput(input, type, out string name, out string value, out string error))
+		{
+			MessageBox.Show(error, "提示");
+			return;
+		}
+		if (FindChildInfo(parent, name) != null)
+		{
+			MessageBox.Show("该名称已存在于当前目录。", "提示");
+			return;
+		}
+
+		AddTreeChildNode(selectedNode, parent, CreateMountNodeInfo(name, type, value));
+	}
+
+	private bool TryGetSelectedTreeContainer(out TreeNode selectedNode, out WzNodeInfo parent)
+	{
+		selectedNode = treeSkillData.SelectedNode;
+		parent = selectedNode?.Tag as WzNodeInfo;
+		if (selectedNode == null || parent == null)
+			return false;
+		if (!IsMountContainerNode(parent))
+		{
+			MessageBox.Show("当前节点是标量值，不能添加子节点。\n请选中目录、图片(Canvas)或根节点后再添加。", "提示");
+			return false;
+		}
+		return true;
+	}
+
+	private void AddTreeChildNode(TreeNode selectedNode, WzNodeInfo parent, WzNodeInfo child)
+	{
+		PushUndoSnapshot();
+		if (parent.Children == null)
+			parent.Children = new List<WzNodeInfo>();
+
+		parent.Children.Add(child);
+		TreeNode tn = BuildTreeNode(child);
+		selectedNode.Nodes.Add(tn);
+		selectedNode.Expand();
+		treeSkillData.SelectedNode = tn;
+		_hasManualTreeEdit = true;
+	}
+
+	private bool TryParseTreeQuickValueInput(string input, string type, out string name, out string value, out string error)
+	{
+		name = "";
+		value = "";
+		error = "";
+		string text = (input ?? "").Trim();
+		if (string.IsNullOrEmpty(text))
+		{
+			error = "请输入节点名。";
+			return false;
+		}
+
+		int separatorIndex = text.IndexOf('=');
+		if (separatorIndex < 0)
+			separatorIndex = text.IndexOf(':');
+		if (separatorIndex >= 0)
+		{
+			name = text.Substring(0, separatorIndex).Trim();
+			value = text.Substring(separatorIndex + 1).Trim();
+		}
+		else
+		{
+			name = text;
+			value = GetTreeQuickDefaultValue(type, name);
+		}
+
+		if (string.IsNullOrWhiteSpace(name))
+		{
+			error = "节点名不能为空。";
+			return false;
+		}
+		if (!ValidateTreeQuickValue(type, value, out error))
+			return false;
+		return true;
+	}
+
+	private bool ValidateTreeQuickValue(string type, string value, out string error)
+	{
+		error = "";
+		string text = (value ?? "").Trim();
+		if (string.Equals(type, "Int", StringComparison.OrdinalIgnoreCase))
+		{
+			if (!int.TryParse(text, out _))
+			{
+				error = "整数值格式不正确，例如 value=1。";
+				return false;
+			}
+		}
+		else if (string.Equals(type, "Vector", StringComparison.OrdinalIgnoreCase))
+		{
+			if (!Regex.IsMatch(text, @"^-?\d+\s*[, ]\s*-?\d+$"))
+			{
+				error = "坐标值格式应为 x,y，例如 origin=0,0。";
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private string GetTreeQuickDefaultValue(string type, string name)
+	{
+		string value = GetMountDefaultNodeValue(type, name);
+		if (!string.IsNullOrEmpty(value))
+			return value;
+		if (string.Equals(type, "Int", StringComparison.OrdinalIgnoreCase))
+			return "1";
+		if (string.Equals(type, "Vector", StringComparison.OrdinalIgnoreCase))
+			return "0,0";
+		return "";
+	}
+
+	private string GetTreeQuickValueExample(string type)
+	{
+		if (string.Equals(type, "Int", StringComparison.OrdinalIgnoreCase))
+			return "value=1";
+		if (string.Equals(type, "Vector", StringComparison.OrdinalIgnoreCase))
+			return "origin=0,0";
+		if (string.Equals(type, "UOL", StringComparison.OrdinalIgnoreCase))
+			return "_inlink=../0";
+		return "name=文本";
+	}
+
+	private string GetTreeTypeFriendlyName(string type)
+	{
+		if (string.Equals(type, "Int", StringComparison.OrdinalIgnoreCase))
+			return "整数值";
+		if (string.Equals(type, "Vector", StringComparison.OrdinalIgnoreCase))
+			return "坐标值";
+		if (string.Equals(type, "UOL", StringComparison.OrdinalIgnoreCase))
+			return "引用值";
+		if (string.Equals(type, "String", StringComparison.OrdinalIgnoreCase))
+			return "文本值";
+		return NormalizeMountNodeType(type) + "值";
+	}
+
+	private void AddTreeChildWithType(string presetType)
+	{
+		if (treeSkillData.SelectedNode == null || !(treeSkillData.SelectedNode.Tag is WzNodeInfo parent))
 		{
 			return;
 		}
-		string text = ShowInputBox("添加子节点", "节点名称:", "");
-		if (!string.IsNullOrEmpty(text))
+		if (!IsMountContainerNode(parent))
 		{
-			string text2 = ShowInputBox("添加子节点", "节点值（留空表示容器）:", "");
-			PushUndoSnapshot();
-			if (wzNodeInfo.Children == null)
-			{
-				wzNodeInfo.Children = new List<WzNodeInfo>();
-			}
-			WzNodeInfo wzNodeInfo2 = new WzNodeInfo
-			{
-				Name = text,
-				TypeName = "自定义",
-				Value = (text2 ?? ""),
-				Children = new List<WzNodeInfo>()
-			};
-			wzNodeInfo.Children.Add(wzNodeInfo2);
-			treeSkillData.SelectedNode.Nodes.Add(BuildTreeNode(wzNodeInfo2));
-			treeSkillData.SelectedNode.Expand();
+			MessageBox.Show("当前节点是标量值，不能添加子节点。\n请选中目录、图片(Canvas)或根节点后再添加。", "提示");
+			return;
 		}
+
+		string title = string.IsNullOrWhiteSpace(presetType) ? "添加子节点/数值" : ("添加" + NormalizeMountNodeType(presetType) + "值");
+		string name = ShowInputBox(title, "节点名称（例如 delay/origin/lt/rb/z/0/1）:", "");
+		if (string.IsNullOrWhiteSpace(name))
+			return;
+		name = name.Trim();
+		if (FindChildInfo(parent, name) != null)
+		{
+			MessageBox.Show("该名称已存在于当前目录。", "提示");
+			return;
+		}
+
+		string type = NormalizeMountNodeType(presetType);
+		if (string.IsNullOrWhiteSpace(presetType))
+		{
+			type = ShowInputBox("添加子节点/数值",
+				"节点类型：\n" +
+				"SubProperty=目录，Canvas=图片，Int=整数，String=文本，Vector=坐标x,y，UOL=引用路径，Short/Long/Float/Double/Null=其它类型",
+				GuessMountNodeType(name));
+			if (string.IsNullOrWhiteSpace(type))
+				return;
+			type = NormalizeMountNodeType(type.Trim());
+		}
+
+		string value = "";
+		if (!IsMountContainerType(type) || string.Equals(type, "Canvas", StringComparison.OrdinalIgnoreCase))
+		{
+			value = ShowInputBox(title, GetMountNewNodeValuePrompt(type, name), GetMountDefaultNodeValue(type, name));
+			if (value == null)
+				return;
+		}
+
+		WzNodeInfo child = CreateMountNodeInfo(name, type, value);
+		AddTreeChildNode(treeSkillData.SelectedNode, parent, child);
 	}
 
 	private void TreeMenu_DeleteNode(object sender, EventArgs e)
@@ -7254,6 +11563,7 @@ public class MainForm : Form
 			return;
 		}
 		PushUndoSnapshot();
+		_hasManualTreeEdit = true;
 		TreeNode parent = treeSkillData.SelectedNode.Parent;
 		if (parent != null)
 		{
@@ -7280,28 +11590,48 @@ public class MainForm : Form
 
 	private void TreeMenu_PasteNode(object sender, EventArgs e)
 	{
-		if (treeSkillData.SelectedNode != null && _clipboardNode != null && treeSkillData.SelectedNode.Tag is WzNodeInfo wzNodeInfo)
+		if (treeSkillData.SelectedNode != null && _clipboardNode != null && treeSkillData.SelectedNode.Tag is WzNodeInfo parent)
 		{
-			PushUndoSnapshot();
-			if (wzNodeInfo.Children == null)
+			if (!IsMountContainerNode(parent))
 			{
-				wzNodeInfo.Children = new List<WzNodeInfo>();
+				MessageBox.Show("当前节点是标量值，不能粘贴子节点。", "提示");
+				return;
 			}
-			WzNodeInfo wzNodeInfo2 = DeepCopyNode(_clipboardNode);
-			wzNodeInfo.Children.Add(wzNodeInfo2);
-			treeSkillData.SelectedNode.Nodes.Add(BuildTreeNode(wzNodeInfo2));
+
+			PushUndoSnapshot();
+			_hasManualTreeEdit = true;
+			if (parent.Children == null)
+			{
+				parent.Children = new List<WzNodeInfo>();
+			}
+
+			WzNodeInfo child = DeepCopyNode(_clipboardNode);
+			if (FindChildInfo(parent, child.Name) != null)
+				child.Name = GenerateUniqueChildName(parent, child.Name);
+
+			parent.Children.Add(child);
+			TreeNode tn = BuildTreeNode(child);
+			treeSkillData.SelectedNode.Nodes.Add(tn);
 			treeSkillData.SelectedNode.Expand();
-			Console.WriteLine("[GUI] 已粘贴节点 " + wzNodeInfo2.Name + " -> " + wzNodeInfo.Name);
+			treeSkillData.SelectedNode = tn;
+			Console.WriteLine("[GUI] 已粘贴节点 " + child.Name + " -> " + parent.Name);
 		}
 	}
 
 	private WzNodeInfo DeepCopyNode(WzNodeInfo src)
 	{
+		if (src == null)
+			return null;
 		WzNodeInfo wzNodeInfo = new WzNodeInfo
 		{
 			Name = src.Name,
 			TypeName = src.TypeName,
-			Value = src.Value
+			Value = src.Value,
+			CanvasWidth = src.CanvasWidth,
+			CanvasHeight = src.CanvasHeight,
+			CanvasPngFormat = src.CanvasPngFormat,
+			CanvasCompressedBytes = src.CanvasCompressedBytes != null ? (byte[])src.CanvasCompressedBytes.Clone() : null,
+			CanvasBitmap = CloneBitmapForNode(src.CanvasBitmap)
 		};
 		if (src.Children != null)
 		{
@@ -7312,6 +11642,16 @@ public class MainForm : Form
 			}
 		}
 		return wzNodeInfo;
+	}
+
+	private static Bitmap CloneBitmapForNode(Bitmap source)
+	{
+		if (source == null)
+			return null;
+		var clone = new Bitmap(source.Width, source.Height, PixelFormat.Format32bppArgb);
+		using (Graphics g = Graphics.FromImage(clone))
+			g.DrawImage(source, 0, 0, source.Width, source.Height);
+		return clone;
 	}
 
 	private void LvEffectFrames_SelectedChanged(object sender, EventArgs e)
@@ -7340,30 +11680,27 @@ public class MainForm : Form
 		{
 			return;
 		}
-		_clipboardFrames = new List<WzEffectFrame>();
-		foreach (int selectedIndex in lvEffectFrames.SelectedIndices)
+		List<WzEffectFrame> selectedFrames = new List<WzEffectFrame>();
+		foreach (int selectedIndex in GetSortedSelectedIndices(lvEffectFrames))
 		{
 			if (selectedIndex >= 0 && selectedIndex < activeEffectFrames.Count)
-			{
-				WzEffectFrame cloned = WzEffectFrame.CloneShallowBitmap(activeEffectFrames[selectedIndex]);
-				if (cloned != null)
-				{
-					_clipboardFrames.Add(cloned);
-				}
-			}
+				selectedFrames.Add(activeEffectFrames[selectedIndex]);
 		}
+		StoreFramesInClipboard(selectedFrames, "[GUI]");
 		Console.WriteLine($"[GUI] 已复制 {_clipboardFrames.Count} 帧");
 	}
 
 	private void FxMenu_PasteFrames(object sender, EventArgs e)
 	{
-		if (_clipboardFrames == null || _clipboardFrames.Count == 0)
+		List<WzEffectFrame> clipboardFrames = GetFramesFromClipboard("[GUI]");
+		if (clipboardFrames == null || clipboardFrames.Count == 0)
 		{
 			return;
 		}
 		PushUndoSnapshot();
 		List<WzEffectFrame> activeEffectFrames = GetActiveEffectFrames(createIfMissing: true);
-		foreach (WzEffectFrame clipboardFrame in _clipboardFrames)
+		int insertStart = activeEffectFrames.Count;
+		foreach (WzEffectFrame clipboardFrame in clipboardFrames)
 		{
 			WzEffectFrame cloned = WzEffectFrame.CloneShallowBitmap(clipboardFrame);
 			if (cloned != null)
@@ -7374,7 +11711,22 @@ public class MainForm : Form
 		}
 		_hasManualEffectEdit = true;
 		PopulateEffectFrames(activeEffectFrames);
-		Console.WriteLine($"[GUI] 已粘贴 {_clipboardFrames.Count} 帧");
+		SelectPastedFrames(lvEffectFrames, insertStart, clipboardFrames.Count);
+		Console.WriteLine($"[GUI] 已粘贴 {clipboardFrames.Count} 帧");
+	}
+
+	private void FxFrames_KeyDown(object sender, KeyEventArgs e)
+	{
+		if (e.Control && e.KeyCode == Keys.C)
+		{
+			FxMenu_CopyFrames(sender, EventArgs.Empty);
+			e.SuppressKeyPress = true;
+		}
+		else if (e.Control && e.KeyCode == Keys.V)
+		{
+			FxMenu_PasteFrames(sender, EventArgs.Empty);
+			e.SuppressKeyPress = true;
+		}
 	}
 
 	private void FxList_DragEnter(object sender, DragEventArgs e)
@@ -7445,6 +11797,7 @@ public class MainForm : Form
 			return;
 		}
 		SyncLevelParamsFromGrid();
+		RefreshEditedTreeViewIfNeeded();
 	}
 
 	private void DgvMenu_AddColumn(object sender, EventArgs e)
@@ -7455,6 +11808,7 @@ public class MainForm : Form
 			PushUndoSnapshot();
 			dgvLevelParams.Columns.Add(text, text);
 			SyncLevelParamsFromGrid();
+			RefreshEditedTreeViewIfNeeded();
 		}
 	}
 
@@ -7471,6 +11825,7 @@ public class MainForm : Form
 				PushUndoSnapshot();
 				dgvLevelParams.Columns.RemoveAt(columnIndex);
 				SyncLevelParamsFromGrid();
+				RefreshEditedTreeViewIfNeeded();
 			}
 		}
 	}
@@ -7488,6 +11843,7 @@ public class MainForm : Form
 		object[] values = list.ToArray();
 		rows.Add(values);
 		SyncLevelParamsFromGrid();
+		RefreshEditedTreeViewIfNeeded();
 	}
 
 	private void DgvMenu_DeleteRow(object sender, EventArgs e)
@@ -7500,6 +11856,7 @@ public class MainForm : Form
 			PushUndoSnapshot();
 			dgvLevelParams.Rows.Remove(dgvLevelParams.CurrentRow);
 			SyncLevelParamsFromGrid();
+			RefreshEditedTreeViewIfNeeded();
 		}
 	}
 
@@ -7510,6 +11867,7 @@ public class MainForm : Form
 			return;
 		}
 		SyncMaxLevelIntoCommonParams(createIfMissing: false);
+		RefreshEditedTreeViewIfNeeded();
 	}
 
 	private bool IsCommonParamsGridMode()
@@ -7567,6 +11925,243 @@ public class MainForm : Form
 		{
 			dgvLevelParams.Rows.Add("maxLevel", text);
 		}
+		SyncParamNodesIntoEditedTree();
+	}
+
+	private void RefreshEditedTreeViewIfNeeded()
+	{
+		if (treeSkillData == null || _editState?.EditedTree == null)
+		{
+			return;
+		}
+		PopulateTreeView(_editState.EditedTree);
+	}
+
+	private void SyncParamNodesIntoEditedTree()
+	{
+		if (_editState == null)
+		{
+			return;
+		}
+		WzNodeInfo wzNodeInfo = _editState.EditedTree ?? _editState.LoadedData?.RootNode;
+		if (wzNodeInfo == null)
+		{
+			return;
+		}
+		if (_editState.EditedTree == null)
+		{
+			_editState.EditedTree = DeepCopyNode(wzNodeInfo);
+		}
+		WzNodeInfo editedTree = _editState.EditedTree;
+		Dictionary<string, string> commonParams = null;
+		if (_editState.EditedLevelParams != null
+			&& _editState.EditedLevelParams.TryGetValue(0, out var value)
+			&& value != null)
+		{
+			commonParams = new Dictionary<string, string>(value);
+		}
+		SyncEditedTreeCommonNode(editedTree, commonParams);
+		SyncEditedTreeLevelNodes(editedTree, _editState.EditedLevelParams);
+	}
+
+	private void SyncEditedTreeCommonNode(WzNodeInfo root, Dictionary<string, string> commonParams)
+	{
+		if (root == null)
+		{
+			return;
+		}
+		WzNodeInfo wzNodeInfo = FindChildInfo(root, "common");
+		if (wzNodeInfo == null)
+		{
+			if (commonParams == null || commonParams.Count == 0)
+			{
+				return;
+			}
+			wzNodeInfo = EnsureTreeChildNode(root, "common", "SubProperty");
+		}
+		SyncTreeScalarChildren(wzNodeInfo, commonParams);
+		if ((commonParams == null || commonParams.Count == 0)
+			&& (wzNodeInfo.Children == null || wzNodeInfo.Children.Count == 0))
+		{
+			root.Children?.Remove(wzNodeInfo);
+		}
+	}
+
+	private void SyncEditedTreeLevelNodes(WzNodeInfo root, Dictionary<int, Dictionary<string, string>> editedLevelParams)
+	{
+		if (root == null)
+		{
+			return;
+		}
+		Dictionary<int, Dictionary<string, string>> dictionary = new Dictionary<int, Dictionary<string, string>>();
+		if (editedLevelParams != null)
+		{
+			foreach (KeyValuePair<int, Dictionary<string, string>> editedLevelParam in editedLevelParams)
+			{
+				if (editedLevelParam.Key < 1)
+				{
+					continue;
+				}
+				dictionary[editedLevelParam.Key] = editedLevelParam.Value != null
+					? new Dictionary<string, string>(editedLevelParam.Value)
+					: new Dictionary<string, string>();
+			}
+		}
+		WzNodeInfo wzNodeInfo = FindChildInfo(root, "level");
+		if (dictionary.Count == 0)
+		{
+			if (wzNodeInfo == null)
+			{
+				return;
+			}
+			if (wzNodeInfo.Children != null)
+			{
+				foreach (WzNodeInfo item in wzNodeInfo.Children.ToList())
+				{
+					if (!int.TryParse(item?.Name, out _))
+					{
+						continue;
+					}
+					SyncTreeScalarChildren(item, null);
+					if (item.Children == null || item.Children.Count == 0)
+					{
+						wzNodeInfo.Children.Remove(item);
+					}
+				}
+			}
+			if (wzNodeInfo.Children == null || wzNodeInfo.Children.Count == 0)
+			{
+				root.Children?.Remove(wzNodeInfo);
+			}
+			return;
+		}
+		if (wzNodeInfo == null)
+		{
+			wzNodeInfo = EnsureTreeChildNode(root, "level", "SubProperty");
+		}
+		HashSet<string> hashSet = new HashSet<string>(dictionary.Keys.Select((int k) => k.ToString()), StringComparer.OrdinalIgnoreCase);
+		if (wzNodeInfo.Children != null)
+		{
+			foreach (WzNodeInfo item2 in wzNodeInfo.Children.ToList())
+			{
+				if (!int.TryParse(item2?.Name, out _))
+				{
+					continue;
+				}
+				if (hashSet.Contains(item2.Name ?? ""))
+				{
+					continue;
+				}
+				SyncTreeScalarChildren(item2, null);
+				if (item2.Children == null || item2.Children.Count == 0)
+				{
+					wzNodeInfo.Children.Remove(item2);
+				}
+			}
+		}
+		foreach (KeyValuePair<int, Dictionary<string, string>> item3 in dictionary.OrderBy((KeyValuePair<int, Dictionary<string, string>> kv) => kv.Key))
+		{
+			WzNodeInfo wzNodeInfo2 = EnsureTreeChildNode(wzNodeInfo, item3.Key.ToString(), "SubProperty");
+			SyncTreeScalarChildren(wzNodeInfo2, item3.Value);
+		}
+	}
+
+	private WzNodeInfo EnsureTreeChildNode(WzNodeInfo parent, string name, string typeName)
+	{
+		if (parent == null || string.IsNullOrWhiteSpace(name))
+		{
+			return null;
+		}
+		if (parent.Children == null)
+		{
+			parent.Children = new List<WzNodeInfo>();
+		}
+		WzNodeInfo wzNodeInfo = FindChildInfo(parent, name);
+		if (wzNodeInfo != null)
+		{
+			if (string.IsNullOrWhiteSpace(wzNodeInfo.TypeName))
+			{
+				wzNodeInfo.TypeName = typeName;
+			}
+			if (IsMountContainerType(wzNodeInfo.TypeName) && wzNodeInfo.Children == null)
+			{
+				wzNodeInfo.Children = new List<WzNodeInfo>();
+			}
+			return wzNodeInfo;
+		}
+		wzNodeInfo = new WzNodeInfo
+		{
+			Name = name,
+			TypeName = typeName,
+			Value = "",
+			Children = new List<WzNodeInfo>()
+		};
+		parent.Children.Add(wzNodeInfo);
+		return wzNodeInfo;
+	}
+
+	private void SyncTreeScalarChildren(WzNodeInfo parent, Dictionary<string, string> values)
+	{
+		if (parent == null)
+		{
+			return;
+		}
+		if (parent.Children == null)
+		{
+			parent.Children = new List<WzNodeInfo>();
+		}
+		parent.Children.RemoveAll(IsTreeScalarNode);
+		if (values == null || values.Count == 0)
+		{
+			return;
+		}
+		List<string> list = new List<string>(values.Keys);
+		list.Sort(StringComparer.OrdinalIgnoreCase);
+		int num = list.FindIndex((string key) => string.Equals(key, "maxLevel", StringComparison.OrdinalIgnoreCase));
+		if (num > 0)
+		{
+			string item = list[num];
+			list.RemoveAt(num);
+			list.Insert(0, item);
+		}
+		foreach (string item2 in list)
+		{
+			if (string.IsNullOrWhiteSpace(item2))
+			{
+				continue;
+			}
+			parent.Children.Add(CreateTreeScalarNode(item2, values.TryGetValue(item2, out var value) ? value : ""));
+		}
+	}
+
+	private bool IsTreeScalarNode(WzNodeInfo node)
+	{
+		if (node == null)
+		{
+			return false;
+		}
+		if (node.Children != null && node.Children.Count > 0)
+		{
+			return false;
+		}
+		return !IsMountContainerType(node.TypeName);
+	}
+
+	private WzNodeInfo CreateTreeScalarNode(string name, string value)
+	{
+		string text = value ?? "";
+		string text2 = GuessTreeScalarTypeFromValue(text);
+		if (string.Equals(name, "_inlink", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(name, "_outlink", StringComparison.OrdinalIgnoreCase))
+		{
+			text2 = "UOL";
+		}
+		return new WzNodeInfo
+		{
+			Name = name,
+			TypeName = text2,
+			Value = text
+		};
 	}
 
 	private void SyncLevelParamsFromGrid()
@@ -7599,6 +12194,7 @@ public class MainForm : Form
 			}
 			_editState.EditedLevelParams[0] = dictionary3;
 			SyncMaxLevelFromCommonParams(dictionary3);
+			SyncParamNodesIntoEditedTree();
 			return;
 		}
 		for (int j = 0; j < dgvLevelParams.Rows.Count; j++)
@@ -7623,6 +12219,7 @@ public class MainForm : Form
 		{
 			_editState.EditedLevelParams[0] = dictionary;
 		}
+		SyncParamNodesIntoEditedTree();
 	}
 
 	private void BtnCopyEffects_Click(object sender, EventArgs e)
@@ -8089,6 +12686,7 @@ public class MainForm : Form
 				return false;
 			}
 		}
+
 		return true;
 	}
 
@@ -8109,7 +12707,119 @@ public class MainForm : Form
 				return false;
 			}
 		}
+
 		return true;
+	}
+
+	private bool HasLoadedCloneStructuralEdits(SkillDefinition skillDefinition)
+	{
+		WzSkillData loadedData = _editState.LoadedData;
+		if (skillDefinition == null || loadedData == null)
+		{
+			return false;
+		}
+
+		if (_hasManualEffectEdit || _hasManualTreeEdit)
+		{
+			return true;
+		}
+		if (!string.Equals(skillDefinition.Action ?? "", loadedData.Action ?? "", StringComparison.Ordinal))
+		{
+			return true;
+		}
+		if (loadedData.InfoType > 0 && skillDefinition.InfoType != loadedData.InfoType)
+		{
+			return true;
+		}
+
+		int loadedMaxLevel = ResolveMaxLevelFromWzData(loadedData, skillDefinition.MaxLevel);
+		if (skillDefinition.MaxLevel != loadedMaxLevel)
+		{
+			return true;
+		}
+
+		Dictionary<string, string> loadedCommon = loadedData.CommonParams != null
+			? new Dictionary<string, string>(loadedData.CommonParams)
+			: new Dictionary<string, string>();
+		Dictionary<int, Dictionary<string, string>> loadedLevels = CloneLevelParams(loadedData.LevelParams);
+		if (!StringDictEquals(skillDefinition.Common, loadedCommon))
+		{
+			return true;
+		}
+		if (!LevelDictEquals(skillDefinition.Levels, loadedLevels))
+		{
+			return true;
+		}
+
+		return !string.Equals(skillDefinition.IconBase64 ?? "", loadedData.IconBase64 ?? "", StringComparison.Ordinal)
+			|| !string.Equals(skillDefinition.IconMouseOverBase64 ?? "", loadedData.IconMouseOverBase64 ?? "", StringComparison.Ordinal)
+			|| !string.Equals(skillDefinition.IconDisabledBase64 ?? "", loadedData.IconDisabledBase64 ?? "", StringComparison.Ordinal);
+	}
+
+	private bool HasCloneSourceStructuralEdits(SkillDefinition skillDefinition)
+	{
+		if (skillDefinition == null || _wzLoader == null)
+		{
+			return false;
+		}
+		int sourceId = skillDefinition.ResolveCloneSourceSkillId();
+		if (sourceId <= 0 || sourceId == skillDefinition.SkillId)
+		{
+			return false;
+		}
+		try
+		{
+			WzSkillData sourceData = _wzLoader.LoadSkill(sourceId);
+			return HasLoadedCloneStructuralEditsAgainstData(skillDefinition, sourceData);
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	private bool HasLoadedCloneStructuralEditsAgainstData(SkillDefinition skillDefinition, WzSkillData loadedData)
+	{
+		if (skillDefinition == null || loadedData == null)
+		{
+			return false;
+		}
+
+		if (_hasManualEffectEdit || _hasManualTreeEdit)
+		{
+			return true;
+		}
+		if (!string.Equals(skillDefinition.Action ?? "", loadedData.Action ?? "", StringComparison.Ordinal))
+		{
+			return true;
+		}
+		if (loadedData.InfoType > 0 && skillDefinition.InfoType != loadedData.InfoType)
+		{
+			return true;
+		}
+
+		int loadedMaxLevel = ResolveMaxLevelFromWzData(loadedData, skillDefinition.MaxLevel);
+		if (skillDefinition.MaxLevel != loadedMaxLevel)
+		{
+			return true;
+		}
+
+		Dictionary<string, string> loadedCommon = loadedData.CommonParams != null
+			? new Dictionary<string, string>(loadedData.CommonParams)
+			: new Dictionary<string, string>();
+		Dictionary<int, Dictionary<string, string>> loadedLevels = CloneLevelParams(loadedData.LevelParams);
+		if (!StringDictEquals(skillDefinition.Common, loadedCommon))
+		{
+			return true;
+		}
+		if (!LevelDictEquals(skillDefinition.Levels, loadedLevels))
+		{
+			return true;
+		}
+
+		return !string.Equals(skillDefinition.IconBase64 ?? "", loadedData.IconBase64 ?? "", StringComparison.Ordinal)
+			|| !string.Equals(skillDefinition.IconMouseOverBase64 ?? "", loadedData.IconMouseOverBase64 ?? "", StringComparison.Ordinal)
+			|| !string.Equals(skillDefinition.IconDisabledBase64 ?? "", loadedData.IconDisabledBase64 ?? "", StringComparison.Ordinal);
 	}
 
 	private SkillDefinition BuildSkillFromForm()
@@ -8234,11 +12944,30 @@ public class MainForm : Form
 				skillDefinition.VisualSkillId = result3;
 			}
 		}
+		if (int.TryParse((txtBehaviorSkillId?.Text ?? "").Trim(), out int behaviorSkillId) && behaviorSkillId > 0)
+		{
+			skillDefinition.BehaviorSkillId = behaviorSkillId;
+		}
+		if (int.TryParse((txtVisibleJobId?.Text ?? "").Trim(), out int visibleJobId) && visibleJobId > 0)
+		{
+			skillDefinition.VisibleJobId = visibleJobId;
+		}
 		if (int.TryParse((txtMountItemId?.Text ?? "").Trim(), out var result4) && result4 > 0)
 		{
 			skillDefinition.MountItemId = result4;
 		}
+		if (int.TryParse((txtFlightMountItemId?.Text ?? "").Trim(), out int flightMountItemId) && flightMountItemId > 0)
+		{
+			skillDefinition.FlightMountItemId = flightMountItemId;
+		}
+		skillDefinition.PassiveBonuses = CollectPassiveBonusesFromGrid(ResolvePassiveBonusSourceSkillId(skillDefinition));
+		skillDefinition.IndependentBuff = CollectIndependentBuffFromControls();
 		skillDefinition.MountResourceMode = GetSelectedMountResourceMode();
+		skillDefinition.MountedDoubleJumpEnabled = chkMountedDoubleJump?.Checked ?? false;
+		skillDefinition.MountedDoubleJumpSkillId = 3101003;
+		skillDefinition.MountedDemonJumpEnabled = chkMountedDemonJump?.Checked ?? false;
+		skillDefinition.MountedDemonJumpSkillId = 30010110;
+		string selectedMountResourceMode = skillDefinition.MountResourceMode;
 		if (int.TryParse((txtMountSourceItemId?.Text ?? "").Trim(), out var result5) && result5 > 0)
 		{
 			skillDefinition.MountSourceItemId = result5;
@@ -8283,6 +13012,7 @@ public class MainForm : Form
 		{
 			skillDefinition.MountFatigueOverride = mountFatigue;
 		}
+		ApplyMountEditorDataOverrides(skillDefinition);
 		if (skillDefinition.MountItemId <= 0)
 		{
 			skillDefinition.MountResourceMode = "config_only";
@@ -8291,11 +13021,27 @@ public class MainForm : Form
 			skillDefinition.MountSpeedOverride = null;
 			skillDefinition.MountJumpOverride = null;
 			skillDefinition.MountFatigueOverride = null;
+			skillDefinition.MountFsOverride = null;
+			skillDefinition.MountSwimOverride = null;
+			skillDefinition.MountedDoubleJumpEnabled = false;
+			skillDefinition.MountedDemonJumpEnabled = false;
+		}
+		else if (HasMountDataOverrides(skillDefinition)
+			&& !string.Equals(NormalizeMountResourceMode(skillDefinition.MountResourceMode), "sync_action_and_data", StringComparison.OrdinalIgnoreCase))
+		{
+			skillDefinition.MountResourceMode = "sync_action_and_data";
+			SetSelectedMountResourceMode(skillDefinition.MountResourceMode);
+		}
+		else if (skillDefinition.MountedDemonJumpEnabled
+			&& string.Equals(skillDefinition.MountResourceMode, "config_only", StringComparison.OrdinalIgnoreCase))
+		{
+			skillDefinition.MountResourceMode = "sync_action";
 		}
 		string text = cboReleaseClass.SelectedItem as string;
 		skillDefinition.ReleaseClass = (!string.IsNullOrEmpty(text) ? text : ReleaseClassNames[0]);
 		skillDefinition.BorrowDonorVisual = chkBorrowDonorVisual.Checked;
 		skillDefinition.HideFromNativeSkillWnd = chkHideFromNative.Checked;
+		skillDefinition.HideFromSuperSkillWnd = chkHideFromSuper.Checked;
 		skillDefinition.ShowInNativeWhenLearned = chkShowInNativeWhenLearned.Checked;
 		skillDefinition.ShowInSuperWhenLearned = chkShowInSuperWhenLearned.Checked;
 		skillDefinition.AllowNativeUpgradeFallback = chkAllowNativeFallback.Checked;
@@ -8332,6 +13078,30 @@ public class MainForm : Form
 			if (!skillDefinition.MountFatigueOverride.HasValue)
 			{
 				skillDefinition.MountFatigueOverride = skillDefinition2.MountFatigueOverride;
+			}
+			if (!skillDefinition.MountFsOverride.HasValue)
+			{
+				skillDefinition.MountFsOverride = skillDefinition2.MountFsOverride;
+			}
+			if (!skillDefinition.MountSwimOverride.HasValue)
+			{
+				skillDefinition.MountSwimOverride = skillDefinition2.MountSwimOverride;
+			}
+			if (skillDefinition.BehaviorSkillId <= 0)
+			{
+				skillDefinition.BehaviorSkillId = skillDefinition2.BehaviorSkillId;
+			}
+			if (skillDefinition.FlightMountItemId <= 0)
+			{
+				skillDefinition.FlightMountItemId = skillDefinition2.FlightMountItemId;
+			}
+			if ((skillDefinition.PassiveBonuses == null || skillDefinition.PassiveBonuses.Count == 0) && skillDefinition2.PassiveBonuses != null)
+			{
+				skillDefinition.PassiveBonuses = CloneSkillDefinition(skillDefinition2).PassiveBonuses;
+			}
+			if ((skillDefinition.IndependentBuff == null || !skillDefinition.IndependentBuff.IsConfigured()) && skillDefinition2.IndependentBuff != null)
+			{
+				skillDefinition.IndependentBuff = CloneSkillDefinition(skillDefinition2).IndependentBuff;
 			}
 			skillDefinition.SuperSpCarrierSkillId = skillDefinition2.SuperSpCarrierSkillId;
 			skillDefinition.ServerEnabled = skillDefinition2.ServerEnabled;
@@ -8380,10 +13150,11 @@ public class MainForm : Form
 		{
 			if (_editState.EditedLevelParams.TryGetValue(0, out var value2))
 			{
-				foreach (KeyValuePair<string, string> item2 in value2)
-				{
-					skillDefinition.Common[item2.Key] = item2.Value;
-				}
+				skillDefinition.Common = new Dictionary<string, string>(value2);
+			}
+			else
+			{
+				skillDefinition.Common = new Dictionary<string, string>();
 			}
 			bool flag3 = false;
 			foreach (int key in _editState.EditedLevelParams.Keys)
@@ -8396,10 +13167,7 @@ public class MainForm : Form
 			}
 			if (flag3)
 			{
-				if (skillDefinition.Levels == null)
-				{
-					skillDefinition.Levels = new Dictionary<int, Dictionary<string, string>>();
-				}
+				skillDefinition.Levels = new Dictionary<int, Dictionary<string, string>>();
 				foreach (KeyValuePair<int, Dictionary<string, string>> editedLevelParam in _editState.EditedLevelParams)
 				{
 					if (editedLevelParam.Key >= 1)
@@ -8407,6 +13175,10 @@ public class MainForm : Form
 						skillDefinition.Levels[editedLevelParam.Key] = new Dictionary<string, string>(editedLevelParam.Value);
 					}
 				}
+			}
+			else
+			{
+				skillDefinition.Levels = null;
 			}
 		}
 		if (skillDefinition.Type != "passive" && skillDefinition.Levels != null && skillDefinition.Levels.Count > 0)
@@ -8478,28 +13250,52 @@ public class MainForm : Form
 				}
 			}
 		}
-		if (_editState.EditedTree != null)
+		WzNodeInfo effectiveTree = _editState.EditedTree ?? _editState.LoadedData?.RootNode;
+		bool hasQueuedTreeOverride = skillDefinition2 != null && skillDefinition2.HasManualTreeOverride;
+		bool shouldPersistTreeOverride = _hasManualTreeEdit || hasQueuedTreeOverride;
+		skillDefinition.HasManualTreeOverride = shouldPersistTreeOverride;
+		if (effectiveTree != null)
 		{
-			skillDefinition.CachedTree = _editState.EditedTree;
+			skillDefinition.CachedTree = DeepCopyNode(effectiveTree);
+		}
+		else if (skillDefinition2?.CachedTree != null)
+		{
+			skillDefinition.CachedTree = DeepCopyNode(skillDefinition2.CachedTree);
 		}
 		if (skillDefinition.Common != null && skillDefinition.Common.Count > 0)
 		{
 			skillDefinition.Common["maxLevel"] = skillDefinition.MaxLevel.ToString();
 		}
+		bool autoResolvedMountItem = AutoResolveMountItemId(skillDefinition, updateControls: true, log: true);
+		if (autoResolvedMountItem)
+		{
+			string selectedMode = NormalizeMountResourceMode(selectedMountResourceMode);
+			if (!string.Equals(selectedMode, "config_only", StringComparison.OrdinalIgnoreCase))
+			{
+				skillDefinition.MountResourceMode = selectedMode;
+				SetSelectedMountResourceMode(selectedMode);
+			}
+		}
+		EnsureMountTamingMobId(skillDefinition, updateControls: true);
+		if (skillDefinition.MountItemId <= 0)
+		{
+			skillDefinition.MountResourceMode = "config_only";
+			skillDefinition.MountSourceItemId = 0;
+			skillDefinition.MountTamingMobId = 0;
+			skillDefinition.MountSpeedOverride = null;
+			skillDefinition.MountJumpOverride = null;
+			skillDefinition.MountFatigueOverride = null;
+			skillDefinition.MountFsOverride = null;
+			skillDefinition.MountSwimOverride = null;
+		}
 		// Collect text fields from UI
 		CollectTextFieldsIntoEditState();
-		if (!string.IsNullOrWhiteSpace(_editState.EditedH))
-			skillDefinition.H = _editState.EditedH;
-		if (!string.IsNullOrWhiteSpace(_editState.EditedPDesc))
-			skillDefinition.PDesc = _editState.EditedPDesc;
-		if (!string.IsNullOrWhiteSpace(_editState.EditedPh))
-			skillDefinition.Ph = _editState.EditedPh;
+		skillDefinition.H = _editState.EditedH ?? "";
+		skillDefinition.PDesc = _editState.EditedPDesc ?? "";
+		skillDefinition.Ph = _editState.EditedPh ?? "";
 		// Collect h-levels from grid
 		var gridHLevels = CollectHLevelsFromGrid();
-		if (gridHLevels.Count > 0)
-		{
-			skillDefinition.HLevels = gridHLevels;
-		}
+		skillDefinition.HLevels = gridHLevels;
 		// Collect per-level animation frames (always persist if present — not gated by manual edit flag)
 		if (_editState.EditedLevelAnimFramesByNode != null && _editState.EditedLevelAnimFramesByNode.Count > 0)
 		{
@@ -8512,6 +13308,7 @@ public class MainForm : Form
 			if (skillDefinition2 != null)
 			{
 				bool touchedStructurally = _hasManualEffectEdit
+					|| _hasManualTreeEdit
 					|| !string.Equals(skillDefinition.Action ?? "", skillDefinition2.Action ?? "", StringComparison.Ordinal)
 					|| skillDefinition.InfoType != skillDefinition2.InfoType
 					|| skillDefinition.MaxLevel != skillDefinition2.MaxLevel
@@ -8525,6 +13322,14 @@ public class MainForm : Form
 					preserveCloneNode = false;
 				}
 			}
+			else if (HasLoadedCloneStructuralEdits(skillDefinition))
+			{
+				preserveCloneNode = false;
+			}
+			if (preserveCloneNode && HasCloneSourceStructuralEdits(skillDefinition))
+			{
+				preserveCloneNode = false;
+			}
 			skillDefinition.PreserveClonedNode = preserveCloneNode;
 		}
 		else
@@ -8535,7 +13340,7 @@ public class MainForm : Form
 		return skillDefinition;
 	}
 
-	private bool TryAutoCommitEditingSkill()
+	private bool TryAutoCommitEditingSkill(bool pushUndoIfChanged = false)
 	{
 		if (!_editState.EditingListIndex.HasValue)
 		{
@@ -8550,6 +13355,7 @@ public class MainForm : Form
 		{
 			SkillDefinition skillDefinition = BuildSkillFromForm();
 			SkillDefinition oldSkill = _pendingSkills[value];
+			bool flag = !AreSkillDefinitionsEquivalentForUndo(oldSkill, skillDefinition);
 			if (IsCarrierSkillId(skillDefinition.SkillId))
 			{
 				MessageBox.Show($"技能ID {skillDefinition.SkillId} 是载体技能ID，请在“设置”页维护，不加入列表。", "提示");
@@ -8562,6 +13368,10 @@ public class MainForm : Form
 					MessageBox.Show($"技能ID {skillDefinition.SkillId} 已在列表中存在", "重复");
 					return false;
 				}
+			}
+			if (pushUndoIfChanged && flag)
+			{
+				PushUndoSnapshot();
 			}
 			UpdateSourceLabel(skillDefinition);
 			QueueOldSkillWhenIdChanged(oldSkill, skillDefinition);
@@ -8835,14 +13645,25 @@ public class MainForm : Form
 			}
 			PushUndoSnapshot();
 			RemoveDeletedQueueBySkillId(skillDefinition.SkillId);
+			int addedIndex = _pendingSkills.Count;
 			_pendingSkills.Add(skillDefinition);
-			_editState.EditingListIndex = null;
+			_editState.EditingListIndex = addedIndex;
+			_hasManualTreeEdit = skillDefinition.HasManualTreeOverride;
+			if (_editState.EditedTree == null && skillDefinition.CachedTree != null)
+				_editState.EditedTree = DeepCopyNode(skillDefinition.CachedTree);
 			RefreshListView();
+			if (addedIndex >= 0 && addedIndex < lvSkills.Items.Count)
+			{
+				lvSkills.Items[addedIndex].Selected = true;
+				lvSkills.Items[addedIndex].Focused = true;
+				lvSkills.EnsureVisible(addedIndex);
+			}
 			SavePendingList();
 			Console.WriteLine($"[GUI] 已添加 {skillDefinition.SkillId} ({skillDefinition.Name})");
 		}
 		catch (Exception ex)
 		{
+			Console.WriteLine("[输入错误] " + ex);
 			MessageBox.Show(ex.Message, "输入错误");
 		}
 	}
@@ -8891,6 +13712,7 @@ public class MainForm : Form
 		}
 		catch (Exception ex)
 		{
+			Console.WriteLine("[输入错误] " + ex);
 			MessageBox.Show(ex.Message, "输入错误");
 		}
 	}
@@ -8985,12 +13807,15 @@ public class MainForm : Form
 		// Loading an item into editor should not be treated as a manual effect edit.
 		// Otherwise clone-save path may wrongly re-encode effect frames even when user changed nothing.
 		_hasManualEffectEdit = false;
+		_hasManualTreeEdit = skillDefinition.HasManualTreeOverride;
 		Console.WriteLine($"[双击调试] 技能ID={skillDefinition.SkillId} 名称={skillDefinition.Name} 动作={skillDefinition.Action} 类型={skillDefinition.InfoType} 通用参数数={skillDefinition.Common?.Count ?? (-1)} H层级数={skillDefinition.HLevels?.Count ?? (-1)} 等级参数数={skillDefinition.Levels?.Count ?? (-1)} 缓存特效节点数={skillDefinition.CachedEffectsByNode?.Count ?? 0} 缓存当前特效帧数={skillDefinition.CachedEffects?.Count ?? (-1)} 缓存节点树={(skillDefinition.CachedTree != null)}");
 		txtSkillId.Text = skillDefinition.SkillId.ToString();
 		txtName.Text = skillDefinition.Name;
 		txtDesc.Text = skillDefinition.Desc;
-		cboTab.SelectedItem = skillDefinition.Tab ?? "active";
-		nudMaxLevel.Value = Math.Min(Math.Max(skillDefinition.MaxLevel, 1), 30);
+		bool isPassive = IsPassiveSkillDefinition(skillDefinition);
+		cboTab.SelectedItem = isPassive ? "passive" : "active";
+		SetRouteEditorPassiveMode(isPassive);
+		nudMaxLevel.Value = Math.Min(nudMaxLevel.Maximum, Math.Max(nudMaxLevel.Minimum, skillDefinition.MaxLevel));
 		nudSuperSpCost.Value = Math.Min(Math.Max(skillDefinition.SuperSpCost, 1), 10);
 		if (!string.IsNullOrEmpty(skillDefinition.ReleaseType))
 		{
@@ -9000,11 +13825,21 @@ public class MainForm : Form
 				cboPacketRoute.SelectedIndex = num2;
 			}
 		}
+		else if (cboPacketRoute.Items.Count > 0)
+		{
+			cboPacketRoute.SelectedIndex = 0;
+		}
 		int num3 = Array.IndexOf(ReleaseClassNames, skillDefinition.ReleaseClass ?? "");
 		cboReleaseClass.SelectedIndex = ((num3 >= 0) ? num3 : 0);
 		txtProxySkillId.Text = ((skillDefinition.ProxySkillId > 0) ? skillDefinition.ProxySkillId.ToString() : "");
 		txtVisualSkillId.Text = ((skillDefinition.VisualSkillId > 0) ? skillDefinition.VisualSkillId.ToString() : "");
+		if (txtBehaviorSkillId != null)
+			txtBehaviorSkillId.Text = ((skillDefinition.BehaviorSkillId > 0) ? skillDefinition.BehaviorSkillId.ToString() : "");
+		if (txtVisibleJobId != null)
+			txtVisibleJobId.Text = ((skillDefinition.VisibleJobId > 0) ? skillDefinition.VisibleJobId.ToString() : "");
 		txtMountItemId.Text = ((skillDefinition.MountItemId > 0) ? skillDefinition.MountItemId.ToString() : "");
+		if (txtFlightMountItemId != null)
+			txtFlightMountItemId.Text = ((skillDefinition.FlightMountItemId > 0) ? skillDefinition.FlightMountItemId.ToString() : "");
 		SetSelectedMountResourceMode(skillDefinition.MountResourceMode);
 		txtMountSourceItemId.Text = ((skillDefinition.MountSourceItemId > 0) ? skillDefinition.MountSourceItemId.ToString() : "");
 		txtMountTamingMobId.Text = ((skillDefinition.MountTamingMobId > 0) ? skillDefinition.MountTamingMobId.ToString() : "");
@@ -9013,6 +13848,7 @@ public class MainForm : Form
 		txtMountFatigue.Text = (skillDefinition.MountFatigueOverride.HasValue ? skillDefinition.MountFatigueOverride.Value.ToString() : "");
 		chkBorrowDonorVisual.Checked = skillDefinition.BorrowDonorVisual;
 		chkHideFromNative.Checked = skillDefinition.HideFromNativeSkillWnd;
+		chkHideFromSuper.Checked = skillDefinition.HideFromSuperSkillWnd;
 		chkShowInNativeWhenLearned.Checked = skillDefinition.ShowInNativeWhenLearned;
 		chkShowInSuperWhenLearned.Checked = skillDefinition.ShowInSuperWhenLearned;
 		chkAllowNativeFallback.Checked = skillDefinition.AllowNativeUpgradeFallback;
@@ -9021,6 +13857,15 @@ public class MainForm : Form
 		{
 			chkAllowMountedFlight.Checked = skillDefinition.AllowMountedFlight;
 		}
+		if (chkMountedDoubleJump != null)
+		{
+			chkMountedDoubleJump.Checked = skillDefinition.MountedDoubleJumpEnabled;
+		}
+		if (chkMountedDemonJump != null)
+		{
+			chkMountedDemonJump.Checked = skillDefinition.MountedDemonJumpEnabled;
+		}
+		PopulatePassiveBonusesGrid(skillDefinition);
 		TrySyncMountEditorFromSkill(skillDefinition);
 		_editState.LoadFromSkillDefinition(skillDefinition, num);
 		SafeSetImage(picIcon, _editState.GetEffectiveIcon());
@@ -9086,31 +13931,17 @@ public class MainForm : Form
 				{
 					_editState.EditedLevelAnimFramesByNode = EditState.CloneLevelAnimFramesByNode(skillDefinition.LevelAnimFramesByNode);
 				}
-				if (skillDefinition.Common != null && skillDefinition.Common.Count > 0)
-				{
-					if (_editState.EditedLevelParams == null)
-					{
-						_editState.EditedLevelParams = new Dictionary<int, Dictionary<string, string>>();
-					}
-					if (!_editState.EditedLevelParams.ContainsKey(0))
-					{
-						_editState.EditedLevelParams[0] = new Dictionary<string, string>();
-					}
-					foreach (KeyValuePair<string, string> item in skillDefinition.Common)
-					{
-						_editState.EditedLevelParams[0][item.Key] = item.Value;
-					}
-				}
+				_editState.EditedLevelParams = new Dictionary<int, Dictionary<string, string>>();
 				if (skillDefinition.Levels != null && skillDefinition.Levels.Count > 0)
 				{
-					if (_editState.EditedLevelParams == null)
-					{
-						_editState.EditedLevelParams = new Dictionary<int, Dictionary<string, string>>();
-					}
 					foreach (KeyValuePair<int, Dictionary<string, string>> level2 in skillDefinition.Levels)
 					{
 						_editState.EditedLevelParams[level2.Key] = new Dictionary<string, string>(level2.Value);
 					}
+				}
+				else
+				{
+					_editState.EditedLevelParams[0] = new Dictionary<string, string>(skillDefinition.Common ?? new Dictionary<string, string>());
 				}
 				Dictionary<string, List<WzEffectFrame>> dictionary2 = EditState.CloneEffectsByNode(skillDefinition.CachedEffectsByNode);
 				if ((dictionary2 == null || dictionary2.Count == 0) && skillDefinition.CachedEffects != null && skillDefinition.CachedEffects.Count > 0)
@@ -9143,6 +13974,7 @@ public class MainForm : Form
 				SafeSetImage(picIcon, _editState.GetEffectiveIcon());
 				SafeSetImage(picIconMO, _editState.GetEffectiveIconMO());
 				SafeSetImage(picIconDis, _editState.GetEffectiveIconDis());
+				SyncParamNodesIntoEditedTree();
 				PopulateTreeView(_editState.EditedTree ?? wzSkillData2.RootNode);
 				Dictionary<int, Dictionary<string, string>> dictionary = null;
 				if (_editState.EditedLevelParams != null)
@@ -9184,6 +14016,7 @@ public class MainForm : Form
 		}
 		if (!flag)
 		{
+			SyncParamNodesIntoEditedTree();
 			if (_editState.EditedTree != null)
 			{
 				PopulateTreeView(_editState.EditedTree);
@@ -9204,6 +14037,7 @@ public class MainForm : Form
 			}
 			PopulateTextFields();
 		}
+		PopulateIndependentBuffControls(skillDefinition);
 		for (int i = 0; i < lvSkills.Items.Count; i++)
 		{
 			lvSkills.Items[i].BackColor = ((i == num) ? Color.FromArgb(60, 80, 60) : SystemColors.Window);
@@ -9264,7 +14098,7 @@ public class MainForm : Form
 
 	private void BtnExecuteAdd_Click(object sender, EventArgs e)
 	{
-		if (!TryAutoCommitEditingSkill())
+		if (!TryAutoCommitEditingSkill(pushUndoIfChanged: true))
 		{
 			return;
 		}
@@ -9292,7 +14126,6 @@ public class MainForm : Form
 			{
 				return;
 			}
-			PushUndoSnapshot();
 			bool skip = chkSkipImg.Checked;
 			List<SkillDefinition> skills = new List<SkillDefinition>(_pendingSkills);
 			List<SkillDefinition> deleted = new List<SkillDefinition>(_deletedSkills);
@@ -9312,7 +14145,7 @@ public class MainForm : Form
 
 	private void BtnDryRun_Click(object sender, EventArgs e)
 	{
-		if (!TryAutoCommitEditingSkill())
+		if (!TryAutoCommitEditingSkill(pushUndoIfChanged: true))
 		{
 			return;
 		}
@@ -9362,6 +14195,7 @@ public class MainForm : Form
 			if (skills.Count > 0)
 			{
 				Console.WriteLine($"处理 {skills.Count} 个待新增技能...");
+				MountItemResolver.EnsureMountItemIds(skills, BuildConfiguredMountMapSnapshot(), msg => Console.WriteLine("[坐骑] " + msg));
 				if (!Directory.Exists(PathConfig.OutputDir))
 				{
 					Directory.CreateDirectory(PathConfig.OutputDir);
@@ -9451,6 +14285,7 @@ public class MainForm : Form
 			{
 				UpdateSourceLabel(pendingSkill);
 			}
+			RecordAppliedSkillsAfterExecute();
 			RefreshListView();
 			SavePendingList();
 		});
@@ -9586,11 +14421,32 @@ public class MainForm : Form
 		if (txtConfigDataDir != null) txtConfigDataDir.Text = PathConfig.ConfigDataDir;
 		LoadConfigSnapshots();
 		RefreshJobIdComboItems();
-		SettingsManager.Save();
+		if (!TrySaveSettingsWithMessage())
+			return;
 		LoadSkillLibrary(forceReload: true);
 		SyncCarrierSkillIdEditors();
 		Console.WriteLine("[GUI] 设置已保存");
 		MessageBox.Show("设置已保存", "完成");
+	}
+
+	private bool TrySaveSettingsWithMessage()
+	{
+		try
+		{
+			SettingsManager.Save();
+			return true;
+		}
+		catch (Exception ex)
+		{
+			string path = "";
+			try { path = SettingsManager.GetSettingsPath(); } catch { }
+			string message = "保存设置失败: " + ex.Message;
+			if (!string.IsNullOrWhiteSpace(path))
+				message += "\n路径: " + path;
+			Console.WriteLine("[GUI] " + message.Replace("\n", " "));
+			MessageBox.Show(message, "错误");
+			return false;
+		}
 	}
 
 	private void BtnResetSettings_Click(object sender, EventArgs e)
@@ -9777,6 +14633,7 @@ public class MainForm : Form
 	private void LoadConfigSnapshots()
 	{
 		_superSkillsCfgById = LoadSkillIdMap(PathConfig.SuperSkillsJson, "skills");
+		_hiddenSkillsCfgById = LoadSkillIdMap(PathConfig.SuperSkillsJson, "hiddenSkills");
 		_routesCfgById = LoadSkillIdMap(PathConfig.CustomSkillRoutesJson, "routes");
 		_injectionsCfgById = LoadSkillIdMap(PathConfig.NativeSkillInjectionsJson, "skills");
 		_serverCfgById = LoadSkillIdMap(PathConfig.SuperSkillsServerJson, "skills");
@@ -9816,6 +14673,105 @@ public class MainForm : Form
 		return dictionary;
 	}
 
+	private static void MergePassiveBonusesFromConfig(SkillDefinition sd, Dictionary<string, object> config)
+	{
+		if (sd == null || config == null)
+		{
+			return;
+		}
+		if (!config.ContainsKey("passiveBonuses")
+			&& !config.ContainsKey("damagePercent")
+			&& !config.ContainsKey("damageIncrease")
+			&& !config.ContainsKey("attackCount")
+			&& !config.ContainsKey("mobCount"))
+		{
+			return;
+		}
+		var temp = new Dictionary<string, object>(config);
+		temp["skillId"] = (long)sd.SkillId;
+		try
+		{
+			SkillDefinition parsed = SkillDefinition.FromJson(temp);
+			if (parsed.PassiveBonuses != null && parsed.PassiveBonuses.Count > 0)
+			{
+				sd.PassiveBonuses = parsed.PassiveBonuses;
+			}
+		}
+		catch
+		{
+		}
+	}
+
+	private static void MergeIndependentBuffFromConfig(SkillDefinition sd, Dictionary<string, object> config)
+	{
+		if (sd == null || config == null)
+		{
+			return;
+		}
+		var temp = new Dictionary<string, object>(config);
+		if (!temp.ContainsKey("independentBuff"))
+		{
+			var buffObj = new Dictionary<string, object>();
+			if (config.ContainsKey("independentBuffEnabled"))
+				buffObj["enabled"] = config["independentBuffEnabled"];
+			if (config.ContainsKey("independentSourceSkillId"))
+				buffObj["sourceSkillId"] = config["independentSourceSkillId"];
+			else if (config.ContainsKey("sourceSkillId"))
+				buffObj["sourceSkillId"] = config["sourceSkillId"];
+			if (config.ContainsKey("independentCarrierBuffStat"))
+				buffObj["carrierBuffStat"] = config["independentCarrierBuffStat"];
+			else if (config.ContainsKey("carrierBuffStat"))
+				buffObj["carrierBuffStat"] = config["carrierBuffStat"];
+			if (config.ContainsKey("iconSkillId"))
+				buffObj["iconSkillId"] = config["iconSkillId"];
+			if (config.ContainsKey("carrierValue"))
+				buffObj["carrierValue"] = config["carrierValue"];
+			else if (config.ContainsKey("value"))
+				buffObj["value"] = config["value"];
+			if (config.ContainsKey("clientBuffDisplayMode"))
+				buffObj["clientBuffDisplayMode"] = config["clientBuffDisplayMode"];
+			else if (config.ContainsKey("independentDisplayMode"))
+				buffObj["independentDisplayMode"] = config["independentDisplayMode"];
+			if (config.ContainsKey("clientNativeBuffStat"))
+				buffObj["clientNativeBuffStat"] = config["clientNativeBuffStat"];
+			else if (config.ContainsKey("nativeBuffStat"))
+				buffObj["nativeBuffStat"] = config["nativeBuffStat"];
+			if (config.ContainsKey("clientNativeValueField"))
+				buffObj["clientNativeValueField"] = config["clientNativeValueField"];
+			if (config.ContainsKey("independentNativeDisplaySkillId"))
+				buffObj["independentNativeDisplaySkillId"] = config["independentNativeDisplaySkillId"];
+			if (config.ContainsKey("clientLocalBonusKey"))
+				buffObj["clientLocalBonusKey"] = config["clientLocalBonusKey"];
+			if (config.ContainsKey("clientLocalValueField"))
+				buffObj["clientLocalValueField"] = config["clientLocalValueField"];
+
+			var statBonuses = new Dictionary<string, object>();
+			foreach (string key in SkillDefinition.IndependentBuffBonusKeys)
+			{
+				if (config.TryGetValue(key, out object value) && value != null)
+					statBonuses[key] = value;
+			}
+			if (statBonuses.Count > 0)
+				buffObj["statBonuses"] = statBonuses;
+
+			if (buffObj.Count == 0)
+				return;
+			temp["independentBuff"] = buffObj;
+		}
+		temp["skillId"] = (long)sd.SkillId;
+		try
+		{
+			SkillDefinition parsed = SkillDefinition.FromJson(temp);
+			if (parsed.IndependentBuff != null && parsed.IndependentBuff.IsConfigured())
+			{
+				sd.IndependentBuff = parsed.IndependentBuff;
+			}
+		}
+		catch
+		{
+		}
+	}
+
 	private void ApplyConfigHints(SkillDefinition sd)
 	{
 		if (sd == null || sd.SkillId <= 0)
@@ -9851,6 +14807,43 @@ public class MainForm : Form
 			if (sd.SuperSpCarrierSkillId <= 0 && value.ContainsKey("superSpCarrierSkillId"))
 			{
 				sd.SuperSpCarrierSkillId = SimpleJson.GetInt(value, "superSpCarrierSkillId", 0);
+			}
+			if (sd.VisibleJobId <= 0 && value.ContainsKey("visibleJobId"))
+			{
+				sd.VisibleJobId = SimpleJson.GetInt(value, "visibleJobId", 0);
+			}
+			if (sd.MountItemId <= 0 && value.ContainsKey("mountItemId"))
+			{
+				sd.MountItemId = SimpleJson.GetInt(value, "mountItemId", sd.MountItemId);
+			}
+			if (value.ContainsKey("mountedDoubleJumpEnabled"))
+			{
+				sd.MountedDoubleJumpEnabled = SimpleJson.GetBool(value, "mountedDoubleJumpEnabled", sd.MountedDoubleJumpEnabled);
+			}
+			if (value.ContainsKey("mountedDoubleJumpSkillId"))
+			{
+				sd.MountedDoubleJumpSkillId = SimpleJson.GetInt(value, "mountedDoubleJumpSkillId", sd.MountedDoubleJumpSkillId > 0 ? sd.MountedDoubleJumpSkillId : 3101003);
+			}
+			if (value.ContainsKey("mountedDemonJumpEnabled"))
+			{
+				sd.MountedDemonJumpEnabled = SimpleJson.GetBool(value, "mountedDemonJumpEnabled", sd.MountedDemonJumpEnabled);
+			}
+			if (value.ContainsKey("mountedDemonJumpSkillId"))
+			{
+				sd.MountedDemonJumpSkillId = SimpleJson.GetInt(value, "mountedDemonJumpSkillId", sd.MountedDemonJumpSkillId > 0 ? sd.MountedDemonJumpSkillId : 30010110);
+			}
+			MergePassiveBonusesFromConfig(sd, value);
+			MergeIndependentBuffFromConfig(sd, value);
+		}
+		if (_hiddenSkillsCfgById.TryGetValue(sd.SkillId, out var hiddenValue))
+		{
+			if (hiddenValue.ContainsKey("hideFromSuperSkillWnd"))
+			{
+				sd.HideFromSuperSkillWnd = SimpleJson.GetBool(hiddenValue, "hideFromSuperSkillWnd", sd.HideFromSuperSkillWnd);
+			}
+			if (!hiddenValue.ContainsKey("hideFromNativeSkillWnd") && !hiddenValue.ContainsKey("hideFromSuperSkillWnd"))
+			{
+				sd.HideFromSuperSkillWnd = true;
 			}
 		}
 		if (_routesCfgById.TryGetValue(sd.SkillId, out var value2))
@@ -9906,6 +14899,10 @@ public class MainForm : Form
 			{
 				sd.ServerEnabled = SimpleJson.GetBool(value4, "enabled", sd.ServerEnabled);
 			}
+			if (sd.BehaviorSkillId <= 0 && value4.ContainsKey("behaviorSkillId"))
+			{
+				sd.BehaviorSkillId = SimpleJson.GetInt(value4, "behaviorSkillId", sd.BehaviorSkillId);
+			}
 			if (sd.DonorSkillId <= 0 && value4.ContainsKey("behaviorSkillId"))
 			{
 				sd.DonorSkillId = SimpleJson.GetInt(value4, "behaviorSkillId", sd.DonorSkillId);
@@ -9914,6 +14911,10 @@ public class MainForm : Form
 			{
 				sd.MountItemId = SimpleJson.GetInt(value4, "mountItemId", sd.MountItemId);
 			}
+			if (sd.FlightMountItemId <= 0 && value4.ContainsKey("flightMountItemId"))
+			{
+				sd.FlightMountItemId = SimpleJson.GetInt(value4, "flightMountItemId", sd.FlightMountItemId);
+			}
 			if (value4.ContainsKey("allowMountedFlight") || value4.ContainsKey("grantSoaringOnRide"))
 			{
 				sd.AllowMountedFlight = SimpleJson.GetBool(
@@ -9921,11 +14922,30 @@ public class MainForm : Form
 					"allowMountedFlight",
 					SimpleJson.GetBool(value4, "grantSoaringOnRide", sd.AllowMountedFlight));
 			}
+			if (value4.ContainsKey("mountedDoubleJumpEnabled"))
+			{
+				sd.MountedDoubleJumpEnabled = SimpleJson.GetBool(value4, "mountedDoubleJumpEnabled", sd.MountedDoubleJumpEnabled);
+			}
+			if (value4.ContainsKey("mountedDoubleJumpSkillId"))
+			{
+				sd.MountedDoubleJumpSkillId = SimpleJson.GetInt(value4, "mountedDoubleJumpSkillId", sd.MountedDoubleJumpSkillId > 0 ? sd.MountedDoubleJumpSkillId : 3101003);
+			}
+			if (value4.ContainsKey("mountedDemonJumpEnabled"))
+			{
+				sd.MountedDemonJumpEnabled = SimpleJson.GetBool(value4, "mountedDemonJumpEnabled", sd.MountedDemonJumpEnabled);
+			}
+			if (value4.ContainsKey("mountedDemonJumpSkillId"))
+			{
+				sd.MountedDemonJumpSkillId = SimpleJson.GetInt(value4, "mountedDemonJumpSkillId", sd.MountedDemonJumpSkillId > 0 ? sd.MountedDemonJumpSkillId : 30010110);
+			}
+			MergePassiveBonusesFromConfig(sd, value4);
+			MergeIndependentBuffFromConfig(sd, value4);
 		}
 		if (string.IsNullOrEmpty(sd.ReleaseClass))
 		{
 			sd.ReleaseClass = ReleaseClassNames[0];
 		}
+		AutoResolveMountItemId(sd, updateControls: false, log: false);
 	}
 
 	private string GetSelectedMountResourceMode()
@@ -9982,6 +15002,323 @@ public class MainForm : Form
 		return int.TryParse(text.Trim(), out value);
 	}
 
+	private static bool TryParseOptionalDouble(string text, out double value)
+	{
+		value = 0d;
+		if (string.IsNullOrWhiteSpace(text))
+		{
+			return false;
+		}
+		return double.TryParse(text.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
+	}
+
+	private static string CellText(DataGridViewRow row, string columnName)
+	{
+		if (row == null || row.DataGridView == null || !row.DataGridView.Columns.Contains(columnName))
+		{
+			return "";
+		}
+		object value = row.Cells[columnName].Value;
+		return value == null ? "" : value.ToString().Trim();
+	}
+
+	private static List<int> ParseSkillIdListText(string text)
+	{
+		var result = new List<int>();
+		if (string.IsNullOrWhiteSpace(text))
+		{
+			return result;
+		}
+		foreach (Match match in Regex.Matches(text, "\\d+"))
+		{
+			if (int.TryParse(match.Value, out int skillId) && skillId > 0 && !result.Contains(skillId))
+			{
+				result.Add(skillId);
+			}
+		}
+		return result;
+	}
+
+	private static string JoinSkillIds(List<int> skillIds)
+	{
+		if (skillIds == null || skillIds.Count == 0)
+		{
+			return "";
+		}
+		return string.Join(",", skillIds.Where(id => id > 0));
+	}
+
+	private void PopulatePassiveBonusesGrid(SkillDefinition sd)
+	{
+		if (dgvPassiveBonuses == null)
+		{
+			return;
+		}
+		UpdatePassiveBonusesControlsEnabled(ResolveIsPassiveSkillForPassiveBonuses(sd));
+		dgvPassiveBonuses.Rows.Clear();
+		if (sd?.PassiveBonuses == null)
+		{
+			return;
+		}
+		foreach (PassiveBonusDefinition bonus in sd.PassiveBonuses)
+		{
+			if (bonus == null)
+			{
+				continue;
+			}
+			dgvPassiveBonuses.Rows.Add(
+				JoinSkillIds(bonus.TargetSkillIds),
+				bonus.DamagePercent ?? "",
+				bonus.IgnoreDefensePercent ?? "",
+				bonus.AttackCount ?? "",
+				bonus.MobCount ?? "");
+		}
+	}
+
+	private List<PassiveBonusDefinition> CollectPassiveBonusesFromGrid(int defaultSourceSkillId)
+	{
+		var result = new List<PassiveBonusDefinition>();
+		if (dgvPassiveBonuses == null || !dgvPassiveBonuses.Enabled)
+		{
+			return result;
+		}
+		dgvPassiveBonuses.EndEdit();
+		foreach (DataGridViewRow row in dgvPassiveBonuses.Rows)
+		{
+			if (row.IsNewRow)
+			{
+				continue;
+			}
+			var bonus = new PassiveBonusDefinition();
+			bonus.SourceSkillId = defaultSourceSkillId;
+			bonus.TargetSkillIds = ParseSkillIdListText(CellText(row, "TargetSkillIds"));
+			bonus.DamagePercent = CellText(row, "DamagePercent");
+			bonus.IgnoreDefensePercent = CellText(row, "IgnoreDefensePercent");
+			bonus.AttackCount = CellText(row, "AttackCount");
+			bonus.MobCount = CellText(row, "MobCount");
+			if (bonus.IsValid())
+			{
+				result.Add(bonus);
+			}
+		}
+		return result;
+	}
+
+	private void PopulateIndependentBuffControls(SkillDefinition sd)
+	{
+		IndependentBuffDefinition buff = sd?.IndependentBuff ?? new IndependentBuffDefinition();
+		bool isBuffSkill = ResolveIsBuffSkillForIndependentBuff(sd);
+		if (chkIndependentBuffEnabled != null)
+			chkIndependentBuffEnabled.Checked = isBuffSkill && buff.Enabled;
+		if (dgvIndependentBuffStats == null)
+		{
+			UpdateIndependentBuffControlsEnabled(isBuffSkill);
+			UpdateIndependentBuffGuideText();
+			return;
+		}
+		dgvIndependentBuffStats.Rows.Clear();
+		foreach (KeyValuePair<string, string> kv in OrderIndependentBuffBonuses(buff.StatBonuses))
+		{
+			if (string.IsNullOrWhiteSpace(kv.Key) || string.IsNullOrWhiteSpace(kv.Value))
+				continue;
+			AddOrUpdateIndependentBuffStatRow(dgvIndependentBuffStats, kv.Key, kv.Value);
+		}
+		TryAutoLoadIndependentBuffStatsFromLoadedSkill(sd);
+		UpdateIndependentBuffControlsEnabled(isBuffSkill);
+		TryAutoPopulateIndependentBuffControls(force: false);
+		UpdateIndependentBuffGuideText();
+	}
+
+	private IndependentBuffDefinition CollectIndependentBuffFromControls()
+	{
+		var buff = new IndependentBuffDefinition();
+		buff.Enabled = chkIndependentBuffEnabled?.Checked ?? false;
+		if (!(chkIndependentBuffEnabled?.Enabled ?? false) || !buff.Enabled)
+			return buff;
+		int currentSkillId = GetCurrentEditingSkillId();
+		int resolvedSourceSkillId = ResolveIndependentBuffSourceSkillId();
+		if (resolvedSourceSkillId > 0 && resolvedSourceSkillId != currentSkillId)
+			buff.SourceSkillId = resolvedSourceSkillId;
+		if (dgvIndependentBuffStats != null)
+		{
+			dgvIndependentBuffStats.EndEdit();
+			foreach (DataGridViewRow row in dgvIndependentBuffStats.Rows)
+			{
+				if (row.IsNewRow)
+					continue;
+				string key = (row.Tag as string) ?? CellText(row, "BonusKey");
+				string value = CellText(row, "BonusValue");
+				if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+					continue;
+				buff.StatBonuses[key] = value;
+			}
+		}
+		return buff;
+	}
+
+	private Dictionary<int, int> BuildConfiguredMountMapSnapshot()
+	{
+		Dictionary<int, int> result = new Dictionary<int, int>();
+		if (_serverCfgById == null || _serverCfgById.Count == 0)
+		{
+			return MountItemResolver.LoadConfiguredMountMap();
+		}
+		foreach (KeyValuePair<int, Dictionary<string, object>> item in _serverCfgById)
+		{
+			int mountItemId = SimpleJson.GetInt(item.Value, "mountItemId", 0);
+			if (item.Key > 0 && mountItemId > 0)
+			{
+				result[item.Key] = mountItemId;
+			}
+		}
+		return result;
+	}
+
+	private bool AutoResolveMountItemId(SkillDefinition sd, bool updateControls, bool log)
+	{
+		if (sd == null || sd.SkillId <= 0)
+		{
+			return false;
+		}
+		bool changed = false;
+		try
+		{
+			changed = MountItemResolver.TryEnsureMountItemId(
+				sd,
+				BuildConfiguredMountMapSnapshot(),
+				log ? (Action<string>)(msg => Console.WriteLine("[坐骑] " + msg)) : null);
+		}
+		catch (Exception ex)
+		{
+			Console.WriteLine("[坐骑] 自动解析 mountItemId 失败: " + ex);
+			return false;
+		}
+		if (sd.MountItemId > 0 && updateControls && txtMountItemId != null)
+		{
+			txtMountItemId.Text = sd.MountItemId.ToString();
+		}
+		return changed;
+	}
+
+	private void EnsureMountTamingMobId(SkillDefinition sd, bool updateControls)
+	{
+		if (sd == null || sd.MountItemId <= 0)
+		{
+			return;
+		}
+		try
+		{
+			string typedTamingMobText = (txtMountTamingMobId?.Text ?? "").Trim();
+			bool hasEditorValue = _mountEditorData != null
+				&& _mountEditorData.MountItemId == sd.MountItemId
+				&& _mountEditorData.TamingMobId > 0;
+			bool needsTamingMob = !string.Equals(NormalizeMountResourceMode(sd.MountResourceMode), "config_only", StringComparison.OrdinalIgnoreCase)
+				|| sd.MountTamingMobId > 0
+				|| hasEditorValue
+				|| !string.IsNullOrWhiteSpace(typedTamingMobText);
+			if (!needsTamingMob)
+			{
+				if (updateControls && txtMountTamingMobId != null)
+					txtMountTamingMobId.Text = "";
+				return;
+			}
+
+			int resolvedTamingMobId = sd.MountTamingMobId;
+			if (resolvedTamingMobId <= 0 && hasEditorValue)
+			{
+				resolvedTamingMobId = _mountEditorData.TamingMobId;
+			}
+			if (resolvedTamingMobId <= 0
+				&& MountEditorService.TryReadActionTamingMobIdByMountItem(sd.MountItemId, out int fromAction))
+			{
+				resolvedTamingMobId = fromAction;
+			}
+			if (resolvedTamingMobId <= 0
+				&& int.TryParse(typedTamingMobText, out int fromText)
+				&& fromText > 0)
+			{
+				resolvedTamingMobId = fromText;
+			}
+			if (resolvedTamingMobId <= 0)
+			{
+				resolvedTamingMobId = MountEditorService.FindNextAvailableTamingMobId(Math.Abs(sd.MountItemId % 10000));
+			}
+			sd.MountTamingMobId = resolvedTamingMobId;
+			if (updateControls && txtMountTamingMobId != null)
+			{
+				txtMountTamingMobId.Text = resolvedTamingMobId > 0 ? resolvedTamingMobId.ToString() : "";
+			}
+		}
+		catch (Exception ex)
+		{
+			Console.WriteLine("[坐骑] 自动解析 tamingMob 失败，已跳过: " + ex);
+		}
+	}
+
+	private void ApplyMountEditorDataOverrides(SkillDefinition skillDefinition)
+	{
+		if (skillDefinition == null
+			|| skillDefinition.MountItemId <= 0
+			|| _mountEditorData == null
+			|| _mountEditorData.MountItemId != skillDefinition.MountItemId
+			|| _mountEditorData.DataInfo == null
+			|| !string.Equals(NormalizeMountResourceMode(skillDefinition.MountResourceMode), "sync_action_and_data", StringComparison.OrdinalIgnoreCase))
+		{
+			return;
+		}
+
+		if (TryGetMountDataOverrideInt(_mountEditorData.DataInfo, "speed", out int mountSpeed))
+		{
+			skillDefinition.MountSpeedOverride = mountSpeed;
+		}
+		if (TryGetMountDataOverrideInt(_mountEditorData.DataInfo, "jump", out int mountJump))
+		{
+			skillDefinition.MountJumpOverride = mountJump;
+		}
+		if (TryGetMountDataOverrideInt(_mountEditorData.DataInfo, "fatigue", out int mountFatigue))
+		{
+			skillDefinition.MountFatigueOverride = mountFatigue;
+		}
+		if (TryGetMountDataOverrideDouble(_mountEditorData.DataInfo, "fs", out double mountFs))
+		{
+			skillDefinition.MountFsOverride = mountFs;
+		}
+		if (TryGetMountDataOverrideDouble(_mountEditorData.DataInfo, "swim", out double mountSwim))
+		{
+			skillDefinition.MountSwimOverride = mountSwim;
+		}
+	}
+
+	private static bool HasMountDataOverrides(SkillDefinition skillDefinition)
+	{
+		return skillDefinition != null
+			&& (skillDefinition.MountSpeedOverride.HasValue
+				|| skillDefinition.MountJumpOverride.HasValue
+				|| skillDefinition.MountFatigueOverride.HasValue
+				|| skillDefinition.MountFsOverride.HasValue
+				|| skillDefinition.MountSwimOverride.HasValue);
+	}
+
+	private static bool TryGetMountDataOverrideInt(Dictionary<string, string> map, string key, out int value)
+	{
+		value = 0;
+		if (map == null || string.IsNullOrWhiteSpace(key) || !map.TryGetValue(key, out string text))
+		{
+			return false;
+		}
+		return int.TryParse((text ?? "").Trim(), out value);
+	}
+
+	private static bool TryGetMountDataOverrideDouble(Dictionary<string, string> map, string key, out double value)
+	{
+		value = 0d;
+		if (map == null || string.IsNullOrWhiteSpace(key) || !map.TryGetValue(key, out string text))
+		{
+			return false;
+		}
+		return TryParseOptionalDouble(text, out value);
+	}
+
 	private int ResolveMountSourceHint(SkillDefinition sd)
 	{
 		if (sd == null)
@@ -10003,6 +15340,17 @@ public class MainForm : Form
 			{
 				return num;
 			}
+		}
+		int resolvedDonorMountItemId = MountItemResolver.ResolveConfiguredOrNativeMountItemIdForSkillId(sd.DonorSkillId, BuildConfiguredMountMapSnapshot());
+		if (resolvedDonorMountItemId > 0 && resolvedDonorMountItemId != sd.MountItemId)
+		{
+			return resolvedDonorMountItemId;
+		}
+		int cloneSourceId = sd.ResolveCloneSourceSkillId();
+		int resolvedCloneMountItemId = MountItemResolver.ResolveConfiguredOrNativeMountItemIdForSkillId(cloneSourceId, BuildConfiguredMountMapSnapshot());
+		if (resolvedCloneMountItemId > 0 && resolvedCloneMountItemId != sd.MountItemId)
+		{
+			return resolvedCloneMountItemId;
 		}
 		if (_serverCfgById != null
 			&& _serverCfgById.TryGetValue(sd.SkillId, out var value2)

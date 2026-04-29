@@ -11,7 +11,7 @@ namespace SuperSkillTool
     /// <summary>
     /// Synchronizes mount resources referenced by skills:
     /// - Character/TamingMob/0190xxxx.img (mount action/animation)
-    /// - TamingMob/000x.img (mount speed/jump/fatigue data)
+    /// - TamingMob/000x.img (mount speed/jump/fatigue/fs/swim data)
     /// Optionally mirrors synced .img files to server XML folders.
     /// </summary>
     public static class MountResourceGenerator
@@ -95,6 +95,23 @@ namespace SuperSkillTool
                 Console.WriteLine($"  [skip] Mount action exists: {targetActionPath}");
             }
 
+            if (HasActionInfoOverrides(sd) && dryRun)
+            {
+                Console.WriteLine($"  [dry-run] Would update mount action info ({DescribeActionInfoOverrides(sd)})");
+                actionChanged = true;
+            }
+            else if (HasActionInfoOverrides(sd) && File.Exists(targetActionPath))
+            {
+                if (ApplyActionInfoOverrides(targetActionPath, sd, out bool actionInfoUpdated))
+                {
+                    actionChanged = actionChanged || actionInfoUpdated;
+                    if (actionInfoUpdated)
+                    {
+                        Console.WriteLine($"  [write] Updated mount action info ({DescribeActionInfoOverrides(sd)}) for {targetActionPath}");
+                    }
+                }
+            }
+
             int targetDataId = 0;
             bool dataChanged = false;
             string targetDataPath = "";
@@ -165,7 +182,7 @@ namespace SuperSkillTool
                     {
                         if (dryRun)
                         {
-                            Console.WriteLine($"  [dry-run] Would apply data overrides to {targetDataPath}: speed={FormatOpt(sd.MountSpeedOverride)}, jump={FormatOpt(sd.MountJumpOverride)}, fatigue={FormatOpt(sd.MountFatigueOverride)}");
+                            Console.WriteLine($"  [dry-run] Would apply data overrides to {targetDataPath}: speed={FormatOpt(sd.MountSpeedOverride)}, jump={FormatOpt(sd.MountJumpOverride)}, fatigue={FormatOpt(sd.MountFatigueOverride)}, fs={FormatOpt(sd.MountFsOverride)}, swim={FormatOpt(sd.MountSwimOverride)}");
                             dataChanged = true;
                         }
                         else if (File.Exists(targetDataPath))
@@ -175,7 +192,7 @@ namespace SuperSkillTool
                                 dataChanged = dataChanged || updated;
                                 if (updated)
                                 {
-                                    Console.WriteLine($"  [write] Updated mount data info (speed/jump/fatigue) for {targetDataPath}");
+                                    Console.WriteLine($"  [write] Updated mount data info (speed/jump/fatigue/fs/swim) for {targetDataPath}");
                                 }
                             }
                         }
@@ -198,35 +215,7 @@ namespace SuperSkillTool
 
         private static Dictionary<int, int> LoadServerMountMap()
         {
-            var result = new Dictionary<int, int>();
-            string path = PathConfig.SuperSkillsServerJson;
-            if (!File.Exists(path))
-                return result;
-
-            try
-            {
-                string json = TextFileHelper.ReadAllTextAuto(path);
-                var root = SimpleJson.ParseObject(json);
-                var arr = SimpleJson.GetArray(root, "skills");
-                if (arr == null)
-                    return result;
-
-                foreach (var item in arr)
-                {
-                    if (!(item is Dictionary<string, object> entry))
-                        continue;
-
-                    int skillId = SimpleJson.GetInt(entry, "skillId", -1);
-                    int mountItemId = SimpleJson.GetInt(entry, "mountItemId", 0);
-                    if (skillId > 0 && mountItemId > 0)
-                        result[skillId] = mountItemId;
-                }
-            }
-            catch
-            {
-            }
-
-            return result;
+            return MountItemResolver.LoadConfiguredMountMap();
         }
 
         private static int ResolveSourceMountItemId(SkillDefinition sd, Dictionary<int, int> serverMountMap)
@@ -243,6 +232,15 @@ namespace SuperSkillTool
             {
                 return donorMountItemId;
             }
+
+            int resolvedDonorMountItemId = MountItemResolver.ResolveConfiguredOrNativeMountItemIdForSkillId(sd.DonorSkillId, serverMountMap);
+            if (resolvedDonorMountItemId > 0 && resolvedDonorMountItemId != sd.MountItemId)
+                return resolvedDonorMountItemId;
+
+            int cloneSourceId = sd.ResolveCloneSourceSkillId();
+            int resolvedCloneMountItemId = MountItemResolver.ResolveConfiguredOrNativeMountItemIdForSkillId(cloneSourceId, serverMountMap);
+            if (resolvedCloneMountItemId > 0 && resolvedCloneMountItemId != sd.MountItemId)
+                return resolvedCloneMountItemId;
 
             if (serverMountMap != null
                 && serverMountMap.TryGetValue(sd.SkillId, out int existingMountItemId)
@@ -279,12 +277,45 @@ namespace SuperSkillTool
                 return false;
             return sd.MountSpeedOverride.HasValue
                 || sd.MountJumpOverride.HasValue
-                || sd.MountFatigueOverride.HasValue;
+                || sd.MountFatigueOverride.HasValue
+                || sd.MountFsOverride.HasValue
+                || sd.MountSwimOverride.HasValue;
+        }
+
+        private static bool IsMountedDemonJumpEnabled(SkillDefinition sd)
+        {
+            return sd != null && sd.MountedDemonJumpEnabled;
+        }
+
+        private static bool HasActionInfoOverrides(SkillDefinition sd)
+        {
+            return IsMountedDemonJumpEnabled(sd);
+        }
+
+        private static string DescribeActionInfoOverrides(SkillDefinition sd)
+        {
+            var parts = new List<string>();
+
+            if (IsMountedDemonJumpEnabled(sd))
+            {
+                parts.Add("vehicleNewFlyingLevel>=1");
+                parts.Add("vehicleNaviFlyingLevel>=1");
+                parts.Add("vehicleGlideLevel>=1");
+            }
+
+            return parts.Count > 0 ? string.Join(", ", parts) : "none";
         }
 
         private static string FormatOpt(int? value)
         {
             return value.HasValue ? value.Value.ToString() : "(保持)";
+        }
+
+        private static string FormatOpt(double? value)
+        {
+            return value.HasValue
+                ? value.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : "(保持)";
         }
 
         private static int ReadTamingMobId(string actionImgPath, int fallback)
@@ -381,6 +412,8 @@ namespace SuperSkillTool
                 localChanged |= TrySetIntProperty(info, "speed", sd.MountSpeedOverride);
                 localChanged |= TrySetIntProperty(info, "jump", sd.MountJumpOverride);
                 localChanged |= TrySetIntProperty(info, "fatigue", sd.MountFatigueOverride);
+                localChanged |= TrySetFloatingProperty(info, "fs", sd.MountFsOverride);
+                localChanged |= TrySetFloatingProperty(info, "swim", sd.MountSwimOverride);
 
                 if (!localChanged)
                     return true;
@@ -409,6 +442,62 @@ namespace SuperSkillTool
             }
         }
 
+        private static bool ApplyActionInfoOverrides(string actionImgPath, SkillDefinition sd, out bool changed)
+        {
+            changed = false;
+            if (sd == null || string.IsNullOrWhiteSpace(actionImgPath) || !HasActionInfoOverrides(sd))
+                return true;
+
+            if (!TryOpenParsedImage(actionImgPath, out var fs, out var wzImg, out var version, out string err))
+            {
+                Console.WriteLine($"  [error] Failed to parse mount action img: {err}");
+                return false;
+            }
+
+            try
+            {
+                WzSubProperty info = wzImg["info"] as WzSubProperty;
+                if (info == null)
+                {
+                    info = new WzSubProperty("info");
+                    wzImg.AddProperty(info);
+                }
+
+                bool localChanged = false;
+                if (IsMountedDemonJumpEnabled(sd))
+                {
+                    localChanged |= TryPromoteIntProperty(info, "vehicleNewFlyingLevel", 1);
+                    localChanged |= TryPromoteIntProperty(info, "vehicleNaviFlyingLevel", 1);
+                    localChanged |= TryPromoteIntProperty(info, "vehicleGlideLevel", 1);
+                }
+
+                if (!localChanged)
+                    return true;
+
+                wzImg.Changed = true;
+                byte[] iv = WzTool.GetIvByMapleVersion(version);
+                var serializer = new WzImgSerializer(iv);
+                byte[] bytes = serializer.SerializeImage(wzImg);
+
+                BackupHelper.Backup(actionImgPath);
+                try { fs.Dispose(); } catch { }
+                try { wzImg.Dispose(); } catch { }
+                ImgWriteGenerator.WriteWithRetry(actionImgPath, bytes);
+                changed = true;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  [error] Failed to write mount action overrides: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                try { wzImg?.Dispose(); } catch { }
+                try { fs?.Dispose(); } catch { }
+            }
+        }
+
         private static bool TrySetIntProperty(WzSubProperty parent, string name, int? value)
         {
             if (parent == null || string.IsNullOrWhiteSpace(name) || !value.HasValue)
@@ -419,6 +508,42 @@ namespace SuperSkillTool
                 return false;
 
             ReplaceOrAddProperty(parent, new WzIntProperty(name, value.Value));
+            return true;
+        }
+
+        private static bool TryPromoteIntProperty(WzSubProperty parent, string name, int minimumValue)
+        {
+            if (parent == null || string.IsNullOrWhiteSpace(name))
+                return false;
+
+            int current = ReadIntProperty(parent[name], int.MinValue);
+            if (current >= minimumValue)
+                return false;
+
+            ReplaceOrAddProperty(parent, new WzIntProperty(name, minimumValue));
+            return true;
+        }
+
+        private static bool TrySetFloatingProperty(WzSubProperty parent, string name, double? value)
+        {
+            if (parent == null || string.IsNullOrWhiteSpace(name) || !value.HasValue)
+                return false;
+
+            WzImageProperty existing = parent[name];
+            double current = ReadDoubleProperty(existing, double.NaN);
+            bool hasCompatibleType = existing is WzFloatProperty || existing is WzDoubleProperty;
+            if (!double.IsNaN(current)
+                && Math.Abs(current - value.Value) < 0.0001d
+                && hasCompatibleType)
+            {
+                return false;
+            }
+
+            ReplaceOrAddProperty(
+                parent,
+                existing is WzDoubleProperty
+                    ? (WzImageProperty)new WzDoubleProperty(name, value.Value)
+                    : new WzFloatProperty(name, (float)value.Value));
             return true;
         }
 
@@ -436,6 +561,38 @@ namespace SuperSkillTool
                     return (int)i64.Value;
                 if (prop is WzStringProperty s && int.TryParse(s.Value, out int parsed))
                     return parsed;
+            }
+            catch
+            {
+            }
+            return fallback;
+        }
+
+        private static double ReadDoubleProperty(WzImageProperty prop, double fallback)
+        {
+            if (prop == null)
+                return fallback;
+            try
+            {
+                if (prop is WzFloatProperty f32)
+                    return f32.Value;
+                if (prop is WzDoubleProperty f64)
+                    return f64.Value;
+                if (prop is WzIntProperty i32)
+                    return i32.Value;
+                if (prop is WzShortProperty i16)
+                    return i16.Value;
+                if (prop is WzLongProperty i64)
+                    return i64.Value;
+                if (prop is WzStringProperty s
+                    && double.TryParse(
+                        s.Value,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out double parsed))
+                {
+                    return parsed;
+                }
             }
             catch
             {

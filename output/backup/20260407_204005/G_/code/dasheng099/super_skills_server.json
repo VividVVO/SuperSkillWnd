@@ -1,5 +1,0 @@
-{
-  "readme": "Server-side super skill rules. Uses DISTRIBUTE_SP opcode and applies custom Super SP logic via carrier skill level.",
-  "skills": [],
-  "defaultSuperSpCarrierSkillId": 1001038
-}

@@ -14,7 +14,7 @@ namespace SuperSkillTool
         public static void Verify(int skillId)
         {
             Console.WriteLine($"\n================================================================");
-            Console.WriteLine($"  Verifying skill {skillId} across all files");
+            Console.WriteLine($"  Verifying skill {skillId} ({PathConfig.SkillKey(skillId)}) across all files");
             Console.WriteLine($"================================================================\n");
 
             int found = 0;
@@ -106,12 +106,12 @@ namespace SuperSkillTool
                 return 0;
             }
 
-            string idStr = skillId.ToString();
+            var expected = new HashSet<string>(PathConfig.SkillKeyCandidates(skillId), StringComparer.OrdinalIgnoreCase);
             foreach (XmlNode child in skillRoot.ChildNodes)
             {
                 if (child.NodeType == XmlNodeType.Element
                     && child.Attributes["name"] != null
-                    && child.Attributes["name"].Value == idStr)
+                    && XmlNameMatchesSkillId(child.Attributes["name"].Value, skillId, expected))
                 {
                     Console.WriteLine($"  [OK]      {label}");
                     return 1;
@@ -136,7 +136,7 @@ namespace SuperSkillTool
 
             var doc = new XmlDocument();
             doc.Load(path);
-            string idStr = skillId.ToString();
+            var expected = new HashSet<string>(PathConfig.SkillKeyCandidates(skillId), StringComparer.OrdinalIgnoreCase);
             XmlNode root = doc.DocumentElement;
             if (root != null)
             {
@@ -144,7 +144,7 @@ namespace SuperSkillTool
                 {
                     if (child.NodeType == XmlNodeType.Element
                         && child.Attributes["name"] != null
-                        && child.Attributes["name"].Value == idStr)
+                        && XmlNameMatchesSkillId(child.Attributes["name"].Value, skillId, expected))
                     {
                         Console.WriteLine($"  [OK]      {label}");
                         return 1;
@@ -175,8 +175,7 @@ namespace SuperSkillTool
             }
             catch
             {
-                string needle = "\"" + skillId.ToString() + "\"";
-                found = content.Contains(needle);
+                found = FileTextContainsSkillId(content, skillId);
             }
 
             if (found)
@@ -207,8 +206,7 @@ namespace SuperSkillTool
             }
             catch
             {
-                string needle = "\"" + skillId.ToString() + "\"";
-                found = content.Contains(needle);
+                found = FileTextContainsSkillId(content, skillId);
             }
 
             if (found)
@@ -220,11 +218,10 @@ namespace SuperSkillTool
         private static bool ContainsSkillId(Dictionary<string, object> obj, int skillId)
         {
             if (obj == null) return false;
-            string idKey = skillId.ToString();
 
             foreach (var kv in obj)
             {
-                if (kv.Key == idKey) return true;
+                if (KeyMatchesSkillId(kv.Key, skillId)) return true;
                 if (kv.Key == "skillId" && ValueMatchesSkillId(kv.Value, skillId)) return true;
 
                 if (kv.Value is Dictionary<string, object> childObj)
@@ -267,6 +264,44 @@ namespace SuperSkillTool
             if (value is double d) return (int)d == skillId;
             if (value is string s && int.TryParse(s, out int parsed)) return parsed == skillId;
             return false;
+        }
+
+        private static bool XmlNameMatchesSkillId(string name, int skillId, HashSet<string> expected)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return false;
+            return expected.Contains(name) || (int.TryParse(name, out int parsed) && parsed == skillId);
+        }
+
+        private static bool KeyMatchesSkillId(string key, int skillId)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                return false;
+
+            if (int.TryParse(key, out int parsed))
+                return parsed == skillId;
+
+            foreach (string candidate in PathConfig.SkillKeyCandidates(skillId))
+            {
+                if (string.Equals(key, candidate, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool FileTextContainsSkillId(string content, int skillId)
+        {
+            if (string.IsNullOrEmpty(content))
+                return false;
+
+            foreach (string candidate in PathConfig.SkillKeyCandidates(skillId))
+            {
+                if (content.Contains("\"" + candidate + "\""))
+                    return true;
+            }
+
+            return content.Contains(skillId.ToString());
         }
     }
 }

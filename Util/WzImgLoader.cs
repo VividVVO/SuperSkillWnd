@@ -28,7 +28,7 @@ namespace SuperSkillTool
         {
             if (!TryResolveSkillJobId(skillId, preferredJobId, out int jobId))
             {
-                string skillPath2 = "skill/" + skillId.ToString();
+                string skillPath2 = "skill/" + PathConfig.SkillKey(skillId);
                 throw new KeyNotFoundException(
                     $"Skill {skillId} not found in Data/Skill/*.img (path: {skillPath2})");
             }
@@ -38,7 +38,7 @@ namespace SuperSkillTool
             var skillNode = FindSkillNodeById(wzImg, skillId, out _);
             if (skillNode == null)
             {
-                string skillPath = "skill/" + skillId.ToString();
+                string skillPath = "skill/" + PathConfig.SkillKey(skillId);
                 throw new KeyNotFoundException(
                     $"Skill {skillId} not found in {PathConfig.SkillImgName(jobId)} (path: {skillPath})");
             }
@@ -109,7 +109,7 @@ namespace SuperSkillTool
             try
             {
                 var wzImg = GetOrLoadImg(jobId);
-                var node = wzImg.GetFromPath("skill/" + skillId.ToString());
+                var node = FindSkillNodeById(wzImg, skillId, out _);
                 if (node == null) return false;
                 var marker = (node as MapleLib.WzLib.WzProperties.WzSubProperty)?["_superSkill"];
                 return marker != null;
@@ -271,7 +271,7 @@ namespace SuperSkillTool
 
             WzMapleVersion skillVersion = WzImageVersionHelper.DetectVersionForSkillImg(imgPath);
             var fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            var wzImg = new WzImage(jobId + ".img", fs, skillVersion);
+            var wzImg = new WzImage(Path.GetFileName(imgPath), fs, skillVersion);
 
             bool ok = wzImg.ParseImage(true);
             if (!ok)
@@ -285,7 +285,7 @@ namespace SuperSkillTool
             // Wrong key can parse structure fine but produce all-black pixel data.
             if (!SpotCheckAnyCanvasDecodes(wzImg))
             {
-                Console.WriteLine($"[WzImgLoader] {jobId}.img decoded blank with {skillVersion}, trying other versions...");
+                Console.WriteLine($"[WzImgLoader] {Path.GetFileName(imgPath)} decoded blank with {skillVersion}, trying other versions...");
                 WzMapleVersion[] fallbacks = { WzMapleVersion.BMS, WzMapleVersion.CLASSIC, WzMapleVersion.GMS, WzMapleVersion.EMS };
                 foreach (var alt in fallbacks)
                 {
@@ -295,7 +295,7 @@ namespace SuperSkillTool
                     try
                     {
                         altFs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                        altImg = new WzImage(jobId + ".img", altFs, alt);
+                        altImg = new WzImage(Path.GetFileName(imgPath), altFs, alt);
                         if (!altImg.ParseImage(true))
                         {
                             altImg.Dispose(); altFs.Dispose();
@@ -491,17 +491,8 @@ namespace SuperSkillTool
 
         private static IEnumerable<string> BuildIdNameCandidates(int id)
         {
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            string raw = id.ToString();
-            if (seen.Add(raw))
-                yield return raw;
-
-            for (int width = 2; width <= 8; width++)
-            {
-                string padded = id.ToString("D" + width);
-                if (seen.Add(padded))
-                    yield return padded;
-            }
+            foreach (string key in PathConfig.SkillKeyCandidates(id))
+                yield return key;
         }
 
         private static WzImageProperty FindSkillNodeById(WzImage wzImg, int skillId, out string matchedKey)
@@ -1121,8 +1112,11 @@ namespace SuperSkillTool
                     if (!int.TryParse(parts[1], out int skillId))
                         return null;
                     int jobId = skillId / 10000;
-                    imgFileName = jobId + ".img";
-                    internalPath = "skill/" + string.Join("/", parts, 1, parts.Length - 1);
+                    imgFileName = PathConfig.SkillImgName(jobId);
+                    string rest = parts.Length > 2
+                        ? "/" + string.Join("/", parts, 2, parts.Length - 2)
+                        : "";
+                    internalPath = "skill/" + PathConfig.SkillKey(skillId) + rest;
                 }
 
                 // Build full path to .img file
@@ -1435,7 +1429,8 @@ namespace SuperSkillTool
             var info = new WzNodeInfo
             {
                 Name = node.Name ?? "",
-                TypeName = node.PropertyType.ToString()
+                TypeName = node.PropertyType.ToString(),
+                Children = new List<WzNodeInfo>()
             };
 
             // Leaf value
@@ -1443,12 +1438,43 @@ namespace SuperSkillTool
             if (val != null)
                 info.Value = val;
 
+            if (node is WzVectorProperty vector)
+                info.Value = vector.X.Value + "," + vector.Y.Value;
+
+            if (node is WzCanvasProperty canvas && canvas.PngProperty != null)
+            {
+                info.CanvasWidth = canvas.PngProperty.Width;
+                info.CanvasHeight = canvas.PngProperty.Height;
+                info.CanvasPngFormat = (int)canvas.PngProperty.Format;
+                info.Value = info.CanvasWidth + "x" + info.CanvasHeight;
+                try
+                {
+                    byte[] bytes = canvas.PngProperty.GetCompressedBytes(true);
+                    if (bytes != null)
+                        info.CanvasCompressedBytes = (byte[])bytes.Clone();
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    Bitmap bmp = canvas.GetBitmap();
+                    if (bmp != null)
+                        info.CanvasBitmap = CloneBitmapSafe(bmp);
+                }
+                catch
+                {
+                }
+            }
+
             // Children (limit depth to prevent stack overflow on very deep trees)
-            if (depth < 8 && node.WzProperties != null)
+            if (depth < 32 && node.WzProperties != null)
             {
                 foreach (var child in node.WzProperties)
                 {
-                    info.Children.Add(BuildNodeTree(child, depth + 1));
+                    if (child != null)
+                        info.Children.Add(BuildNodeTree(child, depth + 1));
                 }
             }
 

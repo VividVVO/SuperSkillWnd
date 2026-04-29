@@ -78,6 +78,27 @@ namespace SuperSkillTool
             return fallback;
         }
 
+        public static double GetDouble(Dictionary<string, object> obj, string key, double fallback = 0d)
+        {
+            if (obj != null && obj.TryGetValue(key, out var v))
+            {
+                if (v is double d) return d;
+                if (v is float f) return f;
+                if (v is long l) return l;
+                if (v is int i) return i;
+                if (v is string s
+                    && double.TryParse(
+                        s,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out double parsed))
+                {
+                    return parsed;
+                }
+            }
+            return fallback;
+        }
+
         public static bool GetBool(Dictionary<string, object> obj, string key, bool fallback = false)
         {
             if (obj != null && obj.TryGetValue(key, out var v) && v is bool b) return b;

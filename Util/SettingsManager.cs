@@ -134,9 +134,9 @@ namespace SuperSkillTool
         {
             try
             {
-                string cwd = Environment.CurrentDirectory;
-                if (!string.IsNullOrWhiteSpace(cwd))
-                    return Path.Combine(cwd, "settings.json");
+                string toolRoot = PathConfig.ToolRoot;
+                if (IsSafeSettingsDirectory(toolRoot))
+                    return Path.Combine(toolRoot, "settings.json");
             }
             catch
             {
@@ -145,14 +145,56 @@ namespace SuperSkillTool
             try
             {
                 string baseDir = AppContext.BaseDirectory;
-                if (!string.IsNullOrWhiteSpace(baseDir))
+                if (IsSafeSettingsDirectory(baseDir))
                     return Path.Combine(baseDir, "settings.json");
             }
             catch
             {
             }
 
-            return Path.Combine(PathConfig.ToolRoot, "settings.json");
+            try
+            {
+                string cwd = Environment.CurrentDirectory;
+                if (IsSafeSettingsDirectory(cwd))
+                    return Path.Combine(cwd, "settings.json");
+            }
+            catch
+            {
+            }
+
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (!string.IsNullOrWhiteSpace(appData))
+                return Path.Combine(appData, "SuperSkillTool", "settings.json");
+
+            return "settings.json";
+        }
+
+        private static bool IsSafeSettingsDirectory(string dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir))
+                return false;
+
+            try
+            {
+                string full = Path.GetFullPath(dir.Trim().Trim('"'));
+                string windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+                if (!string.IsNullOrWhiteSpace(windows))
+                {
+                    string win = Path.GetFullPath(windows.Trim().Trim('"')).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    string normalized = full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    if (string.Equals(normalized, win, StringComparison.OrdinalIgnoreCase)
+                        || normalized.StartsWith(win + "\\System32", StringComparison.OrdinalIgnoreCase)
+                        || normalized.StartsWith(win + "\\SysWOW64", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static IEnumerable<int> ReadIntArray(Dictionary<string, object> obj, string key)

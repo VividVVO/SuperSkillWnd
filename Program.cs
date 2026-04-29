@@ -137,6 +137,7 @@ namespace SuperSkillTool
                     Console.WriteLine("\n*** DRY RUN MODE - no files will be modified ***\n");
 
                 Console.WriteLine($"Processing {skills.Count} skill(s)...");
+                MountItemResolver.EnsureMountItemIds(skills, log: msg => Console.WriteLine(msg));
 
                 if (!Directory.Exists(PathConfig.OutputDir))
                     Directory.CreateDirectory(PathConfig.OutputDir);
@@ -156,6 +157,7 @@ namespace SuperSkillTool
                 DllJsonGenerator.GenerateSkillImgJson(skills, dryRun);
                 DllJsonGenerator.GenerateStringImgJson(skills, dryRun);
                 ImgWriteGenerator.Generate(skills, dryRun);
+                MountResourceGenerator.Generate(skills, dryRun);
                 ConfigJsonGenerator.Generate(skills, dryRun);
                 SqlGenerator.Generate(skills, dryRun);
                 ChecklistGenerator.Generate(skills, dryRun);

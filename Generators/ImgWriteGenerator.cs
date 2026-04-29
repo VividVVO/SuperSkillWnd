@@ -2,7 +2,9 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using MapleLib.Helpers;
 using MapleLib.WzLib;
@@ -64,6 +66,7 @@ namespace SuperSkillTool
                 int jobId = kv.Key;
                 var list = kv.Value;
                 string imgPath = PathConfig.GameSkillImg(jobId);
+                string imgName = Path.GetFileName(imgPath);
 
                 Console.WriteLine($"\n[ImgWrite] Processing {imgPath}");
 
@@ -71,17 +74,17 @@ namespace SuperSkillTool
                 {
                     if (dryRun)
                     {
-                        Console.WriteLine($"  [dry-run] Would create missing {jobId}.img");
+                        Console.WriteLine($"  [dry-run] Would create missing {imgName}");
                         continue;
                     }
 
                     if (TryCreateEmptySkillImg(jobId, imgPath, out string createErr))
                     {
-                        Console.WriteLine($"  [created] {jobId}.img created (empty skill root)");
+                        Console.WriteLine($"  [created] {Path.GetFileName(imgPath)} created (empty skill root)");
                     }
                     else
                     {
-                        Console.WriteLine($"  [error] Failed to create {jobId}.img: {createErr}");
+                        Console.WriteLine($"  [error] Failed to create {imgName}: {createErr}");
                         continue;
                     }
                 }
@@ -89,10 +92,10 @@ namespace SuperSkillTool
                 if (dryRun)
                 {
                     if (carrierId > 0 && carrierId / 10000 == jobId)
-                        Console.WriteLine($"  [dry-run] Would ensure carrier skill {carrierId} in {jobId}.img");
+                        Console.WriteLine($"  [dry-run] Would ensure carrier skill {PathConfig.SkillKey(carrierId)} in {imgName}");
 
                     foreach (var sd in list)
-                        Console.WriteLine($"  [dry-run] Would write skill {sd.SkillId} into {jobId}.img");
+                        Console.WriteLine($"  [dry-run] Would write skill {PathConfig.SkillKey(sd.SkillId)} into {imgName}");
                     continue;
                 }
 
@@ -106,7 +109,7 @@ namespace SuperSkillTool
                     skillVersion = WzImageVersionHelper.DetectVersionForSkillImg(imgPath);
                     Console.WriteLine($"  [version] {jobId}.img detected as {skillVersion}");
                     fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                    wzImg = new WzImage(jobId + ".img", fs, skillVersion);
+                    wzImg = new WzImage(Path.GetFileName(imgPath), fs, skillVersion);
                     if (!wzImg.ParseImage(true))
                     {
                         fs.Dispose(); wzImg.Dispose();
@@ -143,10 +146,12 @@ namespace SuperSkillTool
 
                 if (carrierId > 0 && carrierId / 10000 == jobId)
                 {
-                    string carrierKey = carrierId.ToString();
-                    var existingCarrier = skillTop[carrierKey];
+                    string carrierKey = PathConfig.SkillKey(carrierId);
+                    string existingCarrierKey = FindSkillPropertyKey(skillTop, carrierId);
+                    var existingCarrier = existingCarrierKey != null ? skillTop[existingCarrierKey] : null;
                     if (existingCarrier is WzSubProperty carrierSub)
                     {
+                        carrierSub.Name = carrierKey;
                         if (IsCarrierSkillNodeReady(carrierSub))
                         {
                             Console.WriteLine($"  [skip] Carrier skill {carrierKey} already exists");
@@ -160,7 +165,7 @@ namespace SuperSkillTool
                     }
                     else if (existingCarrier != null)
                     {
-                        RemoveProperty(skillTop, carrierKey);
+                        RemoveProperty(skillTop, existingCarrierKey);
                         skillTop.AddProperty(BuildCarrierSkillNode(carrierId));
                         count++;
                         Console.WriteLine($"  [replaced] Carrier skill {carrierKey}");
@@ -175,10 +180,11 @@ namespace SuperSkillTool
 
                 foreach (var sd in list)
                 {
-                    string idStr = sd.SkillId.ToString();
+                    string idStr = PathConfig.SkillKey(sd.SkillId);
                     int cloneSourceId = sd.ResolveCloneSourceSkillId();
 
-                    var existing = skillTop[idStr];
+                    string existingKey = FindSkillPropertyKey(skillTop, sd.SkillId);
+                    var existing = existingKey != null ? skillTop[existingKey] : null;
                     if (ShouldProtectNativeSkillWrite(sd, existing))
                     {
                         Console.WriteLine($"  [protect] Skip native skill {idStr} ({sd.Name})");
@@ -187,7 +193,24 @@ namespace SuperSkillTool
                     bool markAsSuperSkill = ShouldMarkAsSuperSkill(sd, existing);
                     bool forceCloneReplace = cloneSourceId > 0 && cloneSourceId != sd.SkillId;
                     bool applyCloneOverlay = !sd.PreserveClonedNode;
-                    string cloneModeTag = $" [src={cloneSourceId}, mode={(applyCloneOverlay ? "overlay" : "raw")}]";
+                    bool hasCachedTree = sd.HasManualTreeOverride && sd.CachedTree != null;
+                    string cloneModeTag = $" [src={cloneSourceId}, mode={(applyCloneOverlay ? "auto" : "raw")}]";
+
+                    if (hasCachedTree)
+                    {
+                        var treeNode = BuildSkillNode(sd, markAsSuperSkill, existing as WzSubProperty);
+                        if (treeNode != null)
+                        {
+                            if (existing != null)
+                                RemoveProperty(skillTop, existingKey);
+                            skillTop.AddProperty(treeNode);
+                            count++;
+                            Console.WriteLine(existing != null
+                                ? $"  [replaced+tree] Skill {idStr} ({sd.Name})"
+                                : $"  [added+tree] Skill {idStr} ({sd.Name})");
+                            continue;
+                        }
+                    }
 
                     if (forceCloneReplace)
                     {
@@ -196,7 +219,7 @@ namespace SuperSkillTool
                         if (forcedNode != null)
                         {
                             if (existing != null)
-                                RemoveProperty(skillTop, idStr);
+                                RemoveProperty(skillTop, existingKey);
                             skillTop.AddProperty(forcedNode);
                             count++;
                             if (existing != null)
@@ -214,6 +237,7 @@ namespace SuperSkillTool
                     if (existing is WzSubProperty existingSub)
                     {
                         // Merge mode: update fields on existing node, preserve everything else
+                        existingSub.Name = idStr;
                         MergeSkillNode(existingSub, sd, markAsSuperSkill);
                         count++;
                         Console.WriteLine($"  [merged] Skill {idStr} ({sd.Name})");
@@ -221,9 +245,9 @@ namespace SuperSkillTool
                     else if (existing != null)
                     {
                         // Existing but not a SubProperty, replace
-                        RemoveProperty(skillTop, idStr);
+                        RemoveProperty(skillTop, existingKey);
                         bool cloned;
-                        var skillNode = TryCloneSkillNodeFromSource(sd, jobId, skillTop, out cloned, markAsSuperSkill, applyCloneOverlay) ?? BuildSkillNode(sd);
+                        var skillNode = TryCloneSkillNodeFromSource(sd, jobId, skillTop, out cloned, markAsSuperSkill, applyCloneOverlay) ?? BuildSkillNode(sd, markAsSuperSkill);
                         skillTop.AddProperty(skillNode);
                         count++;
                         Console.WriteLine(cloned
@@ -234,7 +258,7 @@ namespace SuperSkillTool
                     {
                         // New skill
                         bool cloned;
-                        var skillNode = TryCloneSkillNodeFromSource(sd, jobId, skillTop, out cloned, markAsSuperSkill, applyCloneOverlay) ?? BuildSkillNode(sd);
+                        var skillNode = TryCloneSkillNodeFromSource(sd, jobId, skillTop, out cloned, markAsSuperSkill, applyCloneOverlay) ?? BuildSkillNode(sd, markAsSuperSkill);
                         skillTop.AddProperty(skillNode);
                         count++;
                         Console.WriteLine(cloned
@@ -296,10 +320,10 @@ namespace SuperSkillTool
             {
                 int dryCarrierId = PathConfig.DefaultSuperSpCarrierSkillId;
                 if (dryCarrierId > 0)
-                    Console.WriteLine($"  [dry-run] Would ensure carrier string entry {dryCarrierId}");
+                    Console.WriteLine($"  [dry-run] Would ensure carrier string entry {PathConfig.SkillKey(dryCarrierId)}");
 
                 foreach (var sd in skills)
-                    Console.WriteLine($"  [dry-run] Would write string data for {sd.SkillId} ({sd.Name})");
+                    Console.WriteLine($"  [dry-run] Would write string data for {PathConfig.SkillKey(sd.SkillId)} ({sd.Name})");
                 return;
             }
 
@@ -334,10 +358,12 @@ namespace SuperSkillTool
             int carrierId = PathConfig.DefaultSuperSpCarrierSkillId;
             if (carrierId > 0)
             {
-                string carrierKey = carrierId.ToString();
-                var existingCarrier = wzImg[carrierKey];
+                string carrierKey = PathConfig.SkillKey(carrierId);
+                string existingCarrierKey = FindImagePropertyKey(wzImg, carrierId);
+                var existingCarrier = existingCarrierKey != null ? wzImg[existingCarrierKey] : null;
                 if (existingCarrier is WzSubProperty carrierSub)
                 {
+                    carrierSub.Name = carrierKey;
                     if (IsCarrierStringNodeReady(carrierSub))
                     {
                         Console.WriteLine($"  [skip] Carrier string entry {carrierKey} already exists");
@@ -351,7 +377,7 @@ namespace SuperSkillTool
                 }
                 else if (existingCarrier != null)
                 {
-                    RemovePropertyFromImage(wzImg, carrierKey);
+                    RemovePropertyFromImage(wzImg, existingCarrierKey);
                     wzImg.AddProperty(BuildCarrierStringNode(carrierId));
                     count++;
                     Console.WriteLine($"  [replaced] Carrier string entry {carrierKey}");
@@ -366,9 +392,10 @@ namespace SuperSkillTool
 
             foreach (var sd in skills)
             {
-                string idStr = sd.SkillId.ToString();
+                string idStr = PathConfig.SkillKey(sd.SkillId);
 
-                var existing = wzImg[idStr];
+                string existingKey = FindImagePropertyKey(wzImg, sd.SkillId);
+                var existing = existingKey != null ? wzImg[existingKey] : null;
                 if (ShouldProtectNativeStringWrite(sd, existing))
                 {
                     Console.WriteLine($"  [protect] Skip native string entry {idStr} ({sd.Name})");
@@ -385,7 +412,7 @@ namespace SuperSkillTool
                     if (forcedNode != null)
                     {
                         if (existing != null)
-                            RemovePropertyFromImage(wzImg, idStr);
+                            RemovePropertyFromImage(wzImg, existingKey);
                         wzImg.AddProperty(forcedNode);
                         count++;
                         if (existing != null)
@@ -403,13 +430,14 @@ namespace SuperSkillTool
                 if (existing is WzSubProperty existingSub)
                 {
                     // Merge mode: update string fields, preserve others
+                    existingSub.Name = idStr;
                     MergeStringNode(existingSub, sd, markAsSuperSkill);
                     count++;
                     Console.WriteLine($"  [merged] String entry {idStr} ({sd.Name})");
                 }
                 else if (existing != null)
                 {
-                    RemovePropertyFromImage(wzImg, idStr);
+                    RemovePropertyFromImage(wzImg, existingKey);
                     bool cloned;
                     var strNode = TryCloneStringNodeFromSource(sd, wzImg, out cloned, markAsSuperSkill) ?? BuildStringNode(sd);
                     wzImg.AddProperty(strNode);
@@ -478,19 +506,19 @@ namespace SuperSkillTool
                 if (staleCarrierId / 10000 != jobId)
                     continue;
 
-                string staleKey = staleCarrierId.ToString();
-                if (skillTop[staleKey] == null)
+                string staleKey = FindSkillPropertyKey(skillTop, staleCarrierId);
+                if (staleKey == null)
                     continue;
 
                 removed++;
                 if (dryRun)
                 {
-                    Console.WriteLine($"  [dry-run] Would remove stale carrier skill {staleKey}");
+                    Console.WriteLine($"  [dry-run] Would remove stale carrier skill {PathConfig.SkillKey(staleCarrierId)}");
                 }
                 else
                 {
                     RemoveProperty(skillTop, staleKey);
-                    Console.WriteLine($"  [cleanup] Removed stale carrier skill {staleKey}");
+                    Console.WriteLine($"  [cleanup] Removed stale carrier skill {PathConfig.SkillKey(staleCarrierId)}");
                 }
             }
 
@@ -508,19 +536,19 @@ namespace SuperSkillTool
             int removed = 0;
             foreach (int staleCarrierId in staleCarrierIds)
             {
-                string staleKey = staleCarrierId.ToString();
-                if (wzImg[staleKey] == null)
+                string staleKey = FindImagePropertyKey(wzImg, staleCarrierId);
+                if (staleKey == null)
                     continue;
 
                 removed++;
                 if (dryRun)
                 {
-                    Console.WriteLine($"  [dry-run] Would remove stale carrier string entry {staleKey}");
+                    Console.WriteLine($"  [dry-run] Would remove stale carrier string entry {PathConfig.SkillKey(staleCarrierId)}");
                 }
                 else
                 {
                     RemovePropertyFromImage(wzImg, staleKey);
-                    Console.WriteLine($"  [cleanup] Removed stale carrier string entry {staleKey}");
+                    Console.WriteLine($"  [cleanup] Removed stale carrier string entry {PathConfig.SkillKey(staleCarrierId)}");
                 }
             }
 
@@ -531,70 +559,84 @@ namespace SuperSkillTool
         //  Node builders
         // 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-        private static WzSubProperty BuildSkillNode(SkillDefinition sd)
+        private static WzSubProperty BuildSkillNode(SkillDefinition sd, bool markAsSuperSkill, WzSubProperty existingSource = null)
         {
-            var node = new WzSubProperty(sd.SkillId.ToString());
+            bool fromCachedTree = sd?.HasManualTreeOverride == true && sd.CachedTree != null;
+            var node = BuildSubPropertyFromTree(fromCachedTree ? sd.CachedTree : null, existingSource);
+            if (node == null)
+            {
+                fromCachedTree = false;
+                node = new WzSubProperty(PathConfig.SkillKey(sd.SkillId));
+            }
+            node.Name = PathConfig.SkillKey(sd.SkillId);
 
-            // _superSkill marker
-            node.AddProperty(new WzIntProperty("_superSkill", 1));
+            ApplySuperSkillMarker(node, markAsSuperSkill);
 
             // icon
             var iconCanvas = BuildCanvasFromBase64(sd.IconBase64, "icon");
-            if (iconCanvas != null) node.AddProperty(iconCanvas);
+            if (iconCanvas != null) ReplaceOrAddProperty(node, iconCanvas);
 
             var moCanvas = BuildCanvasFromBase64(sd.IconMouseOverBase64, "iconMouseOver");
-            if (moCanvas != null) node.AddProperty(moCanvas);
+            if (moCanvas != null) ReplaceOrAddProperty(node, moCanvas);
 
             var disCanvas = BuildCanvasFromBase64(sd.IconDisabledBase64, "iconDisabled");
-            if (disCanvas != null) node.AddProperty(disCanvas);
+            if (disCanvas != null) ReplaceOrAddProperty(node, disCanvas);
 
             // action
             var actionProp = BuildActionProperty(sd.Action);
             if (actionProp != null)
-                node.AddProperty(actionProp);
+                ReplaceOrAddProperty(node, actionProp);
 
             // info sub-node
-            var info = new WzSubProperty("info");
-            info.AddProperty(new WzIntProperty("type", sd.InfoType));
-            node.AddProperty(info);
+            var info = EnsureSubProperty(node, "info");
+            var infoMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["type"] = sd.InfoType.ToString()
+            };
+            MergeSubPropertyScalars(info, infoMap);
 
             // common params:
             // only write when caller provided common fields.
             if (sd.Common != null && sd.Common.Count > 0)
             {
-                var common = new WzSubProperty("common");
-                common.AddProperty(new WzIntProperty("maxLevel", Math.Max(1, sd.MaxLevel)));
+                var common = EnsureSubProperty(node, "common");
+                var commonMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["maxLevel"] = Math.Max(1, sd.MaxLevel).ToString()
+                };
                 foreach (var kv in sd.Common)
                 {
                     if (string.Equals(kv.Key, "maxLevel", StringComparison.OrdinalIgnoreCase))
                         continue;
-                    common.AddProperty(new WzStringProperty(kv.Key, kv.Value));
+                    commonMap[kv.Key] = kv.Value;
                 }
-                node.AddProperty(common);
+                OverwriteSubPropertyScalars(common, commonMap);
             }
 
             // level sub-nodes (per-level data)
             if (sd.Levels != null && sd.Levels.Count > 0)
             {
-                var levelNode = new WzSubProperty("level");
+                var existingLevelNode = node["level"] as WzSubProperty;
+                var levelNode = fromCachedTree && existingLevelNode != null
+                    ? (WzSubProperty)existingLevelNode.DeepClone()
+                    : new WzSubProperty("level");
+                levelNode.Name = "level";
                 foreach (var lv in sd.Levels)
                 {
-                    var lvSub = new WzSubProperty(lv.Key.ToString());
-                    foreach (var p in lv.Value)
-                    {
-                        // Try to write as int if possible, otherwise string
-                        int intVal;
-                        if (int.TryParse(p.Value, out intVal))
-                            lvSub.AddProperty(new WzIntProperty(p.Key, intVal));
-                        else
-                            lvSub.AddProperty(new WzStringProperty(p.Key, p.Value));
-                    }
+                    string lvName = lv.Key.ToString();
+                    var lvSub = levelNode[lvName] as WzSubProperty;
+                    bool isNewLevelSub = lvSub == null;
+                    if (lvSub == null)
+                        lvSub = new WzSubProperty(lvName);
+                    lvSub.Name = lvName;
+                    OverwriteSubPropertyScalars(lvSub, lv.Value);
 
                     // Per-level animation frames (ball/hit/effect/prepare/keydown/repeat)
                     if (sd.LevelAnimFramesByNode != null
                         && sd.LevelAnimFramesByNode.TryGetValue(lv.Key, out var levelAnimNodes)
                         && levelAnimNodes != null && levelAnimNodes.Count > 0)
                     {
+                        RemoveEffectNodes(lvSub);
                         foreach (var animKey in GetSortedEffectNodeNames(levelAnimNodes))
                         {
                             if (!levelAnimNodes.TryGetValue(animKey, out var animFrames)
@@ -610,14 +652,15 @@ namespace SuperSkillTool
                             {
                                 var animNode = BuildEffectNode(animFrames, animKey);
                                 if (animNode != null)
-                                    lvSub.AddProperty(animNode);
+                                    ReplaceOrAddProperty(lvSub, animNode);
                             }
                         }
                     }
 
-                    levelNode.AddProperty(lvSub);
+                    if (isNewLevelSub)
+                        levelNode.AddProperty(lvSub);
                 }
-                node.AddProperty(levelNode);
+                ReplaceOrAddProperty(node, levelNode);
             }
 
             // effect/animation frames (effect/effect0/repeat/ball/hit/prepare/keydown...)
@@ -638,7 +681,7 @@ namespace SuperSkillTool
                     {
                         var effectNode = BuildEffectNode(frames, key);
                         if (effectNode != null)
-                            node.AddProperty(effectNode);
+                            ReplaceOrAddProperty(node, effectNode);
                     }
                 }
             }
@@ -648,7 +691,7 @@ namespace SuperSkillTool
 
         private static WzSubProperty BuildStringNode(SkillDefinition sd)
         {
-            var node = new WzSubProperty(sd.SkillId.ToString());
+            var node = new WzSubProperty(PathConfig.SkillKey(sd.SkillId));
 
             // _superSkill marker
             node.AddProperty(new WzIntProperty("_superSkill", 1));
@@ -683,6 +726,320 @@ namespace SuperSkillTool
             return node;
         }
 
+        private static WzSubProperty BuildSubPropertyFromTree(WzNodeInfo root, WzSubProperty existingSource)
+        {
+            if (root == null)
+                return null;
+
+            var prop = BuildPropertyFromNode(root, existingSource);
+            if (prop is WzSubProperty sub)
+            {
+                sub.Name = string.IsNullOrWhiteSpace(root.Name) ? sub.Name : root.Name;
+                return sub;
+            }
+
+            try { prop?.Dispose(); } catch { }
+            return null;
+        }
+
+        private static WzImageProperty BuildPropertyFromNode(WzNodeInfo node, WzImageProperty existingSource)
+        {
+            if (node == null || string.IsNullOrWhiteSpace(node.Name))
+                return null;
+
+            string type = (node.TypeName ?? "").Trim();
+            bool isCustom = string.Equals(type, "自定义", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "Custom", StringComparison.OrdinalIgnoreCase);
+
+            if (string.Equals(type, "ImgDir", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "Image", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (string.Equals(type, "SubProperty", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "Convex", StringComparison.OrdinalIgnoreCase)
+                || (isCustom && node.Children != null && node.Children.Count > 0))
+            {
+                if (!string.Equals(type, "Convex", StringComparison.OrdinalIgnoreCase)
+                    && (node.Children == null || node.Children.Count == 0)
+                    && !string.IsNullOrWhiteSpace(node.Value))
+                {
+                    return BuildTreeScalarProperty(node.Name, node.Value);
+                }
+
+                WzImageProperty sub = string.Equals(type, "Convex", StringComparison.OrdinalIgnoreCase)
+                    ? new WzConvexProperty(node.Name)
+                    : new WzSubProperty(node.Name);
+                AddBuiltChildren(sub, node, existingSource);
+                return sub;
+            }
+
+            if (string.Equals(type, "Canvas", StringComparison.OrdinalIgnoreCase))
+            {
+                WzCanvasProperty canvas;
+                bool hasCanvasPayload = (node.CanvasCompressedBytes != null && node.CanvasCompressedBytes.Length > 0)
+                    || node.CanvasBitmap != null
+                    || node.CanvasWidth > 0
+                    || node.CanvasHeight > 0;
+
+                if (!hasCanvasPayload && existingSource is WzCanvasProperty existingCanvas)
+                {
+                    canvas = (WzCanvasProperty)existingCanvas.DeepClone();
+                    canvas.Name = node.Name;
+                    if (node.Children != null && node.Children.Count > 0)
+                    {
+                        ClearPropertyChildren(canvas);
+                        AddBuiltChildren(canvas, node, existingCanvas);
+                    }
+                    return canvas;
+                }
+
+                canvas = new WzCanvasProperty(node.Name)
+                {
+                    PngProperty = BuildPngProperty(node)
+                };
+                AddBuiltChildren(canvas, node, existingSource);
+                return canvas;
+            }
+
+            if (string.Equals(type, "Vector", StringComparison.OrdinalIgnoreCase))
+            {
+                TryParseVectorValue(node.Value, out int x, out int y);
+                return new WzVectorProperty(node.Name, x, y);
+            }
+
+            if (string.Equals(type, "UOL", StringComparison.OrdinalIgnoreCase))
+            {
+                string value = node.Value ?? "";
+                if (value.StartsWith("-> ", StringComparison.Ordinal))
+                    value = value.Substring(3);
+                return new WzUOLProperty(node.Name, value);
+            }
+
+            if (string.Equals(type, "Null", StringComparison.OrdinalIgnoreCase))
+                return new WzNullProperty(node.Name);
+            if (string.Equals(type, "Short", StringComparison.OrdinalIgnoreCase)
+                && short.TryParse(node.Value, out short s16))
+                return new WzShortProperty(node.Name, s16);
+            if (string.Equals(type, "Int", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(node.Value, out int i32))
+                return new WzIntProperty(node.Name, i32);
+            if (string.Equals(type, "Long", StringComparison.OrdinalIgnoreCase)
+                && long.TryParse(node.Value, out long i64))
+                return new WzLongProperty(node.Name, i64);
+            if (string.Equals(type, "Float", StringComparison.OrdinalIgnoreCase)
+                && float.TryParse(node.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f32))
+                return new WzFloatProperty(node.Name, f32);
+            if (string.Equals(type, "Double", StringComparison.OrdinalIgnoreCase)
+                && double.TryParse(node.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double f64))
+                return new WzDoubleProperty(node.Name, f64);
+            if (string.Equals(type, "String", StringComparison.OrdinalIgnoreCase))
+                return new WzStringProperty(node.Name, node.Value ?? "");
+
+            if (node.Children != null && node.Children.Count > 0)
+            {
+                var sub = new WzSubProperty(node.Name);
+                AddBuiltChildren(sub, node, existingSource);
+                return sub;
+            }
+
+            return BuildScalarProperty(node.Name, node.Value ?? "");
+        }
+
+        private static WzPngProperty BuildPngProperty(WzNodeInfo node)
+        {
+            var png = new WzPngProperty();
+            if (node.CanvasCompressedBytes != null
+                && node.CanvasCompressedBytes.Length > 0
+                && node.CanvasWidth > 0
+                && node.CanvasHeight > 0
+                && node.CanvasPngFormat > 0)
+            {
+                png.SetCompressedBytes(
+                    (byte[])node.CanvasCompressedBytes.Clone(),
+                    node.CanvasWidth,
+                    node.CanvasHeight,
+                    (WzPngFormat)node.CanvasPngFormat);
+                return png;
+            }
+
+            Bitmap source = node.CanvasBitmap;
+            if (source == null)
+            {
+                ParseCanvasSize(node, out int width, out int height);
+                width = Math.Max(width, 1);
+                height = Math.Max(height, 1);
+                using (var blank = new Bitmap(width, height, PixelFormat.Format32bppArgb))
+                    png.SetBitmapBgra4444(blank);
+                return png;
+            }
+
+            using (var bmp = new Bitmap(source))
+                png.SetBitmapBgra4444(bmp);
+            return png;
+        }
+
+        private static void AddBuiltChildren(WzImageProperty parent, WzNodeInfo node, WzImageProperty existingSource)
+        {
+            if (parent == null || node?.Children == null)
+                return;
+
+            foreach (var child in node.Children)
+            {
+                var prop = BuildPropertyFromNode(child, FindChildProperty(existingSource, child?.Name));
+                if (prop == null)
+                    continue;
+
+                switch (parent)
+                {
+                    case WzSubProperty sub:
+                        sub.AddProperty(prop);
+                        break;
+                    case WzCanvasProperty canvas:
+                        canvas.AddProperty(prop);
+                        break;
+                    case WzConvexProperty convex:
+                        convex.AddProperty(prop);
+                        break;
+                }
+            }
+        }
+
+        private static WzImageProperty FindChildProperty(WzImageProperty parent, string childName)
+        {
+            if (parent?.WzProperties == null || string.IsNullOrWhiteSpace(childName))
+                return null;
+
+            foreach (var child in parent.WzProperties)
+            {
+                if (child != null && string.Equals(child.Name, childName, StringComparison.OrdinalIgnoreCase))
+                    return child;
+            }
+            return null;
+        }
+
+        private static void ClearPropertyChildren(WzImageProperty parent)
+        {
+            if (parent?.WzProperties == null || parent.WzProperties.Count == 0)
+                return;
+
+            var removeList = new List<WzImageProperty>(parent.WzProperties);
+            foreach (var child in removeList)
+            {
+                parent.WzProperties.Remove(child);
+                try { child.Dispose(); } catch { }
+            }
+        }
+
+        private static WzSubProperty EnsureSubProperty(WzSubProperty parent, string childName)
+        {
+            if (parent == null || string.IsNullOrWhiteSpace(childName))
+                return null;
+
+            if (parent[childName] is WzSubProperty existing)
+                return existing;
+
+            var sub = new WzSubProperty(childName);
+            ReplaceOrAddProperty(parent, sub);
+            return sub;
+        }
+
+        private static void OverwriteSubPropertyScalars(WzSubProperty target, Dictionary<string, string> map)
+        {
+            if (target == null)
+                return;
+
+            var desired = map != null
+                ? new HashSet<string>(map.Keys.Where(k => !string.IsNullOrWhiteSpace(k)), StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var remove = new List<WzImageProperty>();
+            foreach (var p in target.WzProperties)
+            {
+                if (p is WzIntProperty || p is WzShortProperty || p is WzLongProperty
+                    || p is WzFloatProperty || p is WzDoubleProperty || p is WzStringProperty
+                    || p is WzUOLProperty)
+                {
+                    if (map == null || !desired.Contains(p.Name))
+                        remove.Add(p);
+                }
+            }
+
+            foreach (var p in remove)
+            {
+                target.WzProperties.Remove(p);
+                try { p.Dispose(); } catch { }
+            }
+
+            if (map == null)
+                return;
+
+            foreach (var kv in map)
+            {
+                var scalar = BuildScalarProperty(kv.Key, kv.Value ?? "");
+                if (scalar != null)
+                    ReplaceOrAddProperty(target, scalar);
+            }
+        }
+
+        private static void MergeSubPropertyScalars(WzSubProperty target, Dictionary<string, string> map)
+        {
+            if (target == null || map == null)
+                return;
+
+            foreach (var kv in map)
+            {
+                var scalar = BuildScalarProperty(kv.Key, kv.Value ?? "");
+                if (scalar != null)
+                    ReplaceOrAddProperty(target, scalar);
+            }
+        }
+
+        private static void MergeMissingSubPropertyScalars(WzSubProperty target, Dictionary<string, string> map)
+        {
+            if (target == null || map == null)
+                return;
+
+            foreach (var kv in map)
+            {
+                if (string.IsNullOrWhiteSpace(kv.Key) || FindChildProperty(target, kv.Key) != null)
+                    continue;
+
+                var scalar = BuildScalarProperty(kv.Key, kv.Value ?? "");
+                if (scalar != null)
+                    target.AddProperty(scalar);
+            }
+        }
+
+        private static void ParseCanvasSize(WzNodeInfo node, out int width, out int height)
+        {
+            width = node?.CanvasWidth ?? 0;
+            height = node?.CanvasHeight ?? 0;
+            string text = node?.Value ?? "";
+            if (width > 0 && height > 0)
+                return;
+
+            string[] parts = text.Split(new[] { 'x', 'X', ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2)
+            {
+                int.TryParse(parts[0], out width);
+                int.TryParse(parts[1], out height);
+            }
+        }
+
+        private static bool TryParseVectorValue(string value, out int x, out int y)
+        {
+            x = 0;
+            y = 0;
+            string[] parts = (value ?? "").Split(new[] { ',', ' ', ';', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2)
+                return false;
+
+            bool okX = int.TryParse(parts[0], out x);
+            bool okY = int.TryParse(parts[1], out y);
+            return okX && okY;
+        }
+
         // 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
         //  Helpers
         // 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
@@ -712,7 +1069,8 @@ namespace SuperSkillTool
 
             if (sourceJobId == targetJobId)
             {
-                sourceNode = targetSkillTop[sourceId.ToString()] as WzSubProperty;
+                string sourceKey = FindSkillPropertyKey(targetSkillTop, sourceId);
+                sourceNode = sourceKey != null ? targetSkillTop[sourceKey] as WzSubProperty : null;
             }
             else
             {
@@ -724,10 +1082,10 @@ namespace SuperSkillTool
                         using (var sourceFs = new FileStream(sourceImgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                         {
                             WzMapleVersion sourceVersion = WzImageVersionHelper.DetectVersionForSkillImg(sourceImgPath);
-                            var sourceImg = new WzImage(sourceJobId + ".img", sourceFs, sourceVersion);
+                            var sourceImg = new WzImage(Path.GetFileName(sourceImgPath), sourceFs, sourceVersion);
                             if (sourceImg.ParseImage(true))
                             {
-                                sourceNode = sourceImg.GetFromPath("skill/" + sourceId) as WzSubProperty;
+                                sourceNode = FindSkillProperty(sourceImg, sourceId) as WzSubProperty;
                                 if (sourceNode != null)
                                     sourceNode = (WzSubProperty)sourceNode.DeepClone();
                             }
@@ -747,13 +1105,170 @@ namespace SuperSkillTool
             WzSubProperty clone = (sourceJobId == targetJobId)
                 ? (WzSubProperty)sourceNode.DeepClone()
                 : sourceNode;
-            clone.Name = sd.SkillId.ToString();
-            if (applyOverlay)
-                MergeSkillNode(clone, sd, markAsSuperSkill);
+            bool shouldApplyOverlay = applyOverlay && ShouldApplyCloneOverlay(sourceNode, sd);
+            clone.Name = PathConfig.SkillKey(sd.SkillId);
+            if (shouldApplyOverlay)
+                MergeSkillNode(clone, sd, markAsSuperSkill, overwriteCoreParams: true);
             else
                 ApplySuperSkillMarker(clone, markAsSuperSkill);
             cloned = true;
             return clone;
+        }
+
+        private static bool ShouldApplyCloneOverlay(WzSubProperty sourceNode, SkillDefinition sd)
+        {
+            if (sourceNode == null || sd == null)
+                return true;
+
+            if (sd.HasManualTreeOverride || sd.HasManualEffectOverride)
+                return true;
+            if (sd.Levels != null && sd.Levels.Count > 0)
+                return true;
+            if (HasLevelAnimationOverride(sd))
+                return true;
+
+            if (!CanvasMatchesBase64(sourceNode["icon"], sd.IconBase64, "icon"))
+                return true;
+            if (!CanvasMatchesBase64(sourceNode["iconMouseOver"], sd.IconMouseOverBase64, "iconMouseOver"))
+                return true;
+            if (!CanvasMatchesBase64(sourceNode["iconDisabled"], sd.IconDisabledBase64, "iconDisabled"))
+                return true;
+
+            if (!string.IsNullOrEmpty(sd.Action)
+                && !string.Equals(GetActionValue(sourceNode["action"]), sd.Action, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (sd.InfoType > 0
+                && !ScalarPropertyMatches(sourceNode.GetFromPath("info/type"), sd.InfoType.ToString(CultureInfo.InvariantCulture)))
+            {
+                return true;
+            }
+
+            if (sd.MaxLevel > 0
+                && !ScalarPropertyMatches(sourceNode.GetFromPath("common/maxLevel"), Math.Max(1, sd.MaxLevel).ToString(CultureInfo.InvariantCulture)))
+            {
+                return true;
+            }
+
+            if (sd.Common != null)
+            {
+                var common = sourceNode["common"] as WzSubProperty;
+                foreach (var kv in sd.Common)
+                {
+                    if (string.IsNullOrWhiteSpace(kv.Key))
+                        continue;
+                    if (string.Equals(kv.Key, "maxLevel", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (!ScalarPropertyMatches(common?[kv.Key], kv.Value ?? ""))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasLevelAnimationOverride(SkillDefinition sd)
+        {
+            if (sd?.LevelAnimFramesByNode == null || sd.LevelAnimFramesByNode.Count == 0)
+                return false;
+
+            foreach (var levelKv in sd.LevelAnimFramesByNode)
+            {
+                if (levelKv.Value == null)
+                    continue;
+                foreach (var nodeKv in levelKv.Value)
+                {
+                    if (nodeKv.Value != null && nodeKv.Value.Count > 0)
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool CanvasMatchesBase64(WzImageProperty existing, string base64, string name)
+        {
+            if (string.IsNullOrEmpty(base64))
+                return true;
+
+            var existingCanvas = existing as WzCanvasProperty;
+            if (existingCanvas == null)
+                return false;
+
+            var incoming = BuildCanvasFromBase64(base64, name);
+            if (incoming == null)
+                return false;
+
+            try
+            {
+                return AreCanvasPixelsEqual(existingCanvas, incoming);
+            }
+            finally
+            {
+                try { incoming.Dispose(); } catch { }
+            }
+        }
+
+        private static bool ScalarPropertyMatches(WzImageProperty prop, string expected)
+        {
+            if (prop == null)
+                return string.IsNullOrWhiteSpace(expected);
+            return string.Equals(
+                GetScalarText(prop).Trim(),
+                (expected ?? "").Trim(),
+                StringComparison.Ordinal);
+        }
+
+        private static string GetActionValue(WzImageProperty actionProp)
+        {
+            if (actionProp is WzStringProperty actionString)
+                return actionString.Value ?? "";
+
+            if (actionProp is WzSubProperty actionSub)
+            {
+                var zero = actionSub["0"] as WzStringProperty;
+                if (zero != null)
+                    return zero.Value ?? "";
+
+                if (actionSub.WzProperties != null)
+                {
+                    foreach (var child in actionSub.WzProperties)
+                    {
+                        if (child is WzStringProperty str)
+                            return str.Value ?? "";
+                    }
+                }
+            }
+
+            return "";
+        }
+
+        private static string GetScalarText(WzImageProperty prop)
+        {
+            switch (prop)
+            {
+                case null:
+                    return "";
+                case WzIntProperty p:
+                    return p.Value.ToString(CultureInfo.InvariantCulture);
+                case WzShortProperty p:
+                    return p.Value.ToString(CultureInfo.InvariantCulture);
+                case WzLongProperty p:
+                    return p.Value.ToString(CultureInfo.InvariantCulture);
+                case WzFloatProperty p:
+                    return p.Value.ToString("G", CultureInfo.InvariantCulture);
+                case WzDoubleProperty p:
+                    return p.Value.ToString("G", CultureInfo.InvariantCulture);
+                case WzStringProperty p:
+                    return p.Value ?? "";
+                case WzUOLProperty p:
+                    return p.Value ?? "";
+                case WzVectorProperty p:
+                    return string.Format(CultureInfo.InvariantCulture, "{0},{1}", p.X.Value, p.Y.Value);
+                default:
+                    return "";
+            }
         }
 
         /// <summary>
@@ -770,12 +1285,13 @@ namespace SuperSkillTool
             if (sourceId <= 0 || sourceId == sd.SkillId)
                 return null;
 
-            var sourceNode = stringImg[sourceId.ToString()] as WzSubProperty;
+            string sourceKey = FindImagePropertyKey(stringImg, sourceId);
+            var sourceNode = sourceKey != null ? stringImg[sourceKey] as WzSubProperty : null;
             if (sourceNode == null)
                 return null;
 
             var clone = (WzSubProperty)sourceNode.DeepClone();
-            clone.Name = sd.SkillId.ToString();
+            clone.Name = PathConfig.SkillKey(sd.SkillId);
             MergeStringNode(clone, sd, markAsSuperSkill);
             cloned = true;
             return clone;
@@ -784,9 +1300,9 @@ namespace SuperSkillTool
         /// <summary>
         /// Merge our fields into an existing skill node without destroying level/effect/etc.
         /// Only updates: _superSkill, icon, iconMouseOver, iconDisabled, action, level, effect*.
-        /// NOTE: To avoid accidental mutation of native skills, merge path no longer writes info/type and common/maxLevel.
+        /// For donor-clone overlay we may also opt-in to writing info/type and common/maxLevel.
         /// </summary>
-        private static void MergeSkillNode(WzSubProperty node, SkillDefinition sd, bool markAsSuperSkill)
+        private static void MergeSkillNode(WzSubProperty node, SkillDefinition sd, bool markAsSuperSkill, bool overwriteCoreParams = false)
         {
             // _superSkill marker:
             // - custom/new/super skill: keep marker for safe delete
@@ -811,8 +1327,41 @@ namespace SuperSkillTool
             if (!string.IsNullOrEmpty(sd.Action))
                 MergeActionProperty(node, sd.Action);
 
-            // Intentionally do NOT touch info/type or common/maxLevel in merge mode.
-            // Existing native values should be preserved as-is.
+            if (overwriteCoreParams)
+            {
+                if (sd.InfoType > 0)
+                {
+                    var info = EnsureSubProperty(node, "info");
+                    var infoMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["type"] = sd.InfoType.ToString()
+                    };
+                    MergeSubPropertyScalars(info, infoMap);
+                }
+
+                if (sd.MaxLevel > 0 || (sd.Common != null && sd.Common.Count > 0))
+                {
+                    var common = EnsureSubProperty(node, "common");
+                    var commonMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    if (sd.MaxLevel > 0)
+                        commonMap["maxLevel"] = Math.Max(1, sd.MaxLevel).ToString();
+                    if (sd.Common != null)
+                    {
+                        foreach (var kv in sd.Common)
+                        {
+                            if (string.Equals(kv.Key, "maxLevel", StringComparison.OrdinalIgnoreCase))
+                                continue;
+                            commonMap[kv.Key] = kv.Value;
+                        }
+                    }
+                    MergeSubPropertyScalars(common, commonMap);
+                }
+            }
+            else
+            {
+                // Intentionally do NOT touch info/type or common/maxLevel in native merge mode.
+                // Existing native values should be preserved as-is.
+            }
 
             // level sub-nodes (merge per-level data, preserve existing levels we don't have)
             if (sd.Levels != null && sd.Levels.Count > 0)
@@ -861,7 +1410,7 @@ namespace SuperSkillTool
 
         /// <summary>
         /// Merge string fields into an existing string node.
-        /// Only updates: _superSkill, name, desc, h levels.
+        /// Only updates: _superSkill, name, desc, h, h levels.
         /// </summary>
         private static void MergeStringNode(WzSubProperty node, SkillDefinition sd, bool markAsSuperSkill)
         {
@@ -874,9 +1423,14 @@ namespace SuperSkillTool
                 ReplaceOrAddProperty(node, new WzStringProperty("name", sd.Name));
             if (!string.IsNullOrEmpty(sd.Desc))
                 ReplaceOrAddProperty(node, new WzStringProperty("desc", sd.Desc));
+            if (!string.IsNullOrEmpty(sd.H))
+                ReplaceOrAddProperty(node, new WzStringProperty("h", sd.H));
+            else
+                RemoveProperty(node, "h");
             // Super skill write-out should not keep/add pdesc/ph by default.
             RemoveProperty(node, "pdesc");
             RemoveProperty(node, "ph");
+            RemoveMissingStringLevelDescriptions(node, sd.HLevels);
             if (sd.HLevels != null)
             {
                 foreach (var kv in sd.HLevels)
@@ -886,7 +1440,7 @@ namespace SuperSkillTool
 
         private static WzSubProperty BuildCarrierSkillNode(int carrierId)
         {
-            var node = new WzSubProperty(carrierId.ToString());
+            var node = new WzSubProperty(PathConfig.SkillKey(carrierId));
             EnsureCarrierSkillNode(node);
             return node;
         }
@@ -925,7 +1479,7 @@ namespace SuperSkillTool
 
         private static WzSubProperty BuildCarrierStringNode(int carrierId)
         {
-            var node = new WzSubProperty(carrierId.ToString());
+            var node = new WzSubProperty(PathConfig.SkillKey(carrierId));
             EnsureCarrierStringNode(node);
             return node;
         }
@@ -1088,6 +1642,42 @@ namespace SuperSkillTool
             }
         }
 
+        private static void RemoveMissingStringLevelDescriptions(WzSubProperty node, Dictionary<string, string> desiredHLevels)
+        {
+            if (node?.WzProperties == null)
+                return;
+
+            var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (desiredHLevels != null)
+            {
+                foreach (var kv in desiredHLevels)
+                {
+                    string key = (kv.Key ?? "").Trim();
+                    if (!string.IsNullOrWhiteSpace(key))
+                        keep.Add(key);
+                }
+            }
+
+            var remove = new List<WzImageProperty>();
+            foreach (var child in node.WzProperties)
+            {
+                if (child == null || string.IsNullOrWhiteSpace(child.Name))
+                    continue;
+                if (!child.Name.StartsWith("h", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (child.Name.Length <= 1 || !int.TryParse(child.Name.Substring(1), out _))
+                    continue;
+                if (!keep.Contains(child.Name))
+                    remove.Add(child);
+            }
+
+            foreach (var child in remove)
+            {
+                node.WzProperties.Remove(child);
+                try { child.Dispose(); } catch { }
+            }
+        }
+
         private static bool ShouldMarkAsSuperSkill(SkillDefinition sd, WzImageProperty existingNode)
         {
             if (HasSuperSkillMarker(existingNode))
@@ -1110,6 +1700,8 @@ namespace SuperSkillTool
             if (!sd.ExistsInImg)
                 return false;
             if (!string.Equals(sd.SourceLabel ?? "", "原生技能", StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (sd.HasManualTreeOverride && sd.CachedTree != null)
                 return false;
 
             int sourceId = sd.ResolveCloneSourceSkillId();
@@ -1194,8 +1786,14 @@ namespace SuperSkillTool
                 var old = parent[newProp.Name];
                 if (old != null)
                 {
+                    int index = parent.WzProperties.IndexOf(old);
                     parent.WzProperties.Remove(old);
+                    if (index >= 0 && index <= parent.WzProperties.Count)
+                        parent.WzProperties.Insert(index, newProp);
+                    else
+                        parent.AddProperty(newProp);
                     try { old.Dispose(); } catch { }
+                    return;
                 }
             }
             parent.AddProperty(newProp);
@@ -1214,8 +1812,14 @@ namespace SuperSkillTool
                 var old = parent[newProp.Name];
                 if (old != null)
                 {
+                    int index = parent.WzProperties.IndexOf(old);
                     parent.WzProperties.Remove(old);
+                    if (index >= 0 && index <= parent.WzProperties.Count)
+                        parent.WzProperties.Insert(index, newProp);
+                    else
+                        parent.AddProperty(newProp);
                     try { old.Dispose(); } catch { }
+                    return;
                 }
             }
             parent.AddProperty(newProp);
@@ -1607,7 +2211,7 @@ namespace SuperSkillTool
                 {
                     for (int x = 0; x < leftBmp.Width; x++)
                     {
-                        if (leftBmp.GetPixel(x, y) != rightBmp.GetPixel(x, y))
+                        if (!ArePixelsEffectivelyEqual(leftBmp.GetPixel(x, y), rightBmp.GetPixel(x, y)))
                             return false;
                     }
                 }
@@ -1628,6 +2232,16 @@ namespace SuperSkillTool
                     try { rightBmp.Dispose(); } catch { }
                 }
             }
+        }
+
+        private static bool ArePixelsEffectivelyEqual(Color left, Color right)
+        {
+            if (left.ToArgb() == right.ToArgb())
+                return true;
+
+            // Re-encoding legacy WZ icons may turn fully transparent pixels into
+            // alpha=1 pixels. They are visually identical, so keep the original node.
+            return left.A <= 1 && right.A <= 1;
         }
 
         private static Bitmap TryGetCanvasBitmap(WzCanvasProperty canvas, out bool shouldDispose)
@@ -1789,6 +2403,13 @@ namespace SuperSkillTool
             return new WzStringProperty(name, value ?? "");
         }
 
+        private static WzImageProperty BuildTreeScalarProperty(string name, string value)
+        {
+            if (TryParseVectorValue(value, out int x, out int y))
+                return new WzVectorProperty(name, x, y);
+            return BuildScalarProperty(name, value);
+        }
+
         /// <summary>
         /// For legacy clients, avoid binary-alpha-only inputs that tend to get encoded as BGRA5551.
         /// Injecting a near-transparent pixel keeps visual output unchanged while favoring BGRA4444.
@@ -1842,7 +2463,7 @@ namespace SuperSkillTool
         /// </summary>
         private static void RemoveProperty(WzSubProperty parent, string childName)
         {
-            if (parent.WzProperties == null) return;
+            if (parent == null || parent.WzProperties == null || string.IsNullOrEmpty(childName)) return;
             var toRemove = parent[childName];
             if (toRemove != null)
             {
@@ -1856,13 +2477,80 @@ namespace SuperSkillTool
         /// </summary>
         private static void RemovePropertyFromImage(WzImage img, string childName)
         {
-            if (img.WzProperties == null) return;
+            if (img == null || img.WzProperties == null || string.IsNullOrEmpty(childName)) return;
             var toRemove = img[childName];
             if (toRemove != null)
             {
                 img.WzProperties.Remove(toRemove);
                 try { toRemove.Dispose(); } catch { }
             }
+        }
+
+        private static string FindSkillPropertyKey(WzSubProperty skillTop, int skillId)
+        {
+            if (skillTop == null || skillId <= 0)
+                return null;
+
+            foreach (string key in PathConfig.SkillKeyCandidates(skillId))
+            {
+                if (skillTop[key] != null)
+                    return key;
+            }
+
+            if (skillTop.WzProperties != null)
+            {
+                foreach (var child in skillTop.WzProperties)
+                {
+                    if (child == null || string.IsNullOrWhiteSpace(child.Name))
+                        continue;
+                    if (int.TryParse(child.Name, out int parsed) && parsed == skillId)
+                        return child.Name;
+                }
+            }
+
+            return null;
+        }
+
+        private static WzImageProperty FindSkillProperty(WzImage img, int skillId)
+        {
+            if (img == null || skillId <= 0)
+                return null;
+
+            foreach (string key in PathConfig.SkillKeyCandidates(skillId))
+            {
+                var node = img.GetFromPath("skill/" + key);
+                if (node != null)
+                    return node;
+            }
+
+            var skillTop = img.GetFromPath("skill") as WzSubProperty;
+            string foundKey = FindSkillPropertyKey(skillTop, skillId);
+            return foundKey != null ? skillTop[foundKey] : null;
+        }
+
+        private static string FindImagePropertyKey(WzImage img, int skillId)
+        {
+            if (img == null || skillId <= 0)
+                return null;
+
+            foreach (string key in PathConfig.SkillKeyCandidates(skillId))
+            {
+                if (img[key] != null)
+                    return key;
+            }
+
+            if (img.WzProperties != null)
+            {
+                foreach (var child in img.WzProperties)
+                {
+                    if (child == null || string.IsNullOrWhiteSpace(child.Name))
+                        continue;
+                    if (int.TryParse(child.Name, out int parsed) && parsed == skillId)
+                        return child.Name;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -1906,7 +2594,7 @@ namespace SuperSkillTool
             WzImage newImage = null;
             try
             {
-                newImage = new WzImage(jobId + ".img");
+                newImage = new WzImage(Path.GetFileName(imgPath));
                 newImage.AddProperty(new WzSubProperty("skill"));
                 newImage.Changed = true;
 

@@ -287,9 +287,7 @@ namespace SuperSkillTool
 
         private static string FormatSkillKey(int skillId)
         {
-            return skillId <= 9999999
-                ? skillId.ToString("D7")
-                : skillId.ToString();
+            return PathConfig.SkillKey(skillId);
         }
 
         private static XmlNode FindStringEntryBySkillId(XmlNode parent, int skillId)

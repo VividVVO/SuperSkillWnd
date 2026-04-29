@@ -17,6 +17,8 @@ namespace SuperSkillTool
         public Dictionary<string, string> DataInfo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, List<WzEffectFrame>> ActionFramesByNode = new Dictionary<string, List<WzEffectFrame>>(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> RemovedActionNodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        public WzNodeInfo ActionTree;
+        public WzNodeInfo DataTree;
 
         public void Dispose()
         {
@@ -38,6 +40,24 @@ namespace SuperSkillTool
             RemovedActionNodes?.Clear();
             ActionInfo?.Clear();
             DataInfo?.Clear();
+            DisposeNodeTree(ActionTree);
+            DisposeNodeTree(DataTree);
+            ActionTree = null;
+            DataTree = null;
+        }
+
+        private static void DisposeNodeTree(WzNodeInfo node)
+        {
+            if (node == null)
+                return;
+
+            try { node.CanvasBitmap?.Dispose(); } catch { }
+            node.CanvasBitmap = null;
+            if (node.Children == null)
+                return;
+
+            foreach (var child in node.Children)
+                DisposeNodeTree(child);
         }
     }
 }

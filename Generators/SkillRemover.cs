@@ -15,7 +15,7 @@ namespace SuperSkillTool
         public static void Remove(int skillId, bool dryRun)
         {
             Console.WriteLine($"\n================================================================");
-            Console.WriteLine($"  Removing skill {skillId} from all files");
+            Console.WriteLine($"  Removing skill {skillId} ({PathConfig.SkillKey(skillId)}) from all files");
             if (dryRun) Console.WriteLine("  *** DRY RUN - no changes ***");
             Console.WriteLine($"================================================================\n");
 
@@ -71,20 +71,10 @@ namespace SuperSkillTool
                 return;
             }
 
-            string idStr = skillId.ToString();
-            XmlNode target = null;
-            foreach (XmlNode child in skillRoot.ChildNodes)
-            {
-                if (child.NodeType == XmlNodeType.Element
-                    && child.Attributes["name"] != null
-                    && child.Attributes["name"].Value == idStr)
-                {
-                    target = child;
-                    break;
-                }
-            }
+            string idStr = PathConfig.SkillKey(skillId);
+            var targets = FindChildNodesBySkillId(skillRoot, skillId);
 
-            if (target == null)
+            if (targets.Count == 0)
             {
                 Console.WriteLine($"  [skip] {label}: skill not found");
                 return;
@@ -92,14 +82,15 @@ namespace SuperSkillTool
 
             if (dryRun)
             {
-                Console.WriteLine($"  [dry-run] Would remove {idStr} from {label}");
+                Console.WriteLine($"  [dry-run] Would remove {targets.Count} node(s) for {idStr} from {label}");
                 return;
             }
 
             BackupHelper.Backup(path);
-            skillRoot.RemoveChild(target);
+            foreach (XmlNode target in targets)
+                skillRoot.RemoveChild(target);
             SaveXml(doc, path);
-            Console.WriteLine($"  [removed] {idStr} from {label}");
+            Console.WriteLine($"  [removed] {targets.Count} node(s) for {idStr} from {label}");
         }
 
         private static void RemoveFromServerStringXml(int skillId, bool dryRun)
@@ -118,23 +109,10 @@ namespace SuperSkillTool
             doc.Load(path);
 
             XmlNode root = doc.DocumentElement;
-            string idStr = skillId.ToString();
-            XmlNode target = null;
-            if (root != null)
-            {
-                foreach (XmlNode child in root.ChildNodes)
-                {
-                    if (child.NodeType == XmlNodeType.Element
-                        && child.Attributes["name"] != null
-                        && child.Attributes["name"].Value == idStr)
-                    {
-                        target = child;
-                        break;
-                    }
-                }
-            }
+            string idStr = PathConfig.SkillKey(skillId);
+            var targets = FindChildNodesBySkillId(root, skillId);
 
-            if (target == null)
+            if (targets.Count == 0)
             {
                 Console.WriteLine($"  [skip] {label}: skill not found");
                 return;
@@ -142,14 +120,15 @@ namespace SuperSkillTool
 
             if (dryRun)
             {
-                Console.WriteLine($"  [dry-run] Would remove {idStr} from {label}");
+                Console.WriteLine($"  [dry-run] Would remove {targets.Count} node(s) for {idStr} from {label}");
                 return;
             }
 
             BackupHelper.Backup(path);
-            root.RemoveChild(target);
+            foreach (XmlNode target in targets)
+                root.RemoveChild(target);
             SaveXml(doc, path);
-            Console.WriteLine($"  [removed] {idStr} from {label}");
+            Console.WriteLine($"  [removed] {targets.Count} node(s) for {idStr} from {label}");
         }
 
         /// <summary>
@@ -293,6 +272,26 @@ namespace SuperSkillTool
             {
                 doc.Save(writer);
             }
+        }
+
+        private static List<XmlNode> FindChildNodesBySkillId(XmlNode parent, int skillId)
+        {
+            var result = new List<XmlNode>();
+            if (parent == null || skillId <= 0)
+                return result;
+
+            var expected = new HashSet<string>(PathConfig.SkillKeyCandidates(skillId), StringComparer.OrdinalIgnoreCase);
+            foreach (XmlNode child in parent.ChildNodes)
+            {
+                if (child.NodeType != XmlNodeType.Element || child.Attributes["name"] == null)
+                    continue;
+
+                string name = child.Attributes["name"].Value;
+                if (expected.Contains(name) || (int.TryParse(name, out int parsed) && parsed == skillId))
+                    result.Add(child);
+            }
+
+            return result;
         }
     }
 }

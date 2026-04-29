@@ -17,16 +17,23 @@ namespace SuperSkillTool
             if (mountItemId <= 0)
                 return false;
 
-            string actionImgPath = PathConfig.GameMountActionImg(mountItemId);
-            if (!File.Exists(actionImgPath))
-                return false;
+            try
+            {
+                string actionImgPath = PathConfig.GameMountActionImg(mountItemId);
+                if (!File.Exists(actionImgPath))
+                    return false;
 
-            int value = ReadActionTamingMobId(actionImgPath, 0);
-            if (value <= 0)
-                return false;
+                int value = ReadActionTamingMobId(actionImgPath, 0);
+                if (value <= 0)
+                    return false;
 
-            tamingMobId = value;
-            return true;
+                tamingMobId = value;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public static int FindNextAvailableTamingMobId(int preferredStart)
@@ -72,13 +79,17 @@ namespace SuperSkillTool
             };
 
             if (!File.Exists(data.ActionImgPath))
+            {
+                data.ActionTree = CreateEmptyImageTree(Path.GetFileName(data.ActionImgPath));
                 return data;
+            }
 
             if (!TryOpenParsedImage(data.ActionImgPath, out var actionFs, out var actionImg, out _, out string actionErr))
                 throw new InvalidDataException("无法读取坐骑动作文件: " + actionErr);
 
             try
             {
+                data.ActionTree = BuildNodeTree(actionImg);
                 foreach (var prop in actionImg.WzProperties)
                 {
                     if (prop == null)
@@ -116,6 +127,7 @@ namespace SuperSkillTool
                 {
                     try
                     {
+                        data.DataTree = BuildNodeTree(dataImg);
                         if (dataImg["info"] is WzSubProperty info)
                             data.DataInfo = ReadScalarMap(info);
                     }
@@ -124,6 +136,10 @@ namespace SuperSkillTool
                         try { dataImg.Dispose(); } catch { }
                         try { dataFs.Dispose(); } catch { }
                     }
+                }
+                else
+                {
+                    data.DataTree = CreateEmptyImageTree(Path.GetFileName(data.DataImgPath));
                 }
             }
 
@@ -173,6 +189,16 @@ namespace SuperSkillTool
 
             string imgPath = PathConfig.GameMountActionImg(data.MountItemId);
             EnsureDirectoryForFile(imgPath);
+
+            if (data.ActionTree != null)
+            {
+                data.ActionTree.Name = Path.GetFileName(imgPath);
+                if (data.TamingMobId > 0)
+                    data.ActionInfo["tamingMob"] = data.TamingMobId.ToString();
+                ApplyInfoMapToTree(data.ActionTree, data.ActionInfo);
+                SaveImageTree(data.ActionTree, imgPath);
+                return;
+            }
 
             WzImage img = null;
             FileStream fs = null;
@@ -266,6 +292,14 @@ namespace SuperSkillTool
             string imgPath = PathConfig.GameMountDataImg(data.TamingMobId);
             EnsureDirectoryForFile(imgPath);
 
+            if (data.DataTree != null)
+            {
+                data.DataTree.Name = Path.GetFileName(imgPath);
+                ApplyInfoMapToTree(data.DataTree, data.DataInfo);
+                SaveImageTree(data.DataTree, imgPath);
+                return;
+            }
+
             WzImage img = null;
             FileStream fs = null;
             WzMapleVersion version = WzImageVersionHelper.DetectPreferredVersionFromGameData();
@@ -349,6 +383,640 @@ namespace SuperSkillTool
                 try { img.Dispose(); } catch { }
                 try { fs.Dispose(); } catch { }
             }
+        }
+
+        public static WzNodeInfo CreateEmptyImageTree(string imageName)
+        {
+            return new WzNodeInfo
+            {
+                Name = string.IsNullOrWhiteSpace(imageName) ? "new.img" : imageName,
+                TypeName = "ImgDir",
+                Children = new List<WzNodeInfo>()
+            };
+        }
+
+        public static void ApplyInfoMapToTree(WzNodeInfo root, Dictionary<string, string> map)
+        {
+            if (root == null)
+                return;
+
+            if (root.Children == null)
+                root.Children = new List<WzNodeInfo>();
+
+            WzNodeInfo info = FindChild(root, "info");
+            if (info == null)
+            {
+                info = new WzNodeInfo
+                {
+                    Name = "info",
+                    TypeName = "SubProperty",
+                    Children = new List<WzNodeInfo>()
+                };
+                root.Children.Insert(0, info);
+            }
+            if (info.Children == null)
+                info.Children = new List<WzNodeInfo>();
+
+            for (int i = info.Children.Count - 1; i >= 0; i--)
+            {
+                if (IsScalarNode(info.Children[i]))
+                {
+                    DisposeNodePayload(info.Children[i]);
+                    info.Children.RemoveAt(i);
+                }
+            }
+
+            if (map == null)
+                return;
+
+            var keys = new List<string>(map.Keys);
+            keys.Sort(StringComparer.OrdinalIgnoreCase);
+            foreach (string key in keys)
+            {
+                if (string.IsNullOrWhiteSpace(key))
+                    continue;
+                info.Children.Add(BuildScalarNode(key.Trim(), map.TryGetValue(key, out string value) ? value : ""));
+            }
+        }
+
+        public static Dictionary<string, string> ExtractInfoMapFromTree(WzNodeInfo root)
+        {
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            WzNodeInfo info = FindChild(root, "info");
+            if (info?.Children == null)
+                return map;
+
+            foreach (var child in info.Children)
+            {
+                if (child == null || string.IsNullOrWhiteSpace(child.Name))
+                    continue;
+                if (!IsScalarNode(child))
+                    continue;
+                map[child.Name] = child.Value ?? "";
+            }
+            return map;
+        }
+
+        public static void ApplyActionFramesToTree(
+            WzNodeInfo root,
+            Dictionary<string, List<WzEffectFrame>> framesByNode,
+            HashSet<string> removedNodes)
+        {
+            if (root == null)
+                return;
+            if (root.Children == null)
+                root.Children = new List<WzNodeInfo>();
+
+            if (removedNodes != null)
+            {
+                foreach (string removed in removedNodes)
+                    RemoveChild(root, removed);
+            }
+
+            if (framesByNode == null)
+                return;
+
+            foreach (var kv in framesByNode)
+            {
+                string nodeName = (kv.Key ?? "").Trim();
+                if (string.IsNullOrEmpty(nodeName))
+                    continue;
+
+                WzNodeInfo previous = FindChild(root, nodeName);
+                WzNodeInfo rebuilt = BuildFrameNodeInfo(nodeName, kv.Value, previous);
+                ReplaceChild(root, rebuilt);
+            }
+        }
+
+        private static WzNodeInfo BuildNodeTree(WzImage image)
+        {
+            var root = CreateEmptyImageTree(image?.Name ?? "");
+            if (image?.WzProperties == null)
+                return root;
+
+            foreach (var child in image.WzProperties)
+            {
+                if (child != null)
+                    root.Children.Add(BuildNodeTree(child, 0));
+            }
+            return root;
+        }
+
+        private static WzNodeInfo BuildNodeTree(WzImageProperty node, int depth)
+        {
+            var info = new WzNodeInfo
+            {
+                Name = node?.Name ?? "",
+                TypeName = node?.PropertyType.ToString() ?? "SubProperty",
+                Children = new List<WzNodeInfo>()
+            };
+
+            string value = GetPropertyValueString(node);
+            if (value != null)
+                info.Value = value;
+
+            if (node is WzVectorProperty vector)
+                info.Value = vector.X.Value + "," + vector.Y.Value;
+
+            if (node is WzCanvasProperty canvas && canvas.PngProperty != null)
+            {
+                info.CanvasWidth = canvas.PngProperty.Width;
+                info.CanvasHeight = canvas.PngProperty.Height;
+                info.CanvasPngFormat = (int)canvas.PngProperty.Format;
+                info.Value = info.CanvasWidth + "x" + info.CanvasHeight;
+                try
+                {
+                    byte[] bytes = canvas.PngProperty.GetCompressedBytes(true);
+                    if (bytes != null)
+                        info.CanvasCompressedBytes = (byte[])bytes.Clone();
+                }
+                catch
+                {
+                }
+                try
+                {
+                    Bitmap bmp = canvas.GetBitmap();
+                    if (bmp != null)
+                        info.CanvasBitmap = CloneBitmapSafe(bmp);
+                }
+                catch
+                {
+                }
+            }
+
+            if (depth < 32 && node?.WzProperties != null)
+            {
+                foreach (var child in node.WzProperties)
+                {
+                    if (child != null)
+                        info.Children.Add(BuildNodeTree(child, depth + 1));
+                }
+            }
+            return info;
+        }
+
+        private static void SaveImageTree(WzNodeInfo root, string imgPath)
+        {
+            if (root == null)
+                throw new InvalidDataException("节点树为空，无法保存");
+
+            EnsureDirectoryForFile(imgPath);
+            WzMapleVersion version = WzImageVersionHelper.DetectPreferredVersionFromGameData();
+            if (File.Exists(imgPath)
+                && TryOpenParsedImage(imgPath, out var oldFs, out var oldImg, out var detected, out _))
+            {
+                version = detected;
+                try { oldImg.Dispose(); } catch { }
+                try { oldFs.Dispose(); } catch { }
+            }
+
+            WzImage img = null;
+            try
+            {
+                img = BuildImageFromTree(root, Path.GetFileName(imgPath));
+                img.Changed = true;
+                byte[] iv = WzTool.GetIvByMapleVersion(version);
+                var serializer = new WzImgSerializer(iv);
+                byte[] bytes = serializer.SerializeImage(img);
+                if (File.Exists(imgPath))
+                    BackupHelper.Backup(imgPath);
+                ImgWriteGenerator.WriteWithRetry(imgPath, bytes);
+            }
+            finally
+            {
+                try { img?.Dispose(); } catch { }
+            }
+        }
+
+        private static WzImage BuildImageFromTree(WzNodeInfo root, string imageName)
+        {
+            var img = new WzImage(string.IsNullOrWhiteSpace(imageName) ? (root?.Name ?? "new.img") : imageName);
+            if (root?.Children == null)
+                return img;
+
+            foreach (var child in root.Children)
+            {
+                var prop = BuildPropertyFromNode(child);
+                if (prop != null)
+                    img.AddProperty(prop);
+            }
+            return img;
+        }
+
+        private static WzImageProperty BuildPropertyFromNode(WzNodeInfo node)
+        {
+            if (node == null || string.IsNullOrWhiteSpace(node.Name))
+                return null;
+
+            string type = (node.TypeName ?? "").Trim();
+            if (string.Equals(type, "ImgDir", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "Image", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (string.Equals(type, "SubProperty", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "自定义", StringComparison.OrdinalIgnoreCase))
+            {
+                var sub = new WzSubProperty(node.Name);
+                AddBuiltChildren(sub, node);
+                return sub;
+            }
+            if (string.Equals(type, "Convex", StringComparison.OrdinalIgnoreCase))
+            {
+                var convex = new WzConvexProperty(node.Name);
+                AddBuiltChildren(convex, node);
+                return convex;
+            }
+            if (string.Equals(type, "Canvas", StringComparison.OrdinalIgnoreCase))
+            {
+                var canvas = new WzCanvasProperty(node.Name);
+                canvas.PngProperty = BuildPngProperty(node);
+                AddBuiltChildren(canvas, node);
+                return canvas;
+            }
+            if (string.Equals(type, "Vector", StringComparison.OrdinalIgnoreCase))
+            {
+                TryParseVectorValue(node.Value, out int x, out int y);
+                return new WzVectorProperty(node.Name, x, y);
+            }
+            if (string.Equals(type, "UOL", StringComparison.OrdinalIgnoreCase))
+            {
+                string value = node.Value ?? "";
+                if (value.StartsWith("-> "))
+                    value = value.Substring(3);
+                return new WzUOLProperty(node.Name, value);
+            }
+            if (string.Equals(type, "Null", StringComparison.OrdinalIgnoreCase))
+                return new WzNullProperty(node.Name);
+            if (string.Equals(type, "Short", StringComparison.OrdinalIgnoreCase)
+                && short.TryParse(node.Value, out short s16))
+                return new WzShortProperty(node.Name, s16);
+            if (string.Equals(type, "Int", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(node.Value, out int i32))
+                return new WzIntProperty(node.Name, i32);
+            if (string.Equals(type, "Long", StringComparison.OrdinalIgnoreCase)
+                && long.TryParse(node.Value, out long i64))
+                return new WzLongProperty(node.Name, i64);
+            if (string.Equals(type, "Float", StringComparison.OrdinalIgnoreCase)
+                && float.TryParse(node.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f32))
+                return new WzFloatProperty(node.Name, f32);
+            if (string.Equals(type, "Double", StringComparison.OrdinalIgnoreCase)
+                && double.TryParse(node.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double f64))
+                return new WzDoubleProperty(node.Name, f64);
+            if (string.Equals(type, "String", StringComparison.OrdinalIgnoreCase))
+                return new WzStringProperty(node.Name, node.Value ?? "");
+
+            if (node.Children != null && node.Children.Count > 0)
+            {
+                var sub = new WzSubProperty(node.Name);
+                AddBuiltChildren(sub, node);
+                return sub;
+            }
+            return BuildScalarProperty(node.Name, node.Value ?? "");
+        }
+
+        private static WzPngProperty BuildPngProperty(WzNodeInfo node)
+        {
+            var png = new WzPngProperty();
+            if (node.CanvasCompressedBytes != null
+                && node.CanvasCompressedBytes.Length > 0
+                && node.CanvasWidth > 0
+                && node.CanvasHeight > 0
+                && node.CanvasPngFormat > 0)
+            {
+                png.SetCompressedBytes(
+                    (byte[])node.CanvasCompressedBytes.Clone(),
+                    node.CanvasWidth,
+                    node.CanvasHeight,
+                    (WzPngFormat)node.CanvasPngFormat);
+                return png;
+            }
+
+            Bitmap source = node.CanvasBitmap;
+            if (source == null)
+            {
+                ParseCanvasSize(node, out int width, out int height);
+                width = Math.Max(width, 1);
+                height = Math.Max(height, 1);
+                using (var blank = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                    png.SetBitmapBgra4444(blank);
+                return png;
+            }
+
+            using (var bmp = new Bitmap(source))
+                png.SetBitmapBgra4444(bmp);
+            return png;
+        }
+
+        private static void AddBuiltChildren(WzSubProperty parent, WzNodeInfo node)
+        {
+            if (parent == null || node?.Children == null)
+                return;
+            foreach (var child in node.Children)
+            {
+                var prop = BuildPropertyFromNode(child);
+                if (prop != null)
+                    parent.AddProperty(prop);
+            }
+        }
+
+        private static void AddBuiltChildren(WzCanvasProperty parent, WzNodeInfo node)
+        {
+            if (parent == null || node?.Children == null)
+                return;
+            foreach (var child in node.Children)
+            {
+                var prop = BuildPropertyFromNode(child);
+                if (prop != null)
+                    parent.AddProperty(prop);
+            }
+        }
+
+        private static void AddBuiltChildren(WzConvexProperty parent, WzNodeInfo node)
+        {
+            if (parent == null || node?.Children == null)
+                return;
+            foreach (var child in node.Children)
+            {
+                var prop = BuildPropertyFromNode(child);
+                if (prop != null)
+                    parent.AddProperty(prop);
+            }
+        }
+
+        private static WzNodeInfo BuildFrameNodeInfo(string nodeName, List<WzEffectFrame> frames, WzNodeInfo previous)
+        {
+            var node = new WzNodeInfo
+            {
+                Name = nodeName ?? "",
+                TypeName = "SubProperty",
+                Children = new List<WzNodeInfo>()
+            };
+
+            if (frames == null)
+                return node;
+
+            for (int i = 0; i < frames.Count; i++)
+            {
+                WzEffectFrame frame = frames[i];
+                if (frame == null)
+                    continue;
+
+                WzNodeInfo previousFrame = FindChild(previous, i.ToString());
+                var canvas = new WzNodeInfo
+                {
+                    Name = i.ToString(),
+                    TypeName = "Canvas",
+                    CanvasWidth = frame.Width,
+                    CanvasHeight = frame.Height,
+                    Value = frame.Width + "x" + frame.Height,
+                    Children = new List<WzNodeInfo>()
+                };
+
+                if (frame.Bitmap != null)
+                {
+                    canvas.CanvasBitmap = CloneBitmapSafe(frame.Bitmap);
+                    canvas.CanvasWidth = frame.Bitmap.Width;
+                    canvas.CanvasHeight = frame.Bitmap.Height;
+                    canvas.Value = canvas.CanvasWidth + "x" + canvas.CanvasHeight;
+                }
+                else
+                {
+                    CopyCanvasPayload(previousFrame, canvas);
+                }
+
+                var handledChildNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                canvas.Children.Add(new WzNodeInfo
+                {
+                    Name = "delay",
+                    TypeName = "Int",
+                    Value = (frame.Delay > 0 ? frame.Delay : 100).ToString(),
+                    Children = new List<WzNodeInfo>()
+                });
+                handledChildNames.Add("delay");
+
+                if (frame.Vectors != null)
+                {
+                    foreach (var vk in frame.Vectors)
+                    {
+                        if (string.IsNullOrWhiteSpace(vk.Key) || vk.Value == null)
+                            continue;
+                        canvas.Children.Add(new WzNodeInfo
+                        {
+                            Name = vk.Key,
+                            TypeName = "Vector",
+                            Value = vk.Value.X + "," + vk.Value.Y,
+                            Children = new List<WzNodeInfo>()
+                        });
+                        handledChildNames.Add(vk.Key);
+                    }
+                }
+
+                if (frame.FrameProps != null)
+                {
+                    foreach (var pk in frame.FrameProps)
+                    {
+                        if (string.IsNullOrWhiteSpace(pk.Key))
+                            continue;
+                        if (string.Equals(pk.Key, "delay", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        if (frame.Vectors != null && frame.Vectors.ContainsKey(pk.Key))
+                            continue;
+                        canvas.Children.Add(BuildScalarNode(pk.Key, pk.Value ?? ""));
+                        handledChildNames.Add(pk.Key);
+                    }
+                }
+
+                PreserveExtraFrameChildren(previousFrame, canvas, handledChildNames);
+                node.Children.Add(canvas);
+            }
+
+            return node;
+        }
+
+        private static void PreserveExtraFrameChildren(WzNodeInfo previousFrame, WzNodeInfo rebuiltFrame, HashSet<string> handledChildNames)
+        {
+            if (previousFrame?.Children == null || rebuiltFrame == null)
+                return;
+            if (rebuiltFrame.Children == null)
+                rebuiltFrame.Children = new List<WzNodeInfo>();
+
+            foreach (var child in previousFrame.Children)
+            {
+                string name = (child?.Name ?? "").Trim();
+                if (string.IsNullOrEmpty(name))
+                    continue;
+                if (handledChildNames != null && handledChildNames.Contains(name))
+                    continue;
+                if (FindChild(rebuiltFrame, name) != null)
+                    continue;
+                rebuiltFrame.Children.Add(CloneNodeInfo(child));
+            }
+        }
+
+        private static WzNodeInfo CloneNodeInfo(WzNodeInfo source)
+        {
+            if (source == null)
+                return null;
+            var clone = new WzNodeInfo
+            {
+                Name = source.Name,
+                TypeName = source.TypeName,
+                Value = source.Value,
+                CanvasWidth = source.CanvasWidth,
+                CanvasHeight = source.CanvasHeight,
+                CanvasPngFormat = source.CanvasPngFormat,
+                CanvasCompressedBytes = source.CanvasCompressedBytes != null ? (byte[])source.CanvasCompressedBytes.Clone() : null,
+                CanvasBitmap = source.CanvasBitmap != null ? CloneBitmapSafe(source.CanvasBitmap) : null,
+                Children = new List<WzNodeInfo>()
+            };
+            if (source.Children != null)
+            {
+                foreach (var child in source.Children)
+                {
+                    var clonedChild = CloneNodeInfo(child);
+                    if (clonedChild != null)
+                        clone.Children.Add(clonedChild);
+                }
+            }
+            return clone;
+        }
+
+        private static WzNodeInfo BuildScalarNode(string name, string value)
+        {
+            string text = value ?? "";
+            string type = "String";
+            if (int.TryParse(text, out _))
+                type = "Int";
+            else if (long.TryParse(text, out _))
+                type = "Long";
+            else if (float.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _))
+                type = "Float";
+
+            return new WzNodeInfo
+            {
+                Name = name ?? "",
+                TypeName = type,
+                Value = text,
+                Children = new List<WzNodeInfo>()
+            };
+        }
+
+        private static WzNodeInfo FindChild(WzNodeInfo parent, string name)
+        {
+            if (parent?.Children == null || string.IsNullOrWhiteSpace(name))
+                return null;
+            foreach (var child in parent.Children)
+            {
+                if (child != null && string.Equals(child.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return child;
+            }
+            return null;
+        }
+
+        private static void ReplaceChild(WzNodeInfo parent, WzNodeInfo replacement)
+        {
+            if (parent == null || replacement == null || string.IsNullOrWhiteSpace(replacement.Name))
+                return;
+            if (parent.Children == null)
+                parent.Children = new List<WzNodeInfo>();
+
+            for (int i = 0; i < parent.Children.Count; i++)
+            {
+                if (parent.Children[i] != null
+                    && string.Equals(parent.Children[i].Name, replacement.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    DisposeNodePayload(parent.Children[i]);
+                    parent.Children[i] = replacement;
+                    return;
+                }
+            }
+            parent.Children.Add(replacement);
+        }
+
+        private static void RemoveChild(WzNodeInfo parent, string name)
+        {
+            if (parent?.Children == null || string.IsNullOrWhiteSpace(name))
+                return;
+            for (int i = parent.Children.Count - 1; i >= 0; i--)
+            {
+                if (parent.Children[i] != null
+                    && string.Equals(parent.Children[i].Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    DisposeNodePayload(parent.Children[i]);
+                    parent.Children.RemoveAt(i);
+                }
+            }
+        }
+
+        private static bool IsScalarNode(WzNodeInfo node)
+        {
+            if (node == null)
+                return false;
+            string type = node.TypeName ?? "";
+            return string.Equals(type, "Int", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "Short", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "Long", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "Float", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "Double", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "String", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "UOL", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "Null", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void CopyCanvasPayload(WzNodeInfo source, WzNodeInfo target)
+        {
+            if (source == null || target == null)
+                return;
+            target.CanvasWidth = source.CanvasWidth;
+            target.CanvasHeight = source.CanvasHeight;
+            target.CanvasPngFormat = source.CanvasPngFormat;
+            if (source.CanvasCompressedBytes != null)
+                target.CanvasCompressedBytes = (byte[])source.CanvasCompressedBytes.Clone();
+            if (source.CanvasBitmap != null)
+                target.CanvasBitmap = CloneBitmapSafe(source.CanvasBitmap);
+            if (target.CanvasWidth > 0 && target.CanvasHeight > 0)
+                target.Value = target.CanvasWidth + "x" + target.CanvasHeight;
+        }
+
+        private static void DisposeNodePayload(WzNodeInfo node)
+        {
+            if (node == null)
+                return;
+            try { node.CanvasBitmap?.Dispose(); } catch { }
+            node.CanvasBitmap = null;
+            if (node.Children == null)
+                return;
+            foreach (var child in node.Children)
+                DisposeNodePayload(child);
+        }
+
+        private static void ParseCanvasSize(WzNodeInfo node, out int width, out int height)
+        {
+            width = node?.CanvasWidth ?? 0;
+            height = node?.CanvasHeight ?? 0;
+            string text = node?.Value ?? "";
+            if (width > 0 && height > 0)
+                return;
+            string[] parts = text.Split(new[] { 'x', 'X', ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2)
+            {
+                int.TryParse(parts[0], out width);
+                int.TryParse(parts[1], out height);
+            }
+        }
+
+        private static bool TryParseVectorValue(string value, out int x, out int y)
+        {
+            x = 0;
+            y = 0;
+            string[] parts = (value ?? "").Split(new[] { ',', ' ', ';', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2)
+                return false;
+            bool okX = int.TryParse(parts[0], out x);
+            bool okY = int.TryParse(parts[1], out y);
+            return okX && okY;
         }
 
         private static Dictionary<string, string> ReadScalarMap(WzSubProperty parent)

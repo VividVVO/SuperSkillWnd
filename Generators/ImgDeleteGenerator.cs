@@ -36,6 +36,7 @@ namespace SuperSkillTool
                 int jobId = kv.Key;
                 var list = kv.Value;
                 string imgPath = PathConfig.GameSkillImg(jobId);
+                string imgName = Path.GetFileName(imgPath);
 
                 Console.WriteLine($"\n[ImgDelete] Processing {imgPath}");
 
@@ -48,7 +49,7 @@ namespace SuperSkillTool
                 if (dryRun)
                 {
                     foreach (var sd in list)
-                        Console.WriteLine($"  [dry-run] Would remove skill {sd.SkillId} from {jobId}.img");
+                        Console.WriteLine($"  [dry-run] Would remove skill {PathConfig.SkillKey(sd.SkillId)} from {imgName}");
                     continue;
                 }
 
@@ -61,7 +62,7 @@ namespace SuperSkillTool
                 {
                     skillVersion = WzImageVersionHelper.DetectVersionForSkillImg(imgPath);
                     fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                    wzImg = new WzImage(jobId + ".img", fs, skillVersion);
+                    wzImg = new WzImage(Path.GetFileName(imgPath), fs, skillVersion);
                     if (!wzImg.ParseImage(true))
                     {
                         fs.Dispose(); wzImg.Dispose();
@@ -78,7 +79,7 @@ namespace SuperSkillTool
                 var skillTop = wzImg.GetFromPath("skill") as WzSubProperty;
                 if (skillTop == null)
                 {
-                    Console.WriteLine($"  [skip] No 'skill' node in {jobId}.img");
+                    Console.WriteLine($"  [skip] No 'skill' node in {imgName}");
                     fs.Dispose(); wzImg.Dispose();
                     continue;
                 }
@@ -93,23 +94,33 @@ namespace SuperSkillTool
                         continue;
                     }
 
-                    string idStr = sd.SkillId.ToString();
-                    var existing = skillTop[idStr];
-                    if (existing == null)
+                    string idStr = PathConfig.SkillKey(sd.SkillId);
+                    var existingNodes = FindSkillProperties(skillTop, sd.SkillId);
+                    if (existingNodes.Count == 0)
                     {
-                        Console.WriteLine($"  [skip] Skill {idStr} not found in {jobId}.img");
-                        continue;
-                    }
-                    if (!HasSuperSkillMarker(existing))
-                    {
-                        Console.WriteLine($"  [skip] Skill {idStr} exists but has no _superSkill marker.");
+                        Console.WriteLine($"  [skip] Skill {idStr} not found in {imgName}");
                         continue;
                     }
 
-                    skillTop.WzProperties.Remove(existing);
-                    try { existing.Dispose(); } catch { }
-                    count++;
-                    Console.WriteLine($"  [removed] Skill {idStr} ({sd.Name})");
+                    bool removedAny = false;
+                    foreach (var existing in existingNodes)
+                    {
+                        string existingName = existing.Name;
+                        if (!HasSuperSkillMarker(existing))
+                        {
+                            Console.WriteLine($"  [skip] Skill {existingName} exists but has no _superSkill marker.");
+                            continue;
+                        }
+
+                        skillTop.WzProperties.Remove(existing);
+                        try { existing.Dispose(); } catch { }
+                        count++;
+                        removedAny = true;
+                        Console.WriteLine($"  [removed] Skill {idStr} ({sd.Name})");
+                    }
+
+                    if (!removedAny)
+                        Console.WriteLine($"  [skip] Skill {idStr} matched but no removable super-skill node was found.");
                 }
 
                 if (count == 0)
@@ -161,7 +172,7 @@ namespace SuperSkillTool
             if (dryRun)
             {
                 foreach (var sd in skills)
-                    Console.WriteLine($"  [dry-run] Would remove string entry {sd.SkillId} ({sd.Name})");
+                    Console.WriteLine($"  [dry-run] Would remove string entry {PathConfig.SkillKey(sd.SkillId)} ({sd.Name})");
                 return;
             }
 
@@ -191,23 +202,33 @@ namespace SuperSkillTool
             int count = 0;
             foreach (var sd in skills)
             {
-                string idStr = sd.SkillId.ToString();
-                var existing = wzImg[idStr];
-                if (existing == null)
+                string idStr = PathConfig.SkillKey(sd.SkillId);
+                var existingNodes = FindImageProperties(wzImg, sd.SkillId);
+                if (existingNodes.Count == 0)
                 {
                     Console.WriteLine($"  [skip] String entry {idStr} not found");
                     continue;
                 }
-                if (!HasSuperSkillMarker(existing))
+
+                bool removedAny = false;
+                foreach (var existing in existingNodes)
                 {
-                    Console.WriteLine($"  [skip] String entry {idStr} exists but has no _superSkill marker.");
-                    continue;
+                    string existingName = existing.Name;
+                    if (!HasSuperSkillMarker(existing))
+                    {
+                        Console.WriteLine($"  [skip] String entry {existingName} exists but has no _superSkill marker.");
+                        continue;
+                    }
+
+                    wzImg.WzProperties.Remove(existing);
+                    try { existing.Dispose(); } catch { }
+                    count++;
+                    removedAny = true;
+                    Console.WriteLine($"  [removed] String entry {idStr} ({sd.Name})");
                 }
 
-                wzImg.WzProperties.Remove(existing);
-                try { existing.Dispose(); } catch { }
-                count++;
-                Console.WriteLine($"  [removed] String entry {idStr} ({sd.Name})");
+                if (!removedAny)
+                    Console.WriteLine($"  [skip] String entry {idStr} matched but no removable super-skill node was found.");
             }
 
             if (count == 0)
@@ -251,6 +272,62 @@ namespace SuperSkillTool
             if (marker is WzIntProperty ip) return ip.Value == 1;
             if (marker is WzStringProperty sp && int.TryParse(sp.Value, out int sv)) return sv == 1;
             return marker != null;
+        }
+
+        private static List<WzImageProperty> FindSkillProperties(WzSubProperty skillTop, int skillId)
+        {
+            var result = new List<WzImageProperty>();
+            if (skillTop == null || skillId <= 0)
+                return result;
+
+            var seen = new HashSet<WzImageProperty>();
+            foreach (string key in PathConfig.SkillKeyCandidates(skillId))
+            {
+                var node = skillTop[key];
+                if (node != null && seen.Add(node))
+                    result.Add(node);
+            }
+
+            if (skillTop.WzProperties != null)
+            {
+                foreach (var child in skillTop.WzProperties)
+                {
+                    if (child == null || string.IsNullOrWhiteSpace(child.Name))
+                        continue;
+                    if (int.TryParse(child.Name, out int parsed) && parsed == skillId && seen.Add(child))
+                        result.Add(child);
+                }
+            }
+
+            return result;
+        }
+
+        private static List<WzImageProperty> FindImageProperties(WzImage img, int skillId)
+        {
+            var result = new List<WzImageProperty>();
+            if (img == null || skillId <= 0)
+                return result;
+
+            var seen = new HashSet<WzImageProperty>();
+            foreach (string key in PathConfig.SkillKeyCandidates(skillId))
+            {
+                var node = img[key];
+                if (node != null && seen.Add(node))
+                    result.Add(node);
+            }
+
+            if (img.WzProperties != null)
+            {
+                foreach (var child in img.WzProperties)
+                {
+                    if (child == null || string.IsNullOrWhiteSpace(child.Name))
+                        continue;
+                    if (int.TryParse(child.Name, out int parsed) && parsed == skillId && seen.Add(child))
+                        result.Add(child);
+                }
+            }
+
+            return result;
         }
     }
 }

@@ -497,11 +497,17 @@ namespace SuperSkillTool
             try
             {
                 fs = new FileStream(sourceImgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                img = new WzImage(sourceJobId + ".img", fs, WzMapleVersion.EMS);
+                img = new WzImage(Path.GetFileName(sourceImgPath), fs, WzMapleVersion.EMS);
                 if (!img.ParseImage(true))
                     return null;
 
-                var sourceNode = img.GetFromPath("skill/" + sourceSkillId) as WzSubProperty;
+                WzSubProperty sourceNode = null;
+                foreach (string key in PathConfig.SkillKeyCandidates(sourceSkillId))
+                {
+                    sourceNode = img.GetFromPath("skill/" + key) as WzSubProperty;
+                    if (sourceNode != null)
+                        break;
+                }
                 if (sourceNode == null)
                     return null;
 
@@ -742,9 +748,7 @@ namespace SuperSkillTool
 
         private static string FormatSkillKey(int skillId)
         {
-            return skillId <= 9999999
-                ? skillId.ToString("D7")
-                : skillId.ToString();
+            return PathConfig.SkillKey(skillId);
         }
 
         private static XmlNode FindSkillNodeBySkillId(XmlNode parent, int skillId)
@@ -945,7 +949,7 @@ namespace SuperSkillTool
                 BackupHelper.Backup(xmlPath);
 
                 fs = new FileStream(imgPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                wzImg = new WzImage(jobId + ".img", fs, WzMapleVersion.EMS);
+                wzImg = new WzImage(Path.GetFileName(imgPath), fs, WzMapleVersion.EMS);
                 if (!wzImg.ParseImage(true))
                 {
                     error = "Failed to parse game skill img";
@@ -1037,7 +1041,7 @@ namespace SuperSkillTool
                 var declaration = doc.CreateXmlDeclaration("1.0", "UTF-8", "yes");
                 doc.AppendChild(declaration);
 
-                XmlElement root = CreateImgDir(doc, jobId + ".img");
+                XmlElement root = CreateImgDir(doc, PathConfig.SkillImgName(jobId));
                 doc.AppendChild(root);
                 root.AppendChild(CreateImgDir(doc, "skill"));
 

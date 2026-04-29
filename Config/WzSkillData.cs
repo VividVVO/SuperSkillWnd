@@ -254,5 +254,13 @@ namespace SuperSkillTool
         public string TypeName = "";  // "SubProperty", "Canvas", "Int", "String", etc.
         public string Value = "";     // display value for leaf nodes, empty for containers
         public List<WzNodeInfo> Children = new List<WzNodeInfo>();
+
+        // Optional runtime-only canvas payload for full WZ tree editing.
+        // Skill JSON persistence intentionally ignores these fields.
+        public int CanvasWidth;
+        public int CanvasHeight;
+        public int CanvasPngFormat;
+        public byte[] CanvasCompressedBytes;
+        public Bitmap CanvasBitmap;
     }
 }

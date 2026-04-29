@@ -46,23 +46,33 @@ namespace SuperSkillTool
             string plain = jobId + ".img";
             string d3 = jobId.ToString("D3") + ".img";
             string d4 = jobId.ToString("D4") + ".img";
+            string preferred = jobId < 1000 ? d3 : plain;
 
             try
             {
                 if (!string.IsNullOrWhiteSpace(GameDataRoot) && Directory.Exists(GameDataRoot))
                 {
-                    string plainPath = Path.Combine(GameDataRoot, plain);
-                    if (File.Exists(plainPath))
-                        return plain;
+                    string preferredPath = Path.Combine(GameDataRoot, preferred);
+                    if (File.Exists(preferredPath))
+                        return preferred;
 
-                    if (!string.Equals(d3, plain, StringComparison.OrdinalIgnoreCase))
+                    if (!string.Equals(d3, preferred, StringComparison.OrdinalIgnoreCase))
                     {
                         string d3Path = Path.Combine(GameDataRoot, d3);
                         if (File.Exists(d3Path))
                             return d3;
                     }
 
-                    if (!string.Equals(d4, plain, StringComparison.OrdinalIgnoreCase)
+                    if (!string.Equals(plain, preferred, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(plain, d3, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string plainPath = Path.Combine(GameDataRoot, plain);
+                        if (File.Exists(plainPath))
+                            return plain;
+                    }
+
+                    if (!string.Equals(d4, preferred, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(d4, plain, StringComparison.OrdinalIgnoreCase)
                         && !string.Equals(d4, d3, StringComparison.OrdinalIgnoreCase))
                     {
                         string d4Path = Path.Combine(GameDataRoot, d4);
@@ -75,11 +85,40 @@ namespace SuperSkillTool
             {
             }
 
-            return jobId < 1000 ? d3 : plain;
+            return preferred;
         }
 
         public static string GameSkillImg(int jobId) =>
             Path.Combine(GameDataRoot, SkillImgName(jobId));
+
+        public static string SkillKey(int skillId)
+        {
+            if (skillId <= 0)
+                return "";
+            return skillId <= 9999999 ? skillId.ToString("D7") : skillId.ToString();
+        }
+
+        public static IEnumerable<string> SkillKeyCandidates(int skillId)
+        {
+            if (skillId <= 0)
+                yield break;
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string canonical = SkillKey(skillId);
+            if (!string.IsNullOrEmpty(canonical) && seen.Add(canonical))
+                yield return canonical;
+
+            string raw = skillId.ToString();
+            if (seen.Add(raw))
+                yield return raw;
+
+            for (int width = 2; width <= 8; width++)
+            {
+                string padded = skillId.ToString("D" + width);
+                if (seen.Add(padded))
+                    yield return padded;
+            }
+        }
 
         // Mount resources (.img / xml)
         public static string GameCharacterTamingMobRoot;
@@ -315,10 +354,11 @@ namespace SuperSkillTool
 
         private static string ResolveDefaultToolRoot()
         {
+            string discovered = "";
             try
             {
                 string cwd = NormalizeDirectoryLikePath(Environment.CurrentDirectory);
-                if (!string.IsNullOrWhiteSpace(cwd))
+                if (IsUsableToolRoot(cwd) && HasToolRootMarker(cwd))
                     return cwd;
             }
             catch
@@ -328,14 +368,102 @@ namespace SuperSkillTool
             try
             {
                 string baseDir = NormalizeDirectoryLikePath(AppContext.BaseDirectory);
-                if (!string.IsNullOrWhiteSpace(baseDir))
+                discovered = FindToolRootFrom(baseDir);
+                if (!string.IsNullOrWhiteSpace(discovered))
+                    return discovered;
+                if (IsUsableToolRoot(baseDir))
                     return baseDir;
             }
             catch
             {
             }
 
+            try
+            {
+                string cwd = NormalizeDirectoryLikePath(Environment.CurrentDirectory);
+                if (IsUsableToolRoot(cwd))
+                    return cwd;
+            }
+            catch
+            {
+            }
+
             return ".";
+        }
+
+        private static string FindToolRootFrom(string startDir)
+        {
+            string current = NormalizeDirectoryLikePath(startDir);
+            if (string.IsNullOrWhiteSpace(current))
+                return "";
+
+            for (int i = 0; i < 8; i++)
+            {
+                if (IsUsableToolRoot(current) && HasToolRootMarker(current))
+                    return current;
+
+                DirectoryInfo parent;
+                try
+                {
+                    parent = Directory.GetParent(current);
+                }
+                catch
+                {
+                    break;
+                }
+
+                if (parent == null)
+                    break;
+                current = NormalizeDirectoryLikePath(parent.FullName);
+            }
+
+            return "";
+        }
+
+        private static bool HasToolRootMarker(string dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir))
+                return false;
+
+            try
+            {
+                return File.Exists(Path.Combine(dir, "settings.json"))
+                    || File.Exists(Path.Combine(dir, "SuperSkillTool.csproj"))
+                    || File.Exists(Path.Combine(dir, "pending_skills.json"));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsUsableToolRoot(string dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir))
+                return false;
+            return !IsWindowsSystemDirectory(dir);
+        }
+
+        private static bool IsWindowsSystemDirectory(string dir)
+        {
+            string normalized = NormalizeDirectoryLikePath(dir);
+            if (string.IsNullOrWhiteSpace(normalized))
+                return false;
+
+            try
+            {
+                string windows = NormalizeDirectoryLikePath(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+                if (string.IsNullOrWhiteSpace(windows))
+                    return false;
+
+                return PathEquals(normalized, windows)
+                    || normalized.StartsWith(windows + "\\System32", StringComparison.OrdinalIgnoreCase)
+                    || normalized.StartsWith(windows + "\\SysWOW64", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static string ResolveDefaultServerRoot()
