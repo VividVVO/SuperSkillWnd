@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>系统登录 - 授权管理控制台</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <!-- Element Plus CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.8.0/dist/index.css">
+    <style>
+        /* ---------------------------------
+           全局变量与基础重置
+        --------------------------------- */
+        :root {
+            --el-color-primary: #136f63;
+            --el-color-primary-light-3: #2f8d80;
+            --el-color-primary-light-5: #59a89f;
+            --el-color-primary-light-8: #c9e9e3;
+            --el-color-primary-dark-2: #0d594f;
+            --el-border-radius-base: 12px;
+            --el-font-family: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            min-height: 100%;
+            background-color: #f3f7f6;
+        }
+
+        body {
+            color: #102227;
+            background:
+                    radial-gradient(circle at 20% 0%, rgba(19, 111, 99, 0.2), transparent 40%),
+                    radial-gradient(circle at 80% 100%, rgba(244, 176, 91, 0.15), transparent 40%),
+                    linear-gradient(135deg, #f0f5f4 0%, #eef2ef 50%, #edf1f8 100%);
+            background-attachment: fixed;
+            font-family: var(--el-font-family);
+            -webkit-font-smoothing: antialiased;
+            overflow: hidden; /* 防止背景模糊溢出 */
+        }
+
+        /* ---------------------------------
+           页面框架与背景光晕
+        --------------------------------- */
+        .login-wrapper {
+            position: relative;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .ambient {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(90px);
+            opacity: 0.7;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .ambient-a {
+            top: -10vh;
+            left: -10vw;
+            width: 50vw;
+            height: 50vw;
+            max-width: 600px;
+            max-height: 600px;
+            background: rgba(19, 111, 99, 0.25);
+            animation: float 10s ease-in-out infinite alternate;
+        }
+
+        .ambient-b {
+            bottom: -10vh;
+            right: -10vw;
+            width: 60vw;
+            height: 60vw;
+            max-width: 700px;
+            max-height: 700px;
+            background: rgba(248, 181, 104, 0.2);
+            animation: float 12s ease-in-out infinite alternate-reverse;
+        }
+
+        @keyframes float {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(30px, 40px) scale(1.05); }
+        }
+
+        /* ---------------------------------
+           登录卡片主体
+        --------------------------------- */
+        .login-card {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 440px;
+            padding: 48px 40px;
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            border-radius: 32px;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.65));
+            box-shadow: 0 24px 60px rgba(15, 38, 42, 0.12);
+            backdrop-filter: blur(24px);
+            transform: translateY(20px);
+            opacity: 0;
+            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes slideUp {
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 36px;
+        }
+
+        .login-logo {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 64px;
+            height: 64px;
+            border-radius: 20px;
+            background: linear-gradient(135deg, var(--el-color-primary), var(--el-color-primary-light-3));
+            color: white;
+            font-size: 32px;
+            margin-bottom: 20px;
+            box-shadow: 0 12px 24px rgba(19, 111, 99, 0.3);
+        }
+
+        .login-header h1 {
+            margin: 0 0 8px;
+            font-size: 26px;
+            font-weight: 800;
+            color: #0b3d36;
+            letter-spacing: -0.02em;
+        }
+
+        .login-header p {
+            margin: 0;
+            font-size: 14px;
+            color: #6a7f84;
+        }
+
+        /* ---------------------------------
+           表单控件美化
+        --------------------------------- */
+        .el-form-item {
+            margin-bottom: 24px;
+        }
+
+        .el-input__wrapper {
+            box-shadow: 0 0 0 1px rgba(202, 214, 218, 0.8) inset !important;
+            border-radius: 14px;
+            background-color: rgba(255, 255, 255, 0.7) !important;
+            padding: 6px 14px !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .el-input__inner {
+            height: 38px !important;
+            font-size: 15px;
+        }
+
+        .el-input__wrapper.is-focus {
+            box-shadow: 0 0 0 1px var(--el-color-primary) inset, 0 0 0 5px rgba(19, 111, 99, 0.1) !important;
+            background-color: #fff !important;
+        }
+
+        .login-options {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: -8px;
+            margin-bottom: 32px;
+        }
+
+        .login-options .el-checkbox__label {
+            color: #527078;
+        }
+
+        .forgot-link {
+            font-size: 14px;
+            color: var(--el-color-primary);
+            text-decoration: none;
+            transition: opacity 0.2s;
+        }
+
+        .forgot-link:hover {
+            opacity: 0.8;
+        }
+
+        .submit-btn {
+            width: 100%;
+            height: 52px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 16px;
+            letter-spacing: 0.05em;
+            transition: all 0.3s;
+            background: linear-gradient(90deg, var(--el-color-primary), var(--el-color-primary-light-3));
+            border: none;
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(19, 111, 99, 0.25);
+        }
+
+        .submit-btn:active {
+            transform: translateY(0);
+        }
+
+        .copyright {
+            position: absolute;
+            bottom: 24px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            font-size: 13px;
+            color: #8b9ea1;
+            z-index: 1;
+        }
+
+        @media (max-width: 480px) {
+            .login-card {
+                padding: 40px 24px;
+                border-radius: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="login-wrapper">
+        <!-- 动态背景光晕 -->
+        <div class="ambient ambient-a"></div>
+        <div class="ambient ambient-b"></div>
+
+        <!-- 登录表单卡片 -->
+        <div class="login-card">
+            <div class="login-header">
+                <div class="login-logo">
+                    <el-icon><Monitor /></el-icon>
+                </div>
+                <h1>授权管理后台</h1>
+                <p>Sign in to License Control Center</p>
+            </div>
+
+            <el-form ref="loginFormRef" :model="form" :rules="rules" @keyup.enter="handleLogin">
+                <el-form-item prop="username">
+                    <el-input
+                            v-model.trim="form.username"
+                            placeholder="请输入管理员账号"
+                            :prefix-icon="UserIcon"
+                            clearable>
+                    </el-input>
+                </el-form-item>
+
+                <el-form-item prop="password">
+                    <el-input
+                            v-model="form.password"
+                            type="password"
+                            placeholder="请输入管理员密码"
+                            :prefix-icon="LockIcon"
+                            show-password>
+                    </el-input>
+                </el-form-item>
+
+                <div class="login-options">
+                    <el-checkbox v-model="form.remember">记住我</el-checkbox>
+                    <!-- 预留忘记密码接口位置 -->
+                    <!-- <a href="#" class="forgot-link">忘记密码?</a> -->
+                </div>
+
+                <el-form-item style="margin-bottom: 0;">
+                    <el-button
+                            type="primary"
+                            class="submit-btn"
+                            :loading="loading"
+                            @click="handleLogin">
+                        {{ loading ? '正在验证身份...' : '登 录' }}
+                    </el-button>
+                </el-form-item>
+            </el-form>
+        </div>
+
+        <div class="copyright">
+            &copy; 2024 License Control Center. All rights reserved.
+        </div>
+    </div>
+</div>
+
+<!-- Vue 3 & Element Plus & Icons -->
+<script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/element-plus@2.8.0/dist/index.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue@2.3.1/dist/index.iife.min.js"></script>
+
+<script>
+    (() => {
+        const app = Vue.createApp({
+            setup() {
+                const { User, Lock, Monitor } = ElementPlusIconsVue;
+                return {
+                    UserIcon: User,
+                    LockIcon: Lock,
+                    MonitorIcon: Monitor
+                };
+            },
+            data() {
+                return {
+                    loading: false,
+                    form: {
+                        username: '',
+                        password: '',
+                        remember: false
+                    },
+                    rules: {
+                        username: [
+                            { required: true, message: '账号不能为空', trigger: 'blur' }
+                        ],
+                        password: [
+                            { required: true, message: '密码不能为空', trigger: 'blur' }
+                        ]
+                    }
+                };
+            },
+            methods: {
+                async handleLogin() {
+                    if (!this.$refs.loginFormRef) return;
+
+                    // 触发表单校验
+                    const valid = await this.$refs.loginFormRef.validate().catch(() => false);
+                    if (!valid) return;
+
+                    this.loading = true;
+
+                    try {
+                        const params = new URLSearchParams(window.location.search);
+                        const next = params.get('next');
+                        const loginURL = next
+                            ? `/admin/api/login?next=${encodeURIComponent(next)}`
+                            : '/admin/api/login';
+
+                        const response = await fetch(loginURL, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            credentials: 'same-origin',
+                            body: JSON.stringify(this.form)
+                        });
+
+                        const data = await response.json().catch(() => ({}));
+                        if (!response.ok || !data.ok) {
+                            throw new Error(data.message || '登录失败');
+                        }
+
+                        ElementPlus.ElMessage.success({
+                            message: data.message || '登录成功，正在跳转...',
+                            duration: 1200
+                        });
+
+                        window.setTimeout(() => {
+                            window.location.href = data.redirect_to || '/admin/licenses';
+                        }, 700);
+                    } catch (error) {
+                        ElementPlus.ElMessage.error(error?.message || '网络请求失败，请稍后再试');
+                    } finally {
+                        this.loading = false;
+                    }
+                }
+            }
+        });
+
+        // 注册 Element Plus 和 图标
+        app.use(ElementPlus);
+        for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+            app.component(key, component);
+        }
+
+        app.mount('#app');
+    })();
+</script>
+</body>
+</html>

@@ -5898,24 +5898,10 @@ namespace
             packetLen,
             (DWORD)(uintptr_t)callerRetAddr);
 
-        SuperSkillDefinition definition = {};
-        if (FindSuperSkillDefinition(targetSkillId, definition))
-        {
-            SkillItem* item = FindManagerSkillItem(GetBridgeManager(), targetSkillId);
-            const int currentLevel = item ? item->level : GetTrackedSkillLevel(targetSkillId);
-            const int nextSkillLevel = currentLevel + 1;
-            int nextCarrierPoints = ResolveAvailableSuperSkillPointsForCarrier(observedSkillId);
-            const int superSpCost = definition.superSpCost > 0 ? definition.superSpCost : 1;
-            nextCarrierPoints -= superSpCost;
-            if (nextCarrierPoints < 0)
-                nextCarrierPoints = 0;
-
-            ApplyOptimisticSuperSkillUpgradeObservation(
-                targetSkillId,
-                observedSkillId,
-                nextSkillLevel,
-                nextCarrierPoints);
-        }
+        // Super-skill upgrades now wait for the authoritative server sync packet
+        // instead of optimistic local +1 / -SP. Fail paths only send enableActions()
+        // and no level-sync packet, so optimistic bookkeeping could leave the UI
+        // showing a fake level/SP increase for rejected upgrades.
 
         ClearPendingSuperSkillUpgradePacketRewrite();
         return true;

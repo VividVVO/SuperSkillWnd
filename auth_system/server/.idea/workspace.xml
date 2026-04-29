@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="ALL" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="0603c343-35b8-4bb5-a411-91cf18a32f2a" name="更改" comment="">
+      <change afterPath="$PROJECT_DIR$/internal/web/templates/login.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../src/core/Common.h" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/core/Common.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../src/core/GameAddresses.h" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/core/GameAddresses.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../src/dllmain.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/dllmain.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../src/runtime/dllmain_section_core_ui.inl" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/runtime/dllmain_section_core_ui.inl" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../src/runtime/dllmain_section_runtime_hooks.inl" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/runtime/dllmain_section_runtime_hooks.inl" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../src/skill/skill_overlay_bridge.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/skill/skill_overlay_bridge.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../src/ui/retro_skill_app.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/ui/retro_skill_app.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../src/ui/retro_skill_app.h" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/ui/retro_skill_app.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../src/ui/retro_skill_panel.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/ui/retro_skill_panel.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../src/ui/super_imgui_overlay.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/ui/super_imgui_overlay.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../src/ui/super_imgui_overlay_d3d8.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/ui/super_imgui_overlay_d3d8.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../tools/SkillImgReader/Program.cs" beforeDir="false" afterPath="$PROJECT_DIR$/../../tools/SkillImgReader/Program.cs" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="HTML File" />
+      </list>
+    </option>
+  </component>
+  <component name="GOROOT" url="file://$USER_HOME$/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.8.windows-amd64" />
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/../.." />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 1
+}]]></component>
+  <component name="ProjectId" id="3Cp2IQkr12JFsZTV4raPOZi70t9" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "DefaultHtmlFileTemplate": "HTML File",
+    "Go 构建.go build authsystem/server/cmd/authserver.executor": "Debug",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.go.formatter.settings.were.checked": "true",
+    "RunOnceActivity.go.migrated.go.modules.settings": "true",
+    "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
+    "git-widget-placeholder": "backup/20260422-mount-retrigger",
+    "go.import.settings.migrated": "true",
+    "go.sdk.automatically.set": "true",
+    "last_opened_file_path": "G:/code/c++/SuperSkillWnd/auth_system/server",
+    "node.js.detected.package.eslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RunManager">
+    <configuration name="go build authsystem/server/cmd/authserver" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
+      <module name="server" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="authsystem/server/cmd/authserver" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$/cmd/authserver/main.go" />
+      <method v="2" />
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Go 构建.go build authsystem/server/cmd/authserver" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-gosdk-d297c17c1fbd-57c114c3cede-org.jetbrains.plugins.go.sharedIndexes.bundled-GO-243.26053.20" />
+        <option value="bundled-js-predefined-d6986cc7102b-1632447f56bf-JavaScript-GO-243.26053.20" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="应用程序级" UseSingleDictionary="true" transferred="true" />
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="VgoProject">
+    <settings-migrated>true</settings-migrated>
+  </component>
+</project>

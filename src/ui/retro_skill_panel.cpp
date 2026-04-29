@@ -2240,7 +2240,18 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
 
             char levelText[32];
             sprintf_s(levelText, "%d", skill.level);
-            DrawOutlinedText(dl, ImVec2(floorf(textPos.x), floorf(textPos.y + 17.0f * mainScale)), primaryTextColor, levelText, mainScale, floorf(12.0f * mainScale));
+            const float skillLevelFontSize = floorf(12.0f * mainScale);
+            const float skillLevelGlyphSpacing = 1.0f * mainScale;
+            const ImVec2 levelTextPos(floorf(textPos.x), floorf(textPos.y + 17.0f * mainScale));
+            const ImVec2 levelTextSize = MeasureRetroText(levelText, skillLevelFontSize, skillLevelGlyphSpacing);
+            DrawOutlinedText(
+                dl,
+                levelTextPos,
+                primaryTextColor,
+                levelText,
+                mainScale,
+                skillLevelFontSize,
+                skillLevelGlyphSpacing);
 
             if (skill.bonusLevel > 0)
             {
@@ -2248,7 +2259,7 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
                 sprintf_s(bonusText, "(+%d)", skill.bonusLevel);
                 DrawOutlinedText(
                     dl,
-                    ImVec2(floorf(textPos.x + 17.0f * mainScale), floorf(textPos.y + 17.0f * mainScale)),
+                    ImVec2(floorf(levelTextPos.x + levelTextSize.x + 2.0f * mainScale), floorf(levelTextPos.y)),
                     bonusTextColor,
                     bonusText,
                     mainScale,

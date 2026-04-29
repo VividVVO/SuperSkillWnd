@@ -10142,7 +10142,13 @@ static double ResolveMountedFlightVerticalMaxAbsRawVelDelta(
 {
     if (IsMountedFlightPhysicsHumanPercentRouteSample(mountItemId, dataKey))
     {
-        return 8.0;
+        // Unlock-only / native-percent routes still hit a short vertical
+        // impulse while entering cruise. Keeping the old 8.0 cap delays Y
+        // scaling until roughly half a second into flight, which is why
+        // "上下飞行起步" still feels sluggish even after key priming was
+        // fixed. A slightly wider window keeps takeoff under control while
+        // allowing vertical acceleration to begin earlier.
+        return 14.0;
     }
 
     // The native "up+jump to enter flight" climb still flows through B844D0.
@@ -10150,7 +10156,7 @@ static double ResolveMountedFlightVerticalMaxAbsRawVelDelta(
     // stable up/down cruise usually settles to near-constant velocity. Skip
     // scaling the impulse frames so mounted flight gets faster without turning
     // takeoff into a long upward launch.
-    return IsMountedFlightScaleSourceSwim(scaleSource) ? 8.0 : 0.0;
+    return IsMountedFlightScaleSourceSwim(scaleSource) ? 12.0 : 0.0;
 }
 
 static bool TryResolveMountedFlightScalarAdaptiveScale(
