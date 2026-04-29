@@ -304,6 +304,7 @@ namespace
         int mountTamingMobId = 0;
         bool mountedDoubleJumpEnabled = false;
         int mountedDoubleJumpSkillId = 0;
+        bool useNativeMountMovement = false;
         bool hasMountSpeedOverride = false;
         int mountSpeedOverride = 0;
         bool hasMountJumpOverride = false;
@@ -1885,13 +1886,54 @@ namespace
         return true;
     }
 
+    bool DefinitionHasMountMovementIdentity(const SuperSkillDefinition& definition)
+    {
+        return definition.mountItemId > 0 || definition.mountTamingMobId > 0;
+    }
+
     bool DefinitionHasMountMovementOverride(const SuperSkillDefinition& definition)
     {
-        return definition.mountTamingMobId > 0 &&
+        return DefinitionHasMountMovementIdentity(definition) &&
                (definition.hasMountSpeedOverride ||
                 definition.hasMountJumpOverride ||
                 definition.hasMountFsOverride ||
                 definition.hasMountSwimOverride);
+    }
+
+    bool DefinitionParticipatesInMountMovementSelection(const SuperSkillDefinition& definition)
+    {
+        return DefinitionHasMountMovementIdentity(definition) &&
+               (definition.useNativeMountMovement ||
+                DefinitionHasMountMovementOverride(definition));
+    }
+
+    bool DoesMountedMovementDefinitionMatch(
+        const SuperSkillDefinition& definition,
+        int mountItemId,
+        int tamingMobId)
+    {
+        bool matched = false;
+
+        if (definition.mountItemId > 0)
+        {
+            if (mountItemId <= 0 || definition.mountItemId != mountItemId)
+                return false;
+            matched = true;
+        }
+
+        if (definition.mountTamingMobId > 0 && tamingMobId > 0)
+        {
+            if (definition.mountTamingMobId == tamingMobId)
+            {
+                matched = true;
+            }
+            else if (!matched)
+            {
+                return false;
+            }
+        }
+
+        return matched;
     }
 
     void PopulateMountedMovementOverrideFromDefinition(
@@ -1901,9 +1943,19 @@ namespace
     {
         outOverride = MountedMovementOverride();
         outOverride.matched = true;
+        outOverride.useNativeMovement = definition.useNativeMountMovement;
         outOverride.sourceSkillId = definition.skillId;
         outOverride.mountItemId = definition.mountItemId;
         outOverride.tamingMobId = definition.mountTamingMobId > 0 ? definition.mountTamingMobId : tamingMobId;
+        if (definition.useNativeMountMovement)
+        {
+            // Explicit "unlock-only" mode: keep mount identity/selection so
+            // double-jump and soaring routing still know which skill owns the
+            // mount, but do not overwrite the movement values read from the
+            // client img/cache.
+            return;
+        }
+
         // Mount movement fields are optional. If a config omits mountSpeed /
         // mountJump / mountFs / mountSwim, the corresponding has* flag stays
         // false and runtime should keep the original movement values loaded
@@ -1941,14 +1993,12 @@ namespace
 
         SuperSkillDefinition definition = {};
         if (!FindSuperSkillDefinition(skillId, definition) ||
-            !DefinitionHasMountMovementOverride(definition))
+            !DefinitionParticipatesInMountMovementSelection(definition))
         {
             return false;
         }
 
-        if (definition.mountItemId > 0 && mountItemId > 0 && definition.mountItemId != mountItemId)
-            return false;
-        if (definition.mountTamingMobId > 0 && tamingMobId > 0 && definition.mountTamingMobId != tamingMobId)
+        if (!DoesMountedMovementDefinitionMatch(definition, mountItemId, tamingMobId))
             return false;
 
         outDefinition = definition;
@@ -2034,11 +2084,9 @@ namespace
              ++it)
         {
             const SuperSkillDefinition& definition = it->second;
-            if (!DefinitionHasMountMovementOverride(definition))
+            if (!DefinitionParticipatesInMountMovementSelection(definition))
                 continue;
-            if (definition.mountItemId > 0 && mountItemId > 0 && definition.mountItemId != mountItemId)
-                continue;
-            if (definition.mountTamingMobId > 0 && tamingMobId > 0 && definition.mountTamingMobId != tamingMobId)
+            if (!DoesMountedMovementDefinitionMatch(definition, mountItemId, tamingMobId))
                 continue;
 
             const bool jobMatches = DoesSuperSkillMatchCurrentJob(definition);
@@ -3403,6 +3451,7 @@ namespace
             ParseJsonInt(skillJson, "behaviorSkillId", definition.behaviorSkillId);
             ParseJsonInt(skillJson, "mountItemId", definition.mountItemId);
             ParseJsonInt(skillJson, "mountTamingMobId", definition.mountTamingMobId);
+            ParseJsonBool(skillJson, "useNativeMountMovement", definition.useNativeMountMovement);
             if (ParseJsonInt(skillJson, "mountSpeed", definition.mountSpeedOverride))
                 definition.hasMountSpeedOverride = true;
             if (ParseJsonInt(skillJson, "mountJump", definition.mountJumpOverride))
@@ -10170,13 +10219,13 @@ bool SkillOverlayBridgeResolveMountedMovementOverride(int mountItemId, int tamin
 
     PopulateMountedMovementOverrideFromDefinition(definition, tamingMobId, outOverride);
 
-    return outOverride.hasSpeed || outOverride.hasJump || outOverride.hasFs || outOverride.hasSwim;
+    return outOverride.matched;
 }
 
 bool SkillOverlayBridgeResolveMountedSoaringOverride(int mountItemId, int tamingMobId, MountedMovementOverride& outOverride)
 {
     outOverride = MountedMovementOverride();
-    if (mountItemId <= 0 || tamingMobId <= 0)
+    if (mountItemId <= 0 && tamingMobId <= 0)
         return false;
 
     int preferredSkillId = 0;
@@ -10190,7 +10239,7 @@ bool SkillOverlayBridgeResolveMountedSoaringOverride(int mountItemId, int taming
                 preferredDefinition))
         {
             PopulateMountedMovementOverrideFromDefinition(preferredDefinition, tamingMobId, outOverride);
-            return outOverride.hasSpeed || outOverride.hasJump || outOverride.hasFs || outOverride.hasSwim;
+            return outOverride.matched;
         }
     }
 
@@ -10206,11 +10255,9 @@ bool SkillOverlayBridgeResolveMountedSoaringOverride(int mountItemId, int taming
          ++it)
     {
         const SuperSkillDefinition& definition = it->second;
-        if (!DefinitionHasMountMovementOverride(definition))
+        if (!DefinitionParticipatesInMountMovementSelection(definition))
             continue;
-        if (definition.mountItemId > 0 && definition.mountItemId != mountItemId)
-            continue;
-        if (definition.mountTamingMobId > 0 && definition.mountTamingMobId != tamingMobId)
+        if (!DoesMountedMovementDefinitionMatch(definition, mountItemId, tamingMobId))
             continue;
 
         double candidateScore = 0.0;
@@ -11437,7 +11484,7 @@ void SkillOverlayBridgeInspectOutgoingPacket(void* packetData, int packetLen, ui
         SuperSkillDefinition observedDefinition = {};
         if (selectionSkillId > 0 &&
             FindSuperSkillDefinition(selectionSkillId, observedDefinition) &&
-            DefinitionHasMountMovementOverride(observedDefinition))
+            DefinitionParticipatesInMountMovementSelection(observedDefinition))
         {
             ObserveMountedMovementOverrideSelection(mountItemId, selectionSkillId);
         }
@@ -11715,7 +11762,7 @@ bool SkillOverlayBridgeUseSkill(int skillId)
 
                 SuperSkillDefinition observedDefinition = {};
                 if (FindSuperSkillDefinition(skillId, observedDefinition) &&
-                    DefinitionHasMountMovementOverride(observedDefinition) &&
+                    DefinitionParticipatesInMountMovementSelection(observedDefinition) &&
                     observedDefinition.mountItemId > 0)
                 {
                     ObserveMountedMovementOverrideSelection(

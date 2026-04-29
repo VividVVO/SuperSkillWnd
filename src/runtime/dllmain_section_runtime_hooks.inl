@@ -2058,6 +2058,12 @@ static const bool kEnableMountMovementObservationHooks = true;
 static const bool kEnableMountedFlightPhysicsSpeedHooks = true;
 static bool TryReadCurrentUserMountItemId(int *mountItemIdOut);
 static bool TryReadMountItemIdFromPlayerObject(void *playerObj, int *mountItemIdOut);
+static bool TryGetRecentMountedMovementRawSample(
+    int *mountItemIdOut,
+    int *dataKeyOut,
+    int *speedOut,
+    int *jumpOut,
+    DWORD maxAgeMs);
 static bool TryResolveCurrentUserMountItemIdWithFallback(
     int *mountItemIdOut,
     const char **sourceOut = nullptr);
@@ -2118,9 +2124,18 @@ static DWORD g_AbilityRedSibling82FA50LastTick = 0;
 static int g_AbilityRedSibling82FA50LastActive = -1;
 static LONG g_MountMovementObserveLogBudget = 32;
 static LONG g_MountMovementOverrideMissLogBudget = 16;
+static volatile LONG g_RecentMountedMovementRawMountItemId = 0;
+static volatile LONG g_RecentMountedMovementRawDataKey = 0;
+static volatile LONG g_RecentMountedMovementRawSpeed = 0;
+static volatile LONG g_RecentMountedMovementRawJump = 0;
+static volatile LONG g_RecentMountedMovementRawTick = 0;
 static LONG g_MountedFlightPhysicsScaleLogBudget = 96;
 static LONG g_MountedFlightPhysicsEntryLogBudget = 96;
 static LONG g_MountedFlightPhysicsDeltaLogBudget = 24;
+static LONG g_MountMovementNativeCacheRebuildLogBudget = 24;
+static volatile LONG g_MountMovementNativeCacheRebuildInProgress = 0;
+static volatile LONG g_LastMountMovementNativeCacheRebuildDataKey = 0;
+static volatile LONG g_LastMountMovementNativeCacheRebuildTick = 0;
 static DWORD g_AbilityRedDiff84C470LastCaller = 0;
 static uintptr_t g_AbilityRedDiff84C470LastThis = 0;
 static DWORD g_AbilityRedDiff84C470LastTick = 0;
@@ -2231,6 +2246,36 @@ static bool TryFindMountedFlightPhysicsScaleHistorySample(
     return true;
 }
 
+static bool TryGetMountedFlightPhysicsScaleSampleForRoute(
+    int mountItemId,
+    int dataKey,
+    MountedFlightPhysicsScaleSample *sampleOut)
+{
+    if (sampleOut)
+    {
+        ZeroMemory(sampleOut, sizeof(*sampleOut));
+    }
+    if (mountItemId <= 0 || dataKey <= 0 || !sampleOut)
+    {
+        return false;
+    }
+
+    const MountedFlightPhysicsScaleSample liveSample =
+        g_MountedFlightPhysicsScaleSample;
+    if (liveSample.mountItemId == mountItemId &&
+        liveSample.dataKey == dataKey &&
+        liveSample.tick != 0)
+    {
+        *sampleOut = liveSample;
+        return true;
+    }
+
+    return TryFindMountedFlightPhysicsScaleHistorySample(
+        mountItemId,
+        dataKey,
+        sampleOut);
+}
+
 static void RememberMountedFlightPhysicsScaleHistorySample(
     const MountedFlightPhysicsScaleSample &sample)
 {
@@ -2293,6 +2338,59 @@ static bool HasMeaningfulMountedFlightPhysicsScaleBaseline(
         overrideSwim > 0.0 &&
         fabs(nativeSwim - overrideSwim) > 0.5;
     return hasFsBaseline || hasSwimBaseline;
+}
+
+static double NormalizeMountedFlightPhysicsHumanScalar(double rawValue)
+{
+    if (!(rawValue > 0.0))
+    {
+        return 0.0;
+    }
+
+    double normalizedValue = rawValue;
+    while (normalizedValue > 999.0)
+    {
+        normalizedValue /= 10.0;
+    }
+    return normalizedValue;
+}
+
+static bool IsMountedFlightPhysicsHumanPercentBaselineValue(
+    double nativeValue,
+    double overrideValue)
+{
+    return nativeValue >= 95.0 &&
+           nativeValue <= 105.0 &&
+           overrideValue > nativeValue + 0.001 &&
+           overrideValue <= 999.0;
+}
+
+static bool IsMountedFlightPhysicsHumanPercentScaleSample(
+    const MountedFlightPhysicsScaleSample &sample)
+{
+    if (sample.mountItemId <= 0 || sample.dataKey <= 0 || sample.tick == 0)
+    {
+        return false;
+    }
+
+    return IsMountedFlightPhysicsHumanPercentBaselineValue(
+               sample.nativeFs,
+               sample.overrideFs) ||
+           IsMountedFlightPhysicsHumanPercentBaselineValue(
+               sample.nativeSwim,
+               sample.overrideSwim);
+}
+
+static bool IsMountedFlightPhysicsHumanPercentRouteSample(
+    int mountItemId,
+    int dataKey)
+{
+    MountedFlightPhysicsScaleSample sample = {};
+    return TryGetMountedFlightPhysicsScaleSampleForRoute(
+               mountItemId,
+               dataKey,
+               &sample) &&
+           IsMountedFlightPhysicsHumanPercentScaleSample(sample);
 }
 
 static void RememberMountedFlightPhysicsScaleSample(
@@ -3615,7 +3713,7 @@ static const int kMovementJumpProtectHighValueThreshold = 123;
 static const int kMovementSetterPreserveMinValue = 100;
 static const int kMovementSpeedProtectLegacyRewriteThreshold = 220;
 static const int kMovementJumpProtectLegacyRewriteThreshold = 140;
-static const bool kEnableGlobalMovementOutputClampHook = false;
+static const bool kEnableGlobalMovementOutputClampHook = true;
 static const DWORD kMountedFlightCruiseMinActiveMs = 120;
 static const DWORD kMountedSoaringFlightActiveRefreshGapMs = 3000;
 static const DWORD kMountedSoaringFlightActiveTimeoutMs = 10000;
@@ -3779,13 +3877,36 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
     if (!a8 || SafeIsBadWritePtr(a8, sizeof(int)))
         return result;
 
+    int mountedRawMountItemId = 0;
+    int mountedRawDataKey = 0;
+    int mountedRawSpeed = 0;
+    int mountedRawJump = 0;
+    const bool hasMountedRawSample =
+        TryGetRecentMountedMovementRawSample(
+            &mountedRawMountItemId,
+            &mountedRawDataKey,
+            &mountedRawSpeed,
+            &mountedRawJump,
+            1200);
+    MountedMovementOverride mountedRawOverride = {};
+    const bool shouldRaiseFromMountedRaw =
+        hasMountedRawSample &&
+        SkillOverlayBridgeResolveMountedMovementOverride(
+            mountedRawMountItemId,
+            mountedRawDataKey,
+            mountedRawOverride) &&
+        mountedRawOverride.matched;
+
     DWORD *baseExtended = reinterpret_cast<DWORD *>(0x00F6D200);
     int decodedSpeed = 0;
     int decodedJump = 0;
     const bool hasSpeed = ReadEncryptedTripletValue(baseExtended, 159, &decodedSpeed);
     const bool hasJump = ReadEncryptedTripletValue(baseExtended, 171, &decodedJump);
     if ((!hasSpeed || decodedSpeed <= kMovementSpeedProtectHighValueThreshold) &&
-        (!hasJump || decodedJump <= kMovementJumpProtectHighValueThreshold))
+        (!hasJump || decodedJump <= kMovementJumpProtectHighValueThreshold) &&
+        (!shouldRaiseFromMountedRaw ||
+         (mountedRawSpeed <= kMovementSpeedProtectHighValueThreshold &&
+          mountedRawJump <= kMovementJumpProtectHighValueThreshold)))
     {
         return result;
     }
@@ -3835,6 +3956,20 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
         raisedJumpOut = decodedJump;
     }
 
+    if (shouldRaiseFromMountedRaw)
+    {
+        if (mountedRawSpeed > raisedSpeedOut)
+        {
+            raisedSpeedOut = mountedRawSpeed;
+        }
+        if (a9 &&
+            !SafeIsBadWritePtr(a9, sizeof(int)) &&
+            mountedRawJump > raisedJumpOut)
+        {
+            raisedJumpOut = mountedRawJump;
+        }
+    }
+
     if (raisedSpeedOut != originalSpeedOut)
     {
         *a8 = raisedSpeedOut;
@@ -3849,13 +3984,18 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
         InterlockedDecrement(&g_MovementOutputClampLogBudget) >= 0)
     {
         WriteLogFmt(
-            "[MoveClamp] B93B80 raise speed=%d->%d jump=%d->%d decoded=(%d,%d) a3=0x%08X a4=0x%08X metricExtra=%d",
+            "[MoveClamp] B93B80 raise speed=%d->%d jump=%d->%d decoded=(%d,%d) mountedRaw=[mount=%d key=%d speed=%d jump=%d use=%d] a3=0x%08X a4=0x%08X metricExtra=%d",
             originalSpeedOut,
             raisedSpeedOut,
             originalJumpOut,
             raisedJumpOut,
             decodedSpeed,
             decodedJump,
+            mountedRawMountItemId,
+            mountedRawDataKey,
+            mountedRawSpeed,
+            mountedRawJump,
+            shouldRaiseFromMountedRaw ? 1 : 0,
             a3,
             a4,
             metricExtra);
@@ -7813,6 +7953,212 @@ static bool IsMountMovementObservedDataLookupCaller(DWORD callerRet)
            callerRet == ADDR_B932B2;
 }
 
+static void RememberRecentMountedMovementRawSample(
+    int mountItemId,
+    int dataKey,
+    int speed,
+    int jump)
+{
+    if (mountItemId <= 0 || dataKey <= 0 || speed <= 0 || jump <= 0)
+    {
+        return;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    InterlockedExchange(&g_RecentMountedMovementRawMountItemId, mountItemId);
+    InterlockedExchange(&g_RecentMountedMovementRawDataKey, dataKey);
+    InterlockedExchange(&g_RecentMountedMovementRawSpeed, speed);
+    InterlockedExchange(&g_RecentMountedMovementRawJump, jump);
+    InterlockedExchange(&g_RecentMountedMovementRawTick, static_cast<LONG>(nowTick));
+}
+
+static bool TryGetRecentMountedMovementRawSample(
+    int *mountItemIdOut,
+    int *dataKeyOut,
+    int *speedOut,
+    int *jumpOut,
+    DWORD maxAgeMs)
+{
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = 0;
+    }
+    if (dataKeyOut)
+    {
+        *dataKeyOut = 0;
+    }
+    if (speedOut)
+    {
+        *speedOut = 0;
+    }
+    if (jumpOut)
+    {
+        *jumpOut = 0;
+    }
+
+    const int mountItemId = InterlockedCompareExchange(
+        &g_RecentMountedMovementRawMountItemId,
+        0,
+        0);
+    const int dataKey = InterlockedCompareExchange(
+        &g_RecentMountedMovementRawDataKey,
+        0,
+        0);
+    const int speed = InterlockedCompareExchange(
+        &g_RecentMountedMovementRawSpeed,
+        0,
+        0);
+    const int jump = InterlockedCompareExchange(
+        &g_RecentMountedMovementRawJump,
+        0,
+        0);
+    const DWORD tick = static_cast<DWORD>(InterlockedCompareExchange(
+        &g_RecentMountedMovementRawTick,
+        0,
+        0));
+    if (mountItemId <= 0 || dataKey <= 0 || speed <= 0 || jump <= 0 || tick == 0)
+    {
+        return false;
+    }
+
+    const DWORD allowedAgeMs = maxAgeMs > 0 ? maxAgeMs : 1000;
+    const DWORD nowTick = GetTickCount();
+    if (nowTick - tick > allowedAgeMs)
+    {
+        return false;
+    }
+
+    int currentMountItemId = 0;
+    if (TryResolveCurrentUserMountItemIdWithFallback(&currentMountItemId, nullptr) &&
+        currentMountItemId > 0 &&
+        currentMountItemId != mountItemId)
+    {
+        return false;
+    }
+
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = mountItemId;
+    }
+    if (dataKeyOut)
+    {
+        *dataKeyOut = dataKey;
+    }
+    if (speedOut)
+    {
+        *speedOut = speed;
+    }
+    if (jumpOut)
+    {
+        *jumpOut = jump;
+    }
+
+    return true;
+}
+
+static void ClearRecentMountedMovementRawSample()
+{
+    InterlockedExchange(&g_RecentMountedMovementRawMountItemId, 0);
+    InterlockedExchange(&g_RecentMountedMovementRawDataKey, 0);
+    InterlockedExchange(&g_RecentMountedMovementRawSpeed, 0);
+    InterlockedExchange(&g_RecentMountedMovementRawJump, 0);
+    InterlockedExchange(&g_RecentMountedMovementRawTick, 0);
+}
+
+static bool ShouldAttemptMountedMovementNativeCacheRebuild(
+    const MountedMovementOverride &mountedOverride,
+    int mountItemId,
+    int dataKey,
+    int currentSpeed,
+    int currentJump)
+{
+    if (!mountedOverride.matched ||
+        !mountedOverride.useNativeMovement ||
+        mountItemId <= 0 ||
+        dataKey <= 0)
+    {
+        return false;
+    }
+
+    // Pure native mode should keep the client img/cache values. If a lookup for
+    // that route still lands on the historical 190/123 edge, we are most likely
+    // looking at a cache that was built before our cap-removal patches landed.
+    if (currentSpeed != 190 && currentJump != 123)
+    {
+        return false;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    const LONG lastDataKey = InterlockedCompareExchange(
+        &g_LastMountMovementNativeCacheRebuildDataKey,
+        0,
+        0);
+    const DWORD lastTick = static_cast<DWORD>(InterlockedCompareExchange(
+        &g_LastMountMovementNativeCacheRebuildTick,
+        0,
+        0));
+    return lastDataKey != dataKey ||
+           lastTick == 0 ||
+           nowTick - lastTick > 2000;
+}
+
+static void RememberMountedMovementNativeCacheRebuildAttempt(int dataKey)
+{
+    InterlockedExchange(&g_LastMountMovementNativeCacheRebuildDataKey, dataKey);
+    InterlockedExchange(
+        &g_LastMountMovementNativeCacheRebuildTick,
+        static_cast<LONG>(GetTickCount()));
+}
+
+static bool RebuildMountedMovementNativeCache()
+{
+    if (SafeIsBadReadPtr(reinterpret_cast<void *>(static_cast<uintptr_t>(ADDR_D68820)), 5) ||
+        SafeIsBadReadPtr(reinterpret_cast<void *>(static_cast<uintptr_t>(ADDR_889410)), 5))
+    {
+        return false;
+    }
+
+    if (InterlockedCompareExchange(&g_MountMovementNativeCacheRebuildInProgress, 1, 0) != 0)
+    {
+        return false;
+    }
+
+    bool ok = false;
+    DWORD exceptionCode = 0;
+    __try
+    {
+        // D68820 is the table reset path for off_F56A40; 889410 is the
+        // original client-side TamingMob cache population pass.
+        reinterpret_cast<void (__cdecl *)()>(
+            static_cast<uintptr_t>(ADDR_D68820))();
+        __asm
+        {
+            xor ecx, ecx
+            mov eax, ADDR_889410
+            call eax
+        }
+        ClearMountedFlightPhysicsScaleSample();
+        ClearRecentMountedMovementRawSample();
+        ok = true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        exceptionCode = static_cast<DWORD>(GetExceptionCode());
+        ok = false;
+    }
+
+    InterlockedExchange(&g_MountMovementNativeCacheRebuildInProgress, 0);
+
+    if (InterlockedDecrement(&g_MountMovementNativeCacheRebuildLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountMoveNativeCache] rebuild ok=%d exception=0x%08X",
+            ok ? 1 : 0,
+            exceptionCode);
+    }
+    return ok;
+}
+
 static bool TryApplyMountedMovementOverrideToCachedData(
     int mountItemId,
     int dataKey,
@@ -7903,6 +8249,7 @@ static bool TryApplyMountedMovementOverrideToCachedData(
     }
 
     bool wroteAny = false;
+
     __try
     {
         if (mountedOverride.hasSpeed)
@@ -7941,7 +8288,7 @@ static bool TryApplyMountedMovementOverrideToCachedData(
         wroteAny = false;
     }
 
-    if (wroteAny && appliedOverrideOut)
+    if (appliedOverrideOut && mountedOverride.matched)
         *appliedOverrideOut = mountedOverride;
     return wroteAny;
 }
@@ -7964,9 +8311,9 @@ static const char *DescribeMountMovementObservedDataLookupCaller(DWORD callerRet
 static int __cdecl hkMountMovementDataLookup888B30(int dataKey)
 {
     const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
-    const int result = oMountMovementDataLookup888B30
-                           ? oMountMovementDataLookup888B30(dataKey)
-                           : 0;
+    int result = oMountMovementDataLookup888B30
+                     ? oMountMovementDataLookup888B30(dataKey)
+                     : 0;
     if (!IsMountMovementObservedDataLookupCaller(callerRet))
     {
         return result;
@@ -7976,6 +8323,15 @@ static int __cdecl hkMountMovementDataLookup888B30(int dataKey)
 
     int mountItemId = 0;
     TryResolveCurrentUserMountItemIdWithFallback(&mountItemId, nullptr);
+
+    MountedMovementOverride resolvedOverride = {};
+    const bool hasResolvedOverride =
+        mountItemId > 0 &&
+        SkillOverlayBridgeResolveMountedMovementOverride(
+            mountItemId,
+            dataKey,
+            resolvedOverride) &&
+        resolvedOverride.matched;
 
     bool readable = false;
     int rawSpeed = 0;
@@ -8014,6 +8370,62 @@ static int __cdecl hkMountMovementDataLookup888B30(int dataKey)
         }
     }
 
+    if (hadBeforePatchSnapshot &&
+        hasResolvedOverride &&
+        ShouldAttemptMountedMovementNativeCacheRebuild(
+            resolvedOverride,
+            mountItemId,
+            dataKey,
+            beforePatchSpeed,
+            beforePatchJump))
+    {
+        RememberMountedMovementNativeCacheRebuildAttempt(dataKey);
+        const bool rebuilt = RebuildMountedMovementNativeCache();
+        const int rebuiltResult = rebuilt && oMountMovementDataLookup888B30
+                                      ? oMountMovementDataLookup888B30(dataKey)
+                                      : 0;
+        if (rebuilt && rebuiltResult > 0)
+        {
+            result = rebuiltResult;
+            readable = false;
+            rawSpeed = 0;
+            rawJump = 0;
+            rawFs = 0.0;
+            rawSwim = 0;
+            rawSpeedOverrideFlag = 0;
+            rawJumpOverrideFlag = 0;
+            beforePatchSpeed = 0;
+            beforePatchJump = 0;
+            beforePatchFs = 0.0;
+            beforePatchSwim = 0;
+            hadBeforePatchSnapshot = false;
+
+            if (!SafeIsBadReadPtr(reinterpret_cast<void *>(static_cast<uintptr_t>(result)), 0x38))
+            {
+                __try
+                {
+                    const uintptr_t dataPtr = static_cast<uintptr_t>(result);
+                    rawSpeed = *reinterpret_cast<int *>(dataPtr + 0x14);
+                    rawJump = *reinterpret_cast<int *>(dataPtr + 0x18);
+                    rawFs = *reinterpret_cast<double *>(dataPtr + 0x20);
+                    rawSwim = *reinterpret_cast<DWORD *>(dataPtr + 0x28);
+                    rawSpeedOverrideFlag = *reinterpret_cast<DWORD *>(dataPtr + 0x30);
+                    rawJumpOverrideFlag = *reinterpret_cast<DWORD *>(dataPtr + 0x34);
+                    readable = true;
+                    beforePatchSpeed = rawSpeed;
+                    beforePatchJump = rawJump;
+                    beforePatchFs = rawFs;
+                    beforePatchSwim = rawSwim;
+                    hadBeforePatchSnapshot = true;
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER)
+                {
+                    readable = false;
+                }
+            }
+        }
+    }
+
     MountedMovementOverride appliedOverride = {};
     const bool overrideApplied = TryApplyMountedMovementOverrideToCachedData(
         mountItemId,
@@ -8049,6 +8461,65 @@ static int __cdecl hkMountMovementDataLookup888B30(int dataKey)
             beforePatchFs,
             static_cast<double>(beforePatchSwim),
             appliedOverride);
+    }
+    if (hadBeforePatchSnapshot &&
+        appliedOverride.matched &&
+        appliedOverride.useNativeMovement)
+    {
+        MountedMovementOverride nativeScaleOverride = appliedOverride;
+        nativeScaleOverride.hasFs = false;
+        nativeScaleOverride.fs = 0.0;
+        nativeScaleOverride.hasSwim = false;
+        nativeScaleOverride.swim = 0.0;
+
+        const double normalizedFs =
+            NormalizeMountedFlightPhysicsHumanScalar(beforePatchFs);
+        const double normalizedSwim =
+            NormalizeMountedFlightPhysicsHumanScalar(static_cast<double>(beforePatchSwim));
+
+        if (normalizedFs > 0.0)
+        {
+            nativeScaleOverride.hasFs = true;
+            nativeScaleOverride.fs = normalizedFs;
+        }
+        if (normalizedSwim > 0.0)
+        {
+            nativeScaleOverride.hasSwim = true;
+            nativeScaleOverride.swim = normalizedSwim;
+        }
+
+        if (nativeScaleOverride.hasFs || nativeScaleOverride.hasSwim)
+        {
+            RememberMountedFlightPhysicsScaleSample(
+                mountItemId,
+                dataKey,
+                100.0,
+                100.0,
+                nativeScaleOverride);
+
+            static LONG s_mountMoveNativeSampleLogBudget = 24;
+            if (InterlockedDecrement(&s_mountMoveNativeSampleLogBudget) >= 0)
+            {
+                WriteLogFmt(
+                    "[MountMoveNative] sourceSkill=%d mount=%d key=%d raw=[fs=%.3f swim=%u] normalized=[fs=%.3f swim=%.3f]",
+                    nativeScaleOverride.sourceSkillId,
+                    mountItemId,
+                    dataKey,
+                    beforePatchFs,
+                    beforePatchSwim,
+                    nativeScaleOverride.hasFs ? nativeScaleOverride.fs : -1.0,
+                    nativeScaleOverride.hasSwim ? nativeScaleOverride.swim : -1.0);
+            }
+        }
+    }
+
+    if (readable)
+    {
+        RememberRecentMountedMovementRawSample(
+            mountItemId,
+            dataKey,
+            rawSpeed,
+            rawJump);
     }
 
     if (readable && shouldLog)
@@ -9282,41 +9753,95 @@ static bool IsMountedFlightScaleSourceSwim(const char *scaleSource)
     return scaleSource && strcmp(scaleSource, "swim") == 0;
 }
 
-static double ResolveMountedFlightHorizontalDeltaExtraScaleWeight(const char *scaleSource)
+static double ResolveMountedFlightHorizontalDeltaExtraScaleWeight(
+    int mountItemId,
+    int dataKey,
+    const char *scaleSource)
 {
+    // Native unlock-only mode stores a synthetic 100 -> N sample so mounts that
+    // already use human-percent-like values (300 = 300%) can stay close to a
+    // linear scale instead of reusing the old large-unit compensation weights.
+    if (IsMountedFlightPhysicsHumanPercentRouteSample(mountItemId, dataKey))
+    {
+        return 1.0;
+    }
+
     // Mounts whose sustained flight scale comes from `swim` start from a much
     // smaller native ratio (for example 300000/100000 = 3x on 1932063). The
     // old generic weight made those mounts feel almost unmodified.
     return IsMountedFlightScaleSourceSwim(scaleSource) ? 1.45 : 0.10;
 }
 
-static double ResolveMountedFlightHorizontalDeltaMaxScale(const char *scaleSource)
+static double ResolveMountedFlightHorizontalDeltaMaxScale(
+    int mountItemId,
+    int dataKey,
+    const char *scaleSource)
 {
+    if (IsMountedFlightPhysicsHumanPercentRouteSample(mountItemId, dataKey))
+    {
+        return 8.0;
+    }
     return IsMountedFlightScaleSourceSwim(scaleSource) ? 4.25 : 6.0;
 }
 
-static double ResolveMountedFlightHorizontalMinPosDelta(const char *scaleSource)
+static double ResolveMountedFlightHorizontalMinPosDelta(
+    int mountItemId,
+    int dataKey,
+    const char *scaleSource)
 {
+    if (IsMountedFlightPhysicsHumanPercentRouteSample(mountItemId, dataKey))
+    {
+        return 0.10;
+    }
     return IsMountedFlightScaleSourceSwim(scaleSource) ? 0.10 : 0.75;
 }
 
-static double ResolveMountedFlightHorizontalMinVelDelta(const char *scaleSource)
+static double ResolveMountedFlightHorizontalMinVelDelta(
+    int mountItemId,
+    int dataKey,
+    const char *scaleSource)
 {
+    if (IsMountedFlightPhysicsHumanPercentRouteSample(mountItemId, dataKey))
+    {
+        return 1.0;
+    }
     return IsMountedFlightScaleSourceSwim(scaleSource) ? 2.0 : 12.0;
 }
 
-static double ResolveMountedFlightVerticalDeltaExtraScaleWeight(const char *scaleSource)
+static double ResolveMountedFlightVerticalDeltaExtraScaleWeight(
+    int mountItemId,
+    int dataKey,
+    const char *scaleSource)
 {
+    if (IsMountedFlightPhysicsHumanPercentRouteSample(mountItemId, dataKey))
+    {
+        return 1.0;
+    }
     return IsMountedFlightScaleSourceSwim(scaleSource) ? 1.35 : 0.08;
 }
 
-static double ResolveMountedFlightVerticalDeltaMaxScale(const char *scaleSource)
+static double ResolveMountedFlightVerticalDeltaMaxScale(
+    int mountItemId,
+    int dataKey,
+    const char *scaleSource)
 {
+    if (IsMountedFlightPhysicsHumanPercentRouteSample(mountItemId, dataKey))
+    {
+        return 4.5;
+    }
     return IsMountedFlightScaleSourceSwim(scaleSource) ? 4.25 : 4.5;
 }
 
-static DWORD ResolveMountedFlightVerticalCruiseMinActiveMs(const char *scaleSource)
+static DWORD ResolveMountedFlightVerticalCruiseMinActiveMs(
+    int mountItemId,
+    int dataKey,
+    const char *scaleSource)
 {
+    if (IsMountedFlightPhysicsHumanPercentRouteSample(mountItemId, dataKey))
+    {
+        return 500;
+    }
+
     // Vertical cruise used to wait 2200ms to avoid stretching takeoff. That is
     // safe for high-ratio fs mounts, but swim-driven mounts never feel faster
     // with such a late gate. Start earlier once the flight is already in the
@@ -9324,18 +9849,40 @@ static DWORD ResolveMountedFlightVerticalCruiseMinActiveMs(const char *scaleSour
     return IsMountedFlightScaleSourceSwim(scaleSource) ? 500 : 2200;
 }
 
-static double ResolveMountedFlightVerticalMinPosDelta(const char *scaleSource)
+static double ResolveMountedFlightVerticalMinPosDelta(
+    int mountItemId,
+    int dataKey,
+    const char *scaleSource)
 {
+    if (IsMountedFlightPhysicsHumanPercentRouteSample(mountItemId, dataKey))
+    {
+        return 0.10;
+    }
     return IsMountedFlightScaleSourceSwim(scaleSource) ? 0.18 : 1.5;
 }
 
-static double ResolveMountedFlightVerticalMinVelDelta(const char *scaleSource)
+static double ResolveMountedFlightVerticalMinVelDelta(
+    int mountItemId,
+    int dataKey,
+    const char *scaleSource)
 {
+    if (IsMountedFlightPhysicsHumanPercentRouteSample(mountItemId, dataKey))
+    {
+        return 1.0;
+    }
     return IsMountedFlightScaleSourceSwim(scaleSource) ? 2.0 : 18.0;
 }
 
-static double ResolveMountedFlightVerticalMaxAbsRawVelDelta(const char *scaleSource)
+static double ResolveMountedFlightVerticalMaxAbsRawVelDelta(
+    int mountItemId,
+    int dataKey,
+    const char *scaleSource)
 {
+    if (IsMountedFlightPhysicsHumanPercentRouteSample(mountItemId, dataKey))
+    {
+        return 8.0;
+    }
+
     // The native "up+jump to enter flight" climb still flows through B844D0.
     // Those takeoff frames tend to carry a large velocity change spike, while
     // stable up/down cruise usually settles to near-constant velocity. Skip
@@ -9967,8 +10514,14 @@ static int __fastcall hkMountedFlightPhysicsDispatchB87E60(
         hasFreshCruiseTiming
             ? ResolveMountedFlightPhysicsDeltaScaleFromBase(
                   baseScale,
-                  ResolveMountedFlightHorizontalDeltaExtraScaleWeight(scaleSource),
-                  ResolveMountedFlightHorizontalDeltaMaxScale(scaleSource))
+                  ResolveMountedFlightHorizontalDeltaExtraScaleWeight(
+                      mountItemId,
+                      dataKey,
+                      scaleSource),
+                  ResolveMountedFlightHorizontalDeltaMaxScale(
+                      mountItemId,
+                      dataKey,
+                      scaleSource))
             : 1.0;
 
     MountedFlightPhysicsStateSnapshot beforeSnapshot = {};
@@ -9994,8 +10547,14 @@ static int __fastcall hkMountedFlightPhysicsDispatchB87E60(
             mountItemId,
             dataKey,
             scaleSource,
-            ResolveMountedFlightHorizontalMinPosDelta(scaleSource),
-            ResolveMountedFlightHorizontalMinVelDelta(scaleSource));
+            ResolveMountedFlightHorizontalMinPosDelta(
+                mountItemId,
+                dataKey,
+                scaleSource),
+            ResolveMountedFlightHorizontalMinVelDelta(
+                mountItemId,
+                dataKey,
+                scaleSource));
     }
 
     return result;
@@ -10083,14 +10642,21 @@ static void __fastcall hkMountedFlightPhysicsStepB844D0(
         shouldRefreshActiveFlight &&
         hasFreshCruiseTiming &&
         activeDurationMs >=
-            ResolveMountedFlightVerticalCruiseMinActiveMs(verticalScaleSource);
+            ResolveMountedFlightVerticalCruiseMinActiveMs(
+                verticalMountItemId,
+                verticalDataKey,
+                verticalScaleSource);
     const double horizontalDeltaScale =
         shouldScaleHorizontal
             ? ResolveMountedFlightPhysicsDeltaScaleFromBase(
                   horizontalScale,
                   ResolveMountedFlightHorizontalDeltaExtraScaleWeight(
+                      horizontalMountItemId,
+                      horizontalDataKey,
                       horizontalScaleSource),
                   ResolveMountedFlightHorizontalDeltaMaxScale(
+                      horizontalMountItemId,
+                      horizontalDataKey,
                       horizontalScaleSource))
             : 1.0;
     const double verticalDeltaScale =
@@ -10098,8 +10664,12 @@ static void __fastcall hkMountedFlightPhysicsStepB844D0(
             ? ResolveMountedFlightPhysicsDeltaScaleFromBase(
                   verticalScale,
                   ResolveMountedFlightVerticalDeltaExtraScaleWeight(
+                      verticalMountItemId,
+                      verticalDataKey,
                       verticalScaleSource),
                   ResolveMountedFlightVerticalDeltaMaxScale(
+                      verticalMountItemId,
+                      verticalDataKey,
                       verticalScaleSource))
             : 1.0;
 
@@ -10168,8 +10738,14 @@ static void __fastcall hkMountedFlightPhysicsStepB844D0(
             horizontalScaleSource,
             true,
             false,
-            ResolveMountedFlightHorizontalMinPosDelta(horizontalScaleSource),
-            ResolveMountedFlightHorizontalMinVelDelta(horizontalScaleSource),
+            ResolveMountedFlightHorizontalMinPosDelta(
+                horizontalMountItemId,
+                horizontalDataKey,
+                horizontalScaleSource),
+            ResolveMountedFlightHorizontalMinVelDelta(
+                horizontalMountItemId,
+                horizontalDataKey,
+                horizontalScaleSource),
             0.0);
     }
     if (hasBeforeVerticalSnapshot)
@@ -10192,9 +10768,18 @@ static void __fastcall hkMountedFlightPhysicsStepB844D0(
             verticalScaleSource,
             true,
             false,
-            ResolveMountedFlightVerticalMinPosDelta(verticalScaleSource),
-            ResolveMountedFlightVerticalMinVelDelta(verticalScaleSource),
-            ResolveMountedFlightVerticalMaxAbsRawVelDelta(verticalScaleSource));
+            ResolveMountedFlightVerticalMinPosDelta(
+                verticalMountItemId,
+                verticalDataKey,
+                verticalScaleSource),
+            ResolveMountedFlightVerticalMinVelDelta(
+                verticalMountItemId,
+                verticalDataKey,
+                verticalScaleSource),
+            ResolveMountedFlightVerticalMaxAbsRawVelDelta(
+                verticalMountItemId,
+                verticalDataKey,
+                verticalScaleSource));
     }
 }
 
