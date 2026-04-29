@@ -66,6 +66,21 @@ inline void WriteLogFmt(const char* fmt, ...)
     WriteLog(buf);
 }
 
+inline bool EnableIndependentBuffOverlayDiagnosticLogs()
+{
+    return false;
+}
+
+inline bool EnableAbilityRedDiagnosticLogs()
+{
+    return true;
+}
+
+inline bool EnableSuperSkillSyncStateDiagnosticLogs()
+{
+    return false;
+}
+
 inline void HardenPixelArtAlphaEdgesRgba(
     unsigned char* rgba,
     int width,

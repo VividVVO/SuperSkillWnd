@@ -285,7 +285,7 @@ static bool UpdateSuperBtnVisiblePieces(const char* reason)
     }
 
     LONG after = InterlockedDecrement(&g_SuperBtnClipLogBudget);
-    if (after >= 0) {
+    if (ENABLE_HOTPATH_DIAGNOSTIC_LOGS && after >= 0) {
         WriteLogFmt("[BtnClip] reason=%s base=(%ld,%ld,%ld,%ld) skill=%s(%ld,%ld,%ld,%ld) occluders=%d pieces=%d state=%u",
             reason ? reason : "-",
             baseRect.left, baseRect.top, baseRect.right, baseRect.bottom,
@@ -1152,6 +1152,8 @@ resolve_done:
 
     if (!tag)
         return result;
+    if (!ENABLE_HOTPATH_DIAGNOSTIC_LOGS)
+        return result;
 
     LONG after = InterlockedDecrement(&g_BtnResolveLogBudget);
     if (after < 0)
@@ -1760,7 +1762,7 @@ static ImVec2 GetSuperCursorFixedOffset(
             normalHeight,
             currentWidth,
             currentHeight);
-        return ImVec2(bottomRightAligned.x - 3.0f, bottomRightAligned.y - 3.0f);
+        return ImVec2(bottomRightAligned.x - 3.0f, bottomRightAligned.y);
     }
 
     return normalBaselineOffset;
@@ -2213,7 +2215,7 @@ static bool DrawSuperButtonTextureInSkillWndDraw(uintptr_t skillWndThis)
 
     static LONG s_logBudget = 80;
     LONG after = InterlockedDecrement(&s_logBudget);
-    if (after >= 0) {
+    if (ENABLE_HOTPATH_DIAGNOSTIC_LOGS && after >= 0) {
         WriteLogFmt("[SkillBtnDraw] ok=%d origState=%u norm=%u borrowed=%d rect=(%d,%d,%d,%d) btn=0x%08X",
             ok ? 1 : 0, origState, normalizedState, borrowedDonorSlots ? 1 : 0,
             screenX, screenY, screenW, screenH,
@@ -2288,7 +2290,7 @@ static void DrawSuperButtonTextureInPresent(IDirect3DDevice9* pDevice)
             g_SuperBtnLastDrawTick = GetTickCount();
 
         LONG after = InterlockedDecrement(&g_PresentBtnDrawLogBudget);
-        if (after >= 0) {
+        if (ENABLE_HOTPATH_DIAGNOSTIC_LOGS && after >= 0) {
             WriteLogFmt("[PresentBtnDraw] ok=%d state=%u pieces=%d tex=0x%08X btn=0x%08X",
                 ok ? 1 : 0,
                 (unsigned)g_SuperBtnD3DVisualState,
@@ -2315,7 +2317,7 @@ static void DrawSuperButtonTextureInPresent(IDirect3DDevice9* pDevice)
     DrawTexturedQuad(pDevice, tex, (float)screenX, (float)screenY, (float)screenW, (float)screenH);
 
     LONG after = InterlockedDecrement(&g_PresentBtnDrawLogBudget);
-    if (after >= 0) {
+    if (ENABLE_HOTPATH_DIAGNOSTIC_LOGS && after >= 0) {
         WriteLogFmt("[PresentBtnDraw] state=%u rect=(%d,%d,%d,%d) tex=0x%08X btn=0x%08X",
             state,
             screenX, screenY, screenW, screenH,
@@ -2400,7 +2402,7 @@ static int __fastcall hkButtonDrawCurrentState(uintptr_t thisPtr, void* /*edxUnu
     }
 
     // v16.5: 诊断日志 - 记录 SuperBtn draw 的原始坐标
-    if (tag && strcmp(tag, "SuperBtn") == 0) {
+    if (ENABLE_HOTPATH_DIAGNOSTIC_LOGS && tag && strcmp(tag, "SuperBtn") == 0) {
         static LONG g_SuperBtnDrawDiagBudget = 200;
         LONG diagAfter = InterlockedDecrement(&g_SuperBtnDrawDiagBudget);
         if (diagAfter >= 0) {
@@ -2440,6 +2442,8 @@ static int __fastcall hkButtonDrawCurrentState(uintptr_t thisPtr, void* /*edxUnu
 
     if (!tag)
         return ret;
+    if (!ENABLE_HOTPATH_DIAGNOSTIC_LOGS)
+        return ret;
 
     LONG after = InterlockedDecrement(&g_BtnDrawLogBudget);
     if (after >= 0) {
@@ -2478,6 +2482,8 @@ static int LogTrackedButtonMetric(const char* metricTag, uintptr_t thisPtr, int 
 {
     const char* tag = GetTrackedButtonTag(thisPtr);
     if (!tag)
+        return ret;
+    if (!ENABLE_HOTPATH_DIAGNOSTIC_LOGS)
         return ret;
 
     LONG after = InterlockedDecrement(&g_BtnMetricLogBudget);
@@ -2541,7 +2547,7 @@ static int __fastcall hkButtonMetric507DF0(uintptr_t thisPtr, void* /*edxUnused*
             if (TryGetSuperBtnMetricOverrideValue(state, false, &overrideValue)) {
                 static LONG s_metricLogBudget = 200;
                 LONG mAfter = InterlockedDecrement(&s_metricLogBudget);
-                if (mAfter >= 0)
+                if (ENABLE_HOTPATH_DIAGNOSTIC_LOGS && mAfter >= 0)
                     WriteLogFmt("[BtnMetricOverride] fn=507DF0 state=%u old=%d new=%d", state, ret, overrideValue);
                 ret = overrideValue;
             }
@@ -2581,7 +2587,7 @@ static int __fastcall hkButtonMetric507ED0(uintptr_t thisPtr, void* /*edxUnused*
             if (TryGetSuperBtnMetricOverrideValue(state, true, &overrideValue)) {
                 static LONG s_metricLogBudgetED0 = 200;
                 LONG mAfter = InterlockedDecrement(&s_metricLogBudgetED0);
-                if (mAfter >= 0)
+                if (ENABLE_HOTPATH_DIAGNOSTIC_LOGS && mAfter >= 0)
                     WriteLogFmt("[BtnMetricOverride] fn=507ED0 state=%u old=%d new=%d", state, ret, overrideValue);
                 ret = overrideValue;
             }

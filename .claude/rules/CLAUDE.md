@@ -103,6 +103,8 @@
   - 运行时、版本、部署、marker、日志闭环。
 - `ida_usage_knowledge.md`
   - 当前项目里如何使用 IDA、怎么查地址 / 偏移 / 调用链 / xref / vtable / this+offset。
+- `gateway_auth_2_3_reverse_knowledge.md`
+  - `网关授权2.3.exe` 授权验证、`addr.bin`、`hfy`、`heifengye111`、写盘流程、Go 后端兼容实现。
 - `d3d8_compat_knowledge.md`
   - D3D8 / D3D9 / 黑屏 / Present / Reset / vtable / overlay 兼容路线。
 - `native_window_layering_knowledge.md`

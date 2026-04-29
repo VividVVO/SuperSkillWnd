@@ -97,6 +97,7 @@ namespace
     };
 
     RendererState g_renderer;
+    const wchar_t* kSuperSpStyleHint = L"__SUPER_SP__";
 
     MAT2 MakeIdentityMatrix()
     {
@@ -227,12 +228,18 @@ namespace
         }
     }
 
-    int ResolveDigitDisplayWidth(wchar_t ch, int sourceWidth)
+    bool IsSuperSpStyleHint(const std::wstring& text)
+    {
+        return text == kSuperSpStyleHint;
+    }
+
+    int ResolveDigitDisplayWidth(const TextStyleKey& style, wchar_t ch, int sourceWidth)
     {
         if (ch == L'1')
             return 3;
 
-        return ClampInt(sourceWidth, 1, 5);
+        const int maxDigitWidth = style.numericCellWidth > 0 ? style.numericCellWidth : 5;
+        return ClampInt(sourceWidth, 1, maxDigitWidth);
     }
 
     int ResolveBodyGlyphCellWidth(const TextStyleKey& style, wchar_t ch)
@@ -317,7 +324,7 @@ namespace
         {
             if (shape == GlyphShape_Digit)
             {
-                *outWidth = ResolveDigitDisplayWidth(ch, sourceWidth);
+                *outWidth = ResolveDigitDisplayWidth(style, ch, sourceWidth);
                 *outHeight = style.numericCellHeight > 0 ? style.numericCellHeight : 8;
                 return;
             }
@@ -433,6 +440,15 @@ namespace
         const unsigned int b = (inputColor >> IM_COL32_B_SHIFT) & 0xFF;
         const unsigned int alpha = (inputColor >> IM_COL32_A_SHIFT) & 0xFF;
         if (r == 0xFF && g == 0xFF && b == 0xFF)
+        {
+            *outTopColor = inputColor;
+            *outBottomColor = inputColor;
+            return;
+        }
+
+        // Super SP digits need to share the DWrite glyph path while remaining
+        // truly black instead of being normalized to the common gray tone.
+        if (r == 0x00 && g == 0x00 && b == 0x00)
         {
             *outTopColor = inputColor;
             *outBottomColor = inputColor;
@@ -612,13 +628,14 @@ namespace
     TextStyleKey ResolveStyle(const std::wstring& text, float fontSize, float glyphSpacing, bool largeText)
     {
         TextStyleKey style = {};
-        style.numeric = IsNumericLikeText(text);
+        const bool superSpStyle = IsSuperSpStyleHint(text);
+        style.numeric = superSpStyle || IsNumericLikeText(text);
         style.largeText = largeText && !style.numeric;
         style.pixelHeight = ResolvePixelHeight(style.numeric, fontSize);
         style.glyphSpacing = (int)floorf(glyphSpacing + 0.5f);
         if (style.numeric)
         {
-            style.numericCellWidth = 5;
+            style.numericCellWidth = superSpStyle ? 6 : 5;
             style.numericCellHeight = (fontSize > 0.0f && fontSize <= 9.5f) ? 9 : 8;
         }
         return style;

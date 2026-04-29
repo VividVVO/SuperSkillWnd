@@ -46,9 +46,30 @@ struct RetroSkillBehaviorHooks {
     void* userData = nullptr;
 };
 
+struct RetroSkillCursorOverlayVisual {
+    UITexture* texture = nullptr;
+    float minX = 0.0f;
+    float minY = 0.0f;
+    float maxX = 0.0f;
+    float maxY = 0.0f;
+};
+
 void InitializeRetroSkillApp(RetroSkillRuntimeState& state, RetroSkillAssets& assets, const RetroDeviceRef& deviceRef, const char* assetPath);
 void ShutdownRetroSkillApp(RetroSkillAssets& assets);
 void ConfigureRetroSkillDefaultBehaviorHooks(RetroSkillBehaviorHooks& hooks, RetroSkillRuntimeState& state);
+bool TryBuildRetroSkillCursorOverlayVisual(
+    RetroSkillRuntimeState& state,
+    RetroSkillAssets& assets,
+    float mainScale,
+    float mouseX,
+    float mouseY,
+    bool extraHoverAnimation,
+    bool extraPressed,
+    uint64_t extraHoverStartTick,
+    bool extraHoverInstantUseNormal1,
+    int observedNativeCursorState,
+    RetroSkillCursorOverlayVisual* outVisual);
+void DrawRetroSkillCursorOverlayVisual(const RetroSkillCursorOverlayVisual& visual);
 void RenderRetroSkillCursorOverlay(
     RetroSkillRuntimeState& state,
     RetroSkillAssets& assets,

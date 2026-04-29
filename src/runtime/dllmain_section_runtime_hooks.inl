@@ -1850,8 +1850,22 @@ typedef int (__cdecl *tAbilityRedMovementSpeedCapBaseFn)(int playerObj);
 typedef int (__thiscall *tAbilityRedMovementCapOverrideFn)(void *capObj);
 typedef int (__thiscall *tAbilityRedMovementValueFn)(void *thisPtr);
 typedef int (__fastcall *tAbilityRedMovementSetterFn)(void *thisPtr, int value);
+typedef int (__thiscall *tMovementSpeedTransformFn)(void *thisPtr, int value);
+typedef LONG (__cdecl *tMovementOutputClampComputeFn)(
+    DWORD *a1,
+    int a2,
+    int a3,
+    int a4,
+    int a5,
+    int a6,
+    int a7,
+    int *a8,
+    int *a9,
+    double *a10,
+    DWORD *a11);
 static tAbilityRedMovementSetterFn oAbilityRedMovementSpeedSetter831F00Fn = nullptr;
 static tAbilityRedMovementSetterFn oAbilityRedMovementJumpSetter832000Fn = nullptr;
+static tMovementOutputClampComputeFn oMovementOutputClampComputeB93B80Fn = nullptr;
 typedef int (__fastcall *tAbilityRedSiblingCalcFn)(void *thisPtr, void *edxUnused);
 static tAbilityRedSiblingCalcFn oAbilityRedSiblingCalc82F780Fn = nullptr;
 static tAbilityRedSiblingCalcFn oAbilityRedSiblingCalc82F870Fn = nullptr;
@@ -1929,6 +1943,23 @@ static tMountFamilyGateFn oMountFamilyGateA9AAA0 = nullptr;
 typedef int(__thiscall *tMountContextGetItemIdFn)(void *mountContext);
 typedef BOOL(__thiscall *tMountContextIsFlyingFamilyFn)(void *mountContext);
 static tMountContextIsFlyingFamilyFn oMountContextIsFlyingFamily7D4CD0 = nullptr;
+typedef int(__cdecl *tMountMovementDataLookupFn)(int dataKey);
+static tMountMovementDataLookupFn oMountMovementDataLookup888B30 = nullptr;
+typedef __int16 (__thiscall *tEncodedDoubleWriteFn)(void *slot, int lowDword, int highDword);
+typedef double (__thiscall *tEncodedDoubleReadFn)(void *slot);
+typedef int (__thiscall *tMountedFlightPhysicsDispatchFn)(void *thisPtr, int deltaMs);
+typedef void (__thiscall *tMountedFlightPhysicsStepFn)(void *thisPtr, int deltaMs);
+typedef int (__thiscall *tMountedFlightPhysicsStateFn)(void *thisPtr);
+typedef int (__thiscall *tMountedFlightPhysicsVerticalFn)(void *thisPtr);
+typedef int (__thiscall *tMountedFlightPhysicsFinalizeFn)(void *thisPtr, int deltaMs);
+static tMountedFlightPhysicsDispatchFn oMountedFlightPhysicsDispatchB87E60 = nullptr;
+static tMountedFlightPhysicsStepFn oMountedFlightPhysicsStepB83C90 = nullptr;
+static tMountedFlightPhysicsStepFn oMountedFlightPhysicsStepB844D0 = nullptr;
+static tMountedFlightPhysicsStepFn oMountedFlightPhysicsStepB88090 = nullptr;
+static tMountedFlightPhysicsStateFn oMountedFlightPhysicsStateB84D70 = nullptr;
+static tMountedFlightPhysicsVerticalFn oMountedFlightPhysicsVerticalB8FE30 = nullptr;
+static tMountedFlightPhysicsVerticalFn oMountedFlightPhysicsVerticalB92990 = nullptr;
+static tMountedFlightPhysicsFinalizeFn oMountedFlightPhysicsFinalizeB851F0 = nullptr;
 typedef int(__thiscall *tNativeGlyphLookupFn)(void *fontCache, unsigned int codepoint, RECT *outRectOrNull);
 static tNativeGlyphLookupFn oNativeGlyphLookup = nullptr;
 typedef int(__thiscall *tSkillLevelBaseFn)(void *thisPtr, DWORD playerObj, int skillId, void *cachePtr);
@@ -1992,6 +2023,7 @@ static bool SetupAbilityRedSkillWriteHooks();
 static bool SetupAbilityRedExtendedAggregateHook();
 static bool SetupAbilityRedMasterAggregateHook();
 static bool SetupAbilityRedMovementSetterHooks();
+static bool SetupMovementOutputClampHook();
 static bool SetupAbilityRedSiblingCalcHooks();
 static bool SetupAbilityRedDiff84C470PreSubHook();
 static bool SetupAbilityRedAdditionalDiffHooks();
@@ -2008,12 +2040,32 @@ static bool SetupNativeCursorStateHook();
 static bool SetupSkillEffectPassiveBonusHooks();
 static bool SetupMountedUnknownSkillReleaseBranchHook();
 static bool SetupMountedUseFailPromptSuppressHook();
+static bool SetupMountMovementObservationHooks();
+static bool SetupMountedFlightPhysicsSpeedHooks();
 static bool HasRecentMountedDoubleJumpIntent(int mountItemId, DWORD maxAgeMs = 400);
+static bool IsExtendedMountSoaringContextMount(int mountItemId);
+static bool TryGetMountedSoaringFlightTiming(
+    int mountItemId,
+    DWORD *ageMsOut,
+    DWORD *activeDurationMsOut);
 static const bool kEnableMountedDoubleJumpRuntimeHooks = true;
-static const bool kEnableMountMovementAbilityRedHooks = false;
-static const bool kEnableMountMovementCapPatches = false;
+static const bool kEnableMountMovementAbilityRedHooks = true;
+static const bool kEnableGlobalMovementSetterProtectionHooks = false;
+// Despite the historical name, this now covers both the mounted data loader
+// cap in 888DF0 and the later shared speed/jump clamp chain.
+static const bool kEnableMountMovementCapPatches = true;
+static const bool kEnableMountMovementObservationHooks = true;
+static const bool kEnableMountedFlightPhysicsSpeedHooks = true;
 static bool TryReadCurrentUserMountItemId(int *mountItemIdOut);
 static bool TryReadMountItemIdFromPlayerObject(void *playerObj, int *mountItemIdOut);
+static bool TryResolveCurrentUserMountItemIdWithFallback(
+    int *mountItemIdOut,
+    const char **sourceOut = nullptr);
+static bool TryResolveMountedDoubleJumpMountItemIdWithFallback(
+    void *playerObj,
+    int *mountItemIdOut,
+    const char **sourceOut = nullptr,
+    DWORD maxAgeMs = 1200);
 static void ObserveMountedDoubleJumpNativeRelease(int mountItemId, int skillId);
 
 static uintptr_t g_LocalIndependentPotentialSkillLevelLastTarget = 0;
@@ -2064,6 +2116,11 @@ static DWORD g_AbilityRedSibling82FA50LastCaller = 0;
 static uintptr_t g_AbilityRedSibling82FA50LastThis = 0;
 static DWORD g_AbilityRedSibling82FA50LastTick = 0;
 static int g_AbilityRedSibling82FA50LastActive = -1;
+static LONG g_MountMovementObserveLogBudget = 32;
+static LONG g_MountMovementOverrideMissLogBudget = 16;
+static LONG g_MountedFlightPhysicsScaleLogBudget = 96;
+static LONG g_MountedFlightPhysicsEntryLogBudget = 96;
+static LONG g_MountedFlightPhysicsDeltaLogBudget = 24;
 static DWORD g_AbilityRedDiff84C470LastCaller = 0;
 static uintptr_t g_AbilityRedDiff84C470LastThis = 0;
 static DWORD g_AbilityRedDiff84C470LastTick = 0;
@@ -2094,6 +2151,221 @@ static DWORD g_AbilityRedBake198858AEDLastSig = 0;
 static DWORD g_AbilityRedBake198858AEDLastTick = 0;
 static DWORD g_AbilityRedBake198831A50LastSig = 0;
 static DWORD g_AbilityRedBake198831A50LastTick = 0;
+static volatile LONG g_activeMountedSoaringFlightItemId = 0;
+static volatile LONG g_activeMountedSoaringFlightTick = 0;
+static volatile LONG g_activeMountedSoaringFlightStartTick = 0;
+static const DWORD kMountedSoaringFallbackGraceMs = 1500;
+static bool HasMeaningfulMountedFlightPhysicsScaleBaseline(
+    double nativeFs,
+    double nativeSwim,
+    double overrideFs,
+    double overrideSwim);
+struct MountedFlightPhysicsScaleSample
+{
+    int mountItemId;
+    int dataKey;
+    double nativeFs;
+    double nativeSwim;
+    double overrideFs;
+    double overrideSwim;
+    DWORD tick;
+};
+static MountedFlightPhysicsScaleSample g_MountedFlightPhysicsScaleSample = {};
+static const size_t kMountedFlightPhysicsScaleSampleHistoryCapacity = 8;
+static MountedFlightPhysicsScaleSample
+    g_MountedFlightPhysicsScaleSampleHistory[kMountedFlightPhysicsScaleSampleHistoryCapacity] = {};
+
+static bool IsMountedFlightPhysicsScaleSampleUseful(
+    const MountedFlightPhysicsScaleSample &sample)
+{
+    return sample.mountItemId > 0 &&
+           sample.dataKey > 0 &&
+           sample.tick != 0 &&
+           HasMeaningfulMountedFlightPhysicsScaleBaseline(
+               sample.nativeFs,
+               sample.nativeSwim,
+               sample.overrideFs,
+               sample.overrideSwim);
+}
+
+static bool TryFindMountedFlightPhysicsScaleHistorySample(
+    int mountItemId,
+    int dataKey,
+    MountedFlightPhysicsScaleSample *sampleOut)
+{
+    if (sampleOut)
+    {
+        ZeroMemory(sampleOut, sizeof(*sampleOut));
+    }
+    if (mountItemId <= 0 || dataKey <= 0 || !sampleOut)
+    {
+        return false;
+    }
+
+    int bestIndex = -1;
+    DWORD bestTick = 0;
+    for (size_t i = 0; i < kMountedFlightPhysicsScaleSampleHistoryCapacity; ++i)
+    {
+        const MountedFlightPhysicsScaleSample &candidate =
+            g_MountedFlightPhysicsScaleSampleHistory[i];
+        if (candidate.mountItemId != mountItemId ||
+            candidate.dataKey != dataKey ||
+            !IsMountedFlightPhysicsScaleSampleUseful(candidate))
+        {
+            continue;
+        }
+
+        if (bestIndex < 0 || candidate.tick >= bestTick)
+        {
+            bestIndex = static_cast<int>(i);
+            bestTick = candidate.tick;
+        }
+    }
+
+    if (bestIndex < 0)
+    {
+        return false;
+    }
+
+    *sampleOut = g_MountedFlightPhysicsScaleSampleHistory[bestIndex];
+    return true;
+}
+
+static void RememberMountedFlightPhysicsScaleHistorySample(
+    const MountedFlightPhysicsScaleSample &sample)
+{
+    if (!IsMountedFlightPhysicsScaleSampleUseful(sample))
+    {
+        return;
+    }
+
+    int replaceIndex = -1;
+    DWORD oldestTick = 0xFFFFFFFFu;
+    for (size_t i = 0; i < kMountedFlightPhysicsScaleSampleHistoryCapacity; ++i)
+    {
+        MountedFlightPhysicsScaleSample &entry =
+            g_MountedFlightPhysicsScaleSampleHistory[i];
+        if (entry.mountItemId == sample.mountItemId &&
+            entry.dataKey == sample.dataKey)
+        {
+            replaceIndex = static_cast<int>(i);
+            break;
+        }
+        if (!IsMountedFlightPhysicsScaleSampleUseful(entry))
+        {
+            replaceIndex = static_cast<int>(i);
+            break;
+        }
+        if (entry.tick < oldestTick)
+        {
+            oldestTick = entry.tick;
+            replaceIndex = static_cast<int>(i);
+        }
+    }
+
+    if (replaceIndex < 0)
+    {
+        replaceIndex = 0;
+    }
+    g_MountedFlightPhysicsScaleSampleHistory[replaceIndex] = sample;
+}
+
+static void ClearMountedFlightPhysicsScaleSample()
+{
+    ZeroMemory(&g_MountedFlightPhysicsScaleSample, sizeof(g_MountedFlightPhysicsScaleSample));
+    ZeroMemory(
+        g_MountedFlightPhysicsScaleSampleHistory,
+        sizeof(g_MountedFlightPhysicsScaleSampleHistory));
+}
+
+static bool HasMeaningfulMountedFlightPhysicsScaleBaseline(
+    double nativeFs,
+    double nativeSwim,
+    double overrideFs,
+    double overrideSwim)
+{
+    const bool hasFsBaseline =
+        nativeFs > 0.0 &&
+        overrideFs > 0.0 &&
+        fabs(nativeFs - overrideFs) > 0.001;
+    const bool hasSwimBaseline =
+        nativeSwim > 0.0 &&
+        overrideSwim > 0.0 &&
+        fabs(nativeSwim - overrideSwim) > 0.5;
+    return hasFsBaseline || hasSwimBaseline;
+}
+
+static void RememberMountedFlightPhysicsScaleSample(
+    int mountItemId,
+    int dataKey,
+    double nativeFs,
+    double nativeSwim,
+    const MountedMovementOverride &appliedOverride)
+{
+    const double overrideFs = appliedOverride.hasFs ? appliedOverride.fs : 0.0;
+    const double overrideSwim = appliedOverride.hasSwim ? appliedOverride.swim : 0.0;
+    const DWORD nowTick = GetTickCount();
+    const MountedFlightPhysicsScaleSample existingSample =
+        g_MountedFlightPhysicsScaleSample;
+    const bool hasFreshBaseline =
+        HasMeaningfulMountedFlightPhysicsScaleBaseline(
+            nativeFs,
+            nativeSwim,
+            overrideFs,
+            overrideSwim);
+    const bool hasExistingUsefulBaseline =
+        HasMeaningfulMountedFlightPhysicsScaleBaseline(
+            existingSample.nativeFs,
+            existingSample.nativeSwim,
+            existingSample.overrideFs,
+            existingSample.overrideSwim);
+    const bool canReuseExistingBaseline =
+        existingSample.mountItemId == mountItemId &&
+        existingSample.dataKey == dataKey &&
+        existingSample.tick != 0;
+    MountedFlightPhysicsScaleSample historicalSample = {};
+    const bool hasHistoricalUsefulBaseline =
+        TryFindMountedFlightPhysicsScaleHistorySample(
+            mountItemId,
+            dataKey,
+            &historicalSample);
+
+    if (!hasFreshBaseline && canReuseExistingBaseline && hasExistingUsefulBaseline)
+    {
+        g_MountedFlightPhysicsScaleSample.overrideFs =
+            overrideFs > existingSample.overrideFs ? overrideFs : existingSample.overrideFs;
+        g_MountedFlightPhysicsScaleSample.overrideSwim =
+            overrideSwim > existingSample.overrideSwim ? overrideSwim : existingSample.overrideSwim;
+        g_MountedFlightPhysicsScaleSample.tick = nowTick;
+        RememberMountedFlightPhysicsScaleHistorySample(g_MountedFlightPhysicsScaleSample);
+        return;
+    }
+
+    if (!hasFreshBaseline && hasHistoricalUsefulBaseline)
+    {
+        g_MountedFlightPhysicsScaleSample = historicalSample;
+        if (overrideFs > g_MountedFlightPhysicsScaleSample.overrideFs)
+        {
+            g_MountedFlightPhysicsScaleSample.overrideFs = overrideFs;
+        }
+        if (overrideSwim > g_MountedFlightPhysicsScaleSample.overrideSwim)
+        {
+            g_MountedFlightPhysicsScaleSample.overrideSwim = overrideSwim;
+        }
+        g_MountedFlightPhysicsScaleSample.tick = nowTick;
+        RememberMountedFlightPhysicsScaleHistorySample(g_MountedFlightPhysicsScaleSample);
+        return;
+    }
+
+    g_MountedFlightPhysicsScaleSample.mountItemId = mountItemId;
+    g_MountedFlightPhysicsScaleSample.dataKey = dataKey;
+    g_MountedFlightPhysicsScaleSample.nativeFs = nativeFs;
+    g_MountedFlightPhysicsScaleSample.nativeSwim = nativeSwim;
+    g_MountedFlightPhysicsScaleSample.overrideFs = overrideFs;
+    g_MountedFlightPhysicsScaleSample.overrideSwim = overrideSwim;
+    g_MountedFlightPhysicsScaleSample.tick = nowTick;
+    RememberMountedFlightPhysicsScaleHistorySample(g_MountedFlightPhysicsScaleSample);
+}
 static DWORD g_AbilityRedBake19883AF02LastSig = 0;
 static DWORD g_AbilityRedBake19883AF02LastTick = 0;
 static DWORD g_AbilityRedFinal84C470LastCaller = 0;
@@ -3337,18 +3609,259 @@ static void CollectAbilityRedMovementDiagnosis(
     }
 }
 
+static const DWORD kMovementSetterProtectWindowMs = 1500;
+static const int kMovementSpeedProtectHighValueThreshold = 160;
+static const int kMovementJumpProtectHighValueThreshold = 123;
+static const int kMovementSetterPreserveMinValue = 100;
+static const int kMovementSpeedProtectLegacyRewriteThreshold = 220;
+static const int kMovementJumpProtectLegacyRewriteThreshold = 140;
+static const bool kEnableGlobalMovementOutputClampHook = false;
+static const DWORD kMountedFlightCruiseMinActiveMs = 120;
+static const DWORD kMountedSoaringFlightActiveRefreshGapMs = 3000;
+static const DWORD kMountedSoaringFlightActiveTimeoutMs = 10000;
+static volatile LONG g_MovementSetterLastHighSpeedValue = 0;
+static volatile LONG g_MovementSetterLastHighJumpValue = 0;
+static volatile LONG g_MovementSetterLastHighSpeedTick = 0;
+static volatile LONG g_MovementSetterLastHighJumpTick = 0;
+static volatile LONG g_MovementSetterLastHighSpeedThisPtr = 0;
+static volatile LONG g_MovementSetterLastHighJumpThisPtr = 0;
+static volatile LONG g_MovementSetterLastHighSpeedCaller = 0;
+static volatile LONG g_MovementSetterLastHighJumpCaller = 0;
+static volatile LONG g_MovementSetterSpeedLogBudget = 24;
+static volatile LONG g_MovementSetterJumpLogBudget = 24;
+static volatile LONG g_MovementOutputClampLogBudget = 24;
+
+static bool ShouldUseMountedFlightMovementSetterProtection()
+{
+    int mountItemId = 0;
+    if (!TryResolveCurrentUserMountItemIdWithFallback(&mountItemId, nullptr) ||
+        !IsExtendedMountSoaringContextMount(mountItemId))
+    {
+        return false;
+    }
+
+    const MountedFlightPhysicsScaleSample sample = g_MountedFlightPhysicsScaleSample;
+    if (sample.mountItemId <= 0 ||
+        sample.mountItemId != mountItemId ||
+        sample.tick == 0)
+    {
+        return false;
+    }
+
+    return (sample.overrideSwim > sample.nativeSwim && sample.nativeSwim > 0.0) ||
+           (sample.overrideFs > sample.nativeFs && sample.nativeFs > 0.0);
+}
+
+static int MaybePreserveMovementSetterHighValue(
+    const char *tag,
+    void *thisPtr,
+    int value,
+    int highValueThreshold,
+    int legacyRewriteThreshold,
+    volatile LONG *lastHighValue,
+    volatile LONG *lastHighTick,
+    volatile LONG *lastHighThisPtr,
+    volatile LONG *lastHighCaller,
+    volatile LONG *logBudget)
+{
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    const DWORD nowTick = GetTickCount();
+    const DWORD thisAddr = (DWORD)(uintptr_t)thisPtr;
+    if (!ShouldUseMountedFlightMovementSetterProtection())
+    {
+        return value;
+    }
+
+    if (value > highValueThreshold)
+    {
+        InterlockedExchange(lastHighValue, value);
+        InterlockedExchange(lastHighTick, static_cast<LONG>(nowTick));
+        InterlockedExchange(lastHighThisPtr, static_cast<LONG>(thisAddr));
+        InterlockedExchange(lastHighCaller, static_cast<LONG>(callerRet));
+        if (logBudget && InterlockedDecrement(logBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MoveSetter] capture %s this=0x%08X high=%d caller=0x%08X",
+                tag ? tag : "?",
+                thisAddr,
+                value,
+                callerRet);
+        }
+        return value;
+    }
+
+    const int lastHigh = InterlockedCompareExchange(lastHighValue, 0, 0);
+    const DWORD lastTick = static_cast<DWORD>(InterlockedCompareExchange(lastHighTick, 0, 0));
+    const DWORD lastThis = static_cast<DWORD>(InterlockedCompareExchange(lastHighThisPtr, 0, 0));
+    const DWORD lastCaller = static_cast<DWORD>(InterlockedCompareExchange(lastHighCaller, 0, 0));
+    if (lastHigh <= 0 || lastTick == 0 || lastThis == 0)
+    {
+        return value;
+    }
+
+    if (nowTick - lastTick > kMovementSetterProtectWindowMs || lastThis != thisAddr)
+    {
+        return value;
+    }
+
+    if (value < kMovementSetterPreserveMinValue || value > legacyRewriteThreshold || lastHigh <= value)
+    {
+        return value;
+    }
+
+    if (logBudget && InterlockedDecrement(logBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MoveSetter] preserve %s this=0x%08X low=%d caller=0x%08X recentHigh=%d highCaller=0x%08X age=%u",
+            tag ? tag : "?",
+            thisAddr,
+            value,
+            callerRet,
+            lastHigh,
+            lastCaller,
+            nowTick - lastTick);
+    }
+    return lastHigh;
+}
+
 static int __fastcall hkAbilityRedMovementSpeedSetter831F00(void *thisPtr, int value)
 {
+    const int patchedValue = MaybePreserveMovementSetterHighValue(
+        "speed",
+        thisPtr,
+        value,
+        kMovementSpeedProtectHighValueThreshold,
+        kMovementSpeedProtectLegacyRewriteThreshold,
+        &g_MovementSetterLastHighSpeedValue,
+        &g_MovementSetterLastHighSpeedTick,
+        &g_MovementSetterLastHighSpeedThisPtr,
+        &g_MovementSetterLastHighSpeedCaller,
+        &g_MovementSetterSpeedLogBudget);
     return oAbilityRedMovementSpeedSetter831F00Fn
-        ? oAbilityRedMovementSpeedSetter831F00Fn(thisPtr, value)
-        : value;
+        ? oAbilityRedMovementSpeedSetter831F00Fn(thisPtr, patchedValue)
+        : patchedValue;
 }
 
 static int __fastcall hkAbilityRedMovementJumpSetter832000(void *thisPtr, int value)
 {
+    const int patchedValue = MaybePreserveMovementSetterHighValue(
+        "jump",
+        thisPtr,
+        value,
+        kMovementJumpProtectHighValueThreshold,
+        kMovementJumpProtectLegacyRewriteThreshold,
+        &g_MovementSetterLastHighJumpValue,
+        &g_MovementSetterLastHighJumpTick,
+        &g_MovementSetterLastHighJumpThisPtr,
+        &g_MovementSetterLastHighJumpCaller,
+        &g_MovementSetterJumpLogBudget);
     return oAbilityRedMovementJumpSetter832000Fn
-        ? oAbilityRedMovementJumpSetter832000Fn(thisPtr, value)
-        : value;
+        ? oAbilityRedMovementJumpSetter832000Fn(thisPtr, patchedValue)
+        : patchedValue;
+}
+
+static LONG __cdecl hkMovementOutputClampComputeB93B80(
+    DWORD *a1,
+    int a2,
+    int a3,
+    int a4,
+    int a5,
+    int a6,
+    int a7,
+    int *a8,
+    int *a9,
+    double *a10,
+    DWORD *a11)
+{
+    const LONG result = oMovementOutputClampComputeB93B80Fn
+        ? oMovementOutputClampComputeB93B80Fn(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11)
+        : 0;
+    if (!a8 || SafeIsBadWritePtr(a8, sizeof(int)))
+        return result;
+
+    DWORD *baseExtended = reinterpret_cast<DWORD *>(0x00F6D200);
+    int decodedSpeed = 0;
+    int decodedJump = 0;
+    const bool hasSpeed = ReadEncryptedTripletValue(baseExtended, 159, &decodedSpeed);
+    const bool hasJump = ReadEncryptedTripletValue(baseExtended, 171, &decodedJump);
+    if ((!hasSpeed || decodedSpeed <= kMovementSpeedProtectHighValueThreshold) &&
+        (!hasJump || decodedJump <= kMovementJumpProtectHighValueThreshold))
+    {
+        return result;
+    }
+
+    const int originalSpeedOut = *a8;
+    int originalJumpOut = 0;
+    if (a9 && !SafeIsBadReadPtr(a9, sizeof(int)))
+        originalJumpOut = *a9;
+
+    int metricExtra = 0;
+    if (a11 && !SafeIsBadReadPtr(a11, sizeof(DWORD)))
+    {
+        const int originalMetricOut = static_cast<int>(*a11);
+        if (originalMetricOut > originalSpeedOut)
+            metricExtra = originalMetricOut - originalSpeedOut;
+    }
+
+    int raisedSpeedOut = originalSpeedOut;
+    if (hasSpeed && decodedSpeed > kMovementSpeedProtectHighValueThreshold)
+    {
+        int transformedSpeed = decodedSpeed;
+        __try
+        {
+            tMovementSpeedTransformFn transformFn =
+                reinterpret_cast<tMovementSpeedTransformFn>(ADDR_82C810);
+            if (transformFn && a3)
+                transformedSpeed = transformFn(reinterpret_cast<void *>(static_cast<uintptr_t>(a3)), decodedSpeed);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            transformedSpeed = decodedSpeed;
+        }
+
+        if (transformedSpeed > 0)
+        {
+            const int finalSpeedOut = transformedSpeed + 20;
+            if (finalSpeedOut > raisedSpeedOut)
+                raisedSpeedOut = finalSpeedOut;
+        }
+    }
+
+    int raisedJumpOut = originalJumpOut;
+    if (a9 && !SafeIsBadWritePtr(a9, sizeof(int)) &&
+        hasJump && decodedJump > kMovementJumpProtectHighValueThreshold &&
+        decodedJump > raisedJumpOut)
+    {
+        raisedJumpOut = decodedJump;
+    }
+
+    if (raisedSpeedOut != originalSpeedOut)
+    {
+        *a8 = raisedSpeedOut;
+        if (a11 && !SafeIsBadWritePtr(a11, sizeof(DWORD)))
+            *a11 = static_cast<DWORD>(raisedSpeedOut + metricExtra);
+    }
+
+    if (a9 && !SafeIsBadWritePtr(a9, sizeof(int)) && raisedJumpOut != originalJumpOut)
+        *a9 = raisedJumpOut;
+
+    if ((raisedSpeedOut != originalSpeedOut || raisedJumpOut != originalJumpOut) &&
+        InterlockedDecrement(&g_MovementOutputClampLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MoveClamp] B93B80 raise speed=%d->%d jump=%d->%d decoded=(%d,%d) a3=0x%08X a4=0x%08X metricExtra=%d",
+            originalSpeedOut,
+            raisedSpeedOut,
+            originalJumpOut,
+            raisedJumpOut,
+            decodedSpeed,
+            decodedJump,
+            a3,
+            a4,
+            metricExtra);
+    }
+
+    return result;
 }
 
 static BYTE ReadAbilityRedSiblingByte(uintptr_t thisPtr, size_t byteOffset, bool *outOk)
@@ -6104,6 +6617,139 @@ static bool ApplyMountMovementCapPatches()
 {
     bool ok = false;
 
+    // Root cause for mounted 190/123: 888DF0 clamps the raw TamingMob data while
+    // building the cached mount movement object. Keep the original 80 floor for
+    // speed, but remove the upper caps so boosted data survives into later paths.
+    static const BYTE kMountLoaderSpeedUpperClamp[] = {
+        0x3D, 0xBE, 0x00, 0x00, 0x00,
+        0x7C, 0x05,
+        0xB8, 0xBE, 0x00, 0x00, 0x00};
+    if (PatchNopsIfExpected(
+            ADDR_889079,
+            kMountLoaderSpeedUpperClamp,
+            sizeof(kMountLoaderSpeedUpperClamp),
+            "mount loader speed upper cap"))
+    {
+        ok = true;
+    }
+
+    static const BYTE kMountLoaderJumpUpperClamp[] = {
+        0x83, 0xF8, 0x7B,
+        0x7C, 0x05,
+        0xB8, 0x7B, 0x00, 0x00, 0x00};
+    if (PatchNopsIfExpected(
+            ADDR_8890F7,
+            kMountLoaderJumpUpperClamp,
+            sizeof(kMountLoaderJumpUpperClamp),
+            "mount loader jump upper cap"))
+    {
+        ok = true;
+    }
+
+    // B92D10 is the normal mounted data path. It writes the mount data img's raw
+    // speed/jump first, then optionally overwrites both with legacy recompute
+    // helpers (84CD10 / B92260). For custom mounts with boosted data this sends
+    // the values straight back to the old 190/123 family. Keep the raw data.
+    static const BYTE kMountedRawSpeedOverrideGate[] = {0x74, 0x13};
+    static const BYTE kMountedRawSpeedOverrideGatePatch[] = {0xEB, 0x13};
+    if (PatchBytesIfExpected(
+            ADDR_B9301F,
+            kMountedRawSpeedOverrideGate,
+            kMountedRawSpeedOverrideGatePatch,
+            sizeof(kMountedRawSpeedOverrideGate),
+            "mounted raw speed override gate"))
+    {
+        ok = true;
+    }
+
+    static const BYTE kMountedRawJumpOverrideGate[] = {0x74, 0x0F};
+    static const BYTE kMountedRawJumpOverrideGatePatch[] = {0xEB, 0x0F};
+    if (PatchBytesIfExpected(
+            ADDR_B93038,
+            kMountedRawJumpOverrideGate,
+            kMountedRawJumpOverrideGatePatch,
+            sizeof(kMountedRawJumpOverrideGate),
+            "mounted raw jump override gate"))
+    {
+        ok = true;
+    }
+
+    // AA0B90 is the mounted-only movement path.
+    // Keep its original additive logic, but remove the two final upper-cap paths:
+    // 1) special branch: [150,170] -> [150,+inf)
+    // 2) ground branch: min(max(speed+30,130), mountBase+150) -> max(speed+30,130)
+    static const BYTE kMountedSpecialUpperCapGate[] = {0x7C, 0x22};
+    static const BYTE kMountedSpecialUpperCapGatePatch[] = {0xEB, 0x22};
+    if (PatchBytesIfExpected(
+            ADDR_AA0CFB,
+            kMountedSpecialUpperCapGate,
+            kMountedSpecialUpperCapGatePatch,
+            sizeof(kMountedSpecialUpperCapGate),
+            "mounted special speed upper cap gate"))
+    {
+        ok = true;
+    }
+
+    static const BYTE kMountedGroundUpperClamp[] = {
+        0x8D, 0xB3, 0x96, 0x00, 0x00, 0x00,
+        0x3B, 0xC6,
+        0x7D, 0x02,
+        0x8B, 0xF0
+    };
+    static const BYTE kMountedGroundUpperClampPatch[] = {
+        0x8B, 0xF0,
+        0x90, 0x90, 0x90, 0x90,
+        0x90, 0x90,
+        0x90, 0x90,
+        0x90, 0x90
+    };
+    if (PatchBytesIfExpected(
+            ADDR_AA0D13,
+            kMountedGroundUpperClamp,
+            kMountedGroundUpperClampPatch,
+            sizeof(kMountedGroundUpperClamp),
+            "mounted ground speed upper clamp"))
+    {
+        ok = true;
+    }
+
+    // B93B80 is the shared movement stat clamp path that feeds the mounted
+    // speed/jump numbers seen in panel/output. Remove only the upper caps so
+    // high mounted values can propagate without breaking the original floors.
+    static const BYTE kMountedOutputSpeedUpperClamp[] = {0x3B, 0xC6, 0x7C, 0x02, 0x8B, 0xC6};
+    if (PatchNopsIfExpected(
+            ADDR_B93D0F,
+            kMountedOutputSpeedUpperClamp,
+            sizeof(kMountedOutputSpeedUpperClamp),
+            "mounted output speed upper cap"))
+    {
+        ok = true;
+    }
+
+    static const BYTE kMountedOutputJumpUpperClamp[] = {0x3B, 0xFD, 0x7D, 0x02, 0x8B, 0xEF};
+    static const BYTE kMountedOutputJumpUpperClampPatch[] = {0x8B, 0xEF, 0x90, 0x90, 0x90, 0x90};
+    if (PatchBytesIfExpected(
+            ADDR_B93D23,
+            kMountedOutputJumpUpperClamp,
+            kMountedOutputJumpUpperClampPatch,
+            sizeof(kMountedOutputJumpUpperClamp),
+            "mounted output jump upper cap"))
+    {
+        ok = true;
+    }
+
+    static const BYTE kMountedOutputMode2SpeedUpperClamp[] = {0x3B, 0xDE, 0x7D, 0x02, 0x8B, 0xF3};
+    static const BYTE kMountedOutputMode2SpeedUpperClampPatch[] = {0x8B, 0xF3, 0x90, 0x90, 0x90, 0x90};
+    if (PatchBytesIfExpected(
+            ADDR_B93D4A,
+            kMountedOutputMode2SpeedUpperClamp,
+            kMountedOutputMode2SpeedUpperClampPatch,
+            sizeof(kMountedOutputMode2SpeedUpperClamp),
+            "mounted output mode2 speed upper cap"))
+    {
+        ok = true;
+    }
+
     // Keep the lower bound (100) intact, but remove the final upper clamp.
     static const BYTE kSpeedUpperClamp[] = {0x3B, 0xD7, 0x7C, 0x02, 0x8B, 0xD7};
     if (PatchNopsIfExpected(ADDR_858D30, kSpeedUpperClamp, sizeof(kSpeedUpperClamp), "movement speed upper cap"))
@@ -6485,7 +7131,11 @@ static void __cdecl hkSkillReleaseClassifierB2F370Dispatch(int skillId)
 
     int mountItemId = 0;
     if (skillId > 0 &&
-        TryReadCurrentUserMountItemId(&mountItemId) &&
+        TryResolveMountedDoubleJumpMountItemIdWithFallback(
+            nullptr,
+            &mountItemId,
+            nullptr,
+            1200) &&
         HasRecentMountedDoubleJumpIntent(mountItemId) &&
         SkillOverlayBridgeCanUseMountedDoubleJumpSkill(mountItemId, skillId))
     {
@@ -6566,6 +7216,12 @@ static void ObserveExtendedMountContext(int mountItemId)
     }
     InterlockedExchange(&g_recentExtendedMountContextItemId, mountItemId);
     InterlockedExchange(&g_recentExtendedMountContextTick, static_cast<LONG>(GetTickCount()));
+}
+
+static void ClearExtendedMountContext()
+{
+    InterlockedExchange(&g_recentExtendedMountContextItemId, 0);
+    InterlockedExchange(&g_recentExtendedMountContextTick, 0);
 }
 
 static void ObserveMountedDoubleJumpIntent(int mountItemId)
@@ -6766,8 +7422,9 @@ static bool TryGetRecentExtendedMountContext(int *mountItemIdOut)
 
     const DWORD nowTick = GetTickCount();
     const DWORD elapsed = nowTick - static_cast<DWORD>(tick);
-    if (elapsed > 10000)
+    if (elapsed > kMountedSoaringFallbackGraceMs)
     {
+        ClearExtendedMountContext();
         return false;
     }
 
@@ -6775,6 +7432,72 @@ static bool TryGetRecentExtendedMountContext(int *mountItemIdOut)
     {
         *mountItemIdOut = static_cast<int>(mountItemId);
     }
+    return true;
+}
+
+static bool TryGetRecentMountedDoubleJumpIntentItemId(int *mountItemIdOut, DWORD maxAgeMs = 400)
+{
+    if (!kEnableMountedDoubleJumpRuntimeHooks || !mountItemIdOut)
+    {
+        return false;
+    }
+
+    const LONG recentMountItemId =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpIntentItemId, 0, 0);
+    if (recentMountItemId <= 0)
+    {
+        return false;
+    }
+
+    const LONG recentTick =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpIntentTick, 0, 0);
+    if (recentTick <= 0)
+    {
+        return false;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    const DWORD allowedAgeMs = maxAgeMs > 0 ? maxAgeMs : 400;
+    if (nowTick - static_cast<DWORD>(recentTick) > allowedAgeMs)
+    {
+        return false;
+    }
+
+    *mountItemIdOut = static_cast<int>(recentMountItemId);
+    return true;
+}
+
+static bool TryGetRecentMountedDoubleJumpNativeReleaseItemId(
+    int *mountItemIdOut,
+    DWORD maxAgeMs = 450)
+{
+    if (!kEnableMountedDoubleJumpRuntimeHooks || !mountItemIdOut)
+    {
+        return false;
+    }
+
+    const LONG recentMountItemId =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpNativeReleaseItemId, 0, 0);
+    if (recentMountItemId <= 0)
+    {
+        return false;
+    }
+
+    const LONG recentTick =
+        InterlockedCompareExchange(&g_recentMountedDoubleJumpNativeReleaseTick, 0, 0);
+    if (recentTick <= 0)
+    {
+        return false;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    const DWORD allowedAgeMs = maxAgeMs > 0 ? maxAgeMs : 450;
+    if (nowTick - static_cast<DWORD>(recentTick) > allowedAgeMs)
+    {
+        return false;
+    }
+
+    *mountItemIdOut = static_cast<int>(recentMountItemId);
     return true;
 }
 
@@ -6820,6 +7543,196 @@ static bool TryReadCurrentUserMountItemId(int *mountItemIdOut)
         return false;
     }
     *mountItemIdOut = mountItemId;
+    return true;
+}
+
+static bool TryGetActiveMountedSoaringFlightItemId(int *mountItemIdOut, DWORD maxAgeMs = 0)
+{
+    if (!mountItemIdOut)
+    {
+        return false;
+    }
+
+    const LONG activeMountItemId =
+        InterlockedCompareExchange(&g_activeMountedSoaringFlightItemId, 0, 0);
+    if (activeMountItemId <= 0)
+    {
+        return false;
+    }
+
+    const LONG activeTick =
+        InterlockedCompareExchange(&g_activeMountedSoaringFlightTick, 0, 0);
+    if (activeTick <= 0)
+    {
+        return false;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    const DWORD allowedAgeMs =
+        maxAgeMs > 0 ? maxAgeMs : 10000;
+    if (nowTick - static_cast<DWORD>(activeTick) > allowedAgeMs)
+    {
+        return false;
+    }
+
+    *mountItemIdOut = static_cast<int>(activeMountItemId);
+    return true;
+}
+
+static bool TryGetRecentMountedFlightScaleSampleMountItemId(
+    int *mountItemIdOut,
+    DWORD maxAgeMs = 10000)
+{
+    if (!mountItemIdOut)
+    {
+        return false;
+    }
+
+    const MountedFlightPhysicsScaleSample sample = g_MountedFlightPhysicsScaleSample;
+    if (sample.mountItemId <= 0 || sample.tick == 0)
+    {
+        return false;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    const DWORD allowedAgeMs = maxAgeMs > 0 ? maxAgeMs : 10000;
+    if (nowTick - sample.tick > allowedAgeMs)
+    {
+        return false;
+    }
+
+    *mountItemIdOut = sample.mountItemId;
+    return true;
+}
+
+static void ClearMountedSoaringRuntimeFallbackState();
+
+static bool TryResolveCurrentUserMountItemIdWithFallback(
+    int *mountItemIdOut,
+    const char **sourceOut)
+{
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = 0;
+    }
+    if (sourceOut)
+    {
+        *sourceOut = nullptr;
+    }
+
+    int mountItemId = 0;
+    const char *source = nullptr;
+    bool shouldObserveExtendedMountContext = false;
+    if (TryReadCurrentUserMountItemId(&mountItemId))
+    {
+        source = "user";
+        shouldObserveExtendedMountContext = true;
+    }
+    else if (TryGetRecentExtendedMountContext(&mountItemId) &&
+             IsExtendedMountSoaringContextMount(mountItemId))
+    {
+        source = "recent-extended";
+    }
+    else if (TryGetActiveMountedSoaringFlightItemId(
+                 &mountItemId,
+                 kMountedSoaringFallbackGraceMs) &&
+             IsExtendedMountSoaringContextMount(mountItemId))
+    {
+        source = "active-soaring";
+    }
+    else
+    {
+        // Do not let the cached scale baseline masquerade as a live mount
+        // source. That cache is useful to preserve the next legitimate flight
+        // boost sample, but using it as "current mount" resurrects stale mount
+        // context after dismount.
+        ClearMountedSoaringRuntimeFallbackState();
+        return false;
+    }
+
+    if (shouldObserveExtendedMountContext &&
+        IsExtendedMountSoaringContextMount(mountItemId))
+    {
+        ObserveExtendedMountContext(mountItemId);
+    }
+
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = mountItemId;
+    }
+    if (sourceOut)
+    {
+        *sourceOut = source;
+    }
+    return true;
+}
+
+static bool TryResolveMountedDoubleJumpMountItemIdWithFallback(
+    void *playerObj,
+    int *mountItemIdOut,
+    const char **sourceOut,
+    DWORD maxAgeMs)
+{
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = 0;
+    }
+    if (sourceOut)
+    {
+        *sourceOut = nullptr;
+    }
+
+    int mountItemId = 0;
+    const char *source = nullptr;
+    if (playerObj && TryReadMountItemIdFromPlayerObject(playerObj, &mountItemId))
+    {
+        source = "player";
+    }
+    else if (TryReadCurrentUserMountItemId(&mountItemId))
+    {
+        source = "user";
+    }
+    else if (SkillOverlayBridgeTryGetRecentMountedDoubleJumpRouteArmMountItemId(
+                 &mountItemId,
+                 maxAgeMs) &&
+             SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId) > 0)
+    {
+        source = "route-arm";
+    }
+    else if (TryGetRecentMountedDoubleJumpIntentItemId(&mountItemId, maxAgeMs) &&
+             SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId) > 0)
+    {
+        source = "intent";
+    }
+    else if (TryGetRecentMountedDoubleJumpNativeReleaseItemId(&mountItemId, maxAgeMs) &&
+             SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId) > 0)
+    {
+        source = "native-release";
+    }
+    else if (TryResolveCurrentUserMountItemIdWithFallback(&mountItemId, &source) &&
+             SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId) > 0)
+    {
+    }
+    else
+    {
+        return false;
+    }
+
+    if (source &&
+        (!strcmp(source, "player") || !strcmp(source, "user")) &&
+        IsExtendedMountSoaringContextMount(mountItemId))
+    {
+        ObserveExtendedMountContext(mountItemId);
+    }
+
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = mountItemId;
+    }
+    if (sourceOut)
+    {
+        *sourceOut = source;
+    }
     return true;
 }
 
@@ -6893,6 +7806,2458 @@ static bool TryReadMountItemIdFromPlayerObject(void *playerObj, int *mountItemId
     return true;
 }
 
+static bool IsMountMovementObservedDataLookupCaller(DWORD callerRet)
+{
+    return callerRet == ADDR_B92F2C ||
+           callerRet == ADDR_B930C6 ||
+           callerRet == ADDR_B932B2;
+}
+
+static bool TryApplyMountedMovementOverrideToCachedData(
+    int mountItemId,
+    int dataKey,
+    uintptr_t dataPtr,
+    MountedMovementOverride *appliedOverrideOut)
+{
+    if (appliedOverrideOut)
+        *appliedOverrideOut = MountedMovementOverride();
+
+    if (mountItemId <= 0 || dataKey <= 0 || dataPtr == 0)
+        return false;
+
+    MountedMovementOverride mountedOverride = {};
+    if (!SkillOverlayBridgeResolveMountedMovementOverride(mountItemId, dataKey, mountedOverride) ||
+        !mountedOverride.matched)
+    {
+        if (InterlockedDecrement(&g_MountMovementOverrideMissLogBudget) >= 0)
+        {
+            WriteLogFmt("[MountMoveMiss] stage=resolve mount=%d key=%d data=0x%08X",
+                        mountItemId,
+                        dataKey,
+                        static_cast<DWORD>(dataPtr));
+        }
+        return false;
+    }
+
+    MountedMovementOverride requestedOverride = mountedOverride;
+    bool normalizedFsForLargeNativeUnits = false;
+    bool normalizedSwimForLargeNativeUnits = false;
+
+    __try
+    {
+        const double nativeFs = *reinterpret_cast<double *>(dataPtr + 0x20);
+        const DWORD nativeSwim = *reinterpret_cast<DWORD *>(dataPtr + 0x28);
+
+        if (mountedOverride.hasFs &&
+            mountedOverride.fs >= 100.0 &&
+            nativeFs >= 10000.0 &&
+            mountedOverride.fs < nativeFs)
+        {
+            double adjustedFs = mountedOverride.fs;
+            for (int i = 0; i < 3 && adjustedFs < nativeFs; ++i)
+            {
+                adjustedFs *= 10.0;
+            }
+            if (adjustedFs > mountedOverride.fs)
+            {
+                mountedOverride.fs = adjustedFs;
+                normalizedFsForLargeNativeUnits = true;
+            }
+        }
+
+        if (mountedOverride.hasSwim &&
+            mountedOverride.swim >= 100.0 &&
+            nativeSwim >= 10000u &&
+            mountedOverride.swim < static_cast<double>(nativeSwim))
+        {
+            double adjustedSwim = mountedOverride.swim;
+            for (int i = 0; i < 3 && adjustedSwim < static_cast<double>(nativeSwim); ++i)
+            {
+                adjustedSwim *= 10.0;
+            }
+            if (adjustedSwim > mountedOverride.swim)
+            {
+                mountedOverride.swim = adjustedSwim;
+                normalizedSwimForLargeNativeUnits = true;
+            }
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+
+    if (normalizedFsForLargeNativeUnits || normalizedSwimForLargeNativeUnits)
+    {
+        static LONG s_mountMoveUnitNormalizationLogBudget = 24;
+        if (InterlockedDecrement(&s_mountMoveUnitNormalizationLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountMoveUnitFix] mount=%d key=%d requested=[fs=%.3f swim=%.3f] applied=[fs=%.3f swim=%.3f]",
+                mountItemId,
+                dataKey,
+                requestedOverride.hasFs ? requestedOverride.fs : -1.0,
+                requestedOverride.hasSwim ? requestedOverride.swim : -1.0,
+                mountedOverride.hasFs ? mountedOverride.fs : -1.0,
+                mountedOverride.hasSwim ? mountedOverride.swim : -1.0);
+        }
+    }
+
+    bool wroteAny = false;
+    __try
+    {
+        if (mountedOverride.hasSpeed)
+        {
+            *reinterpret_cast<int *>(dataPtr + 0x14) = mountedOverride.speed;
+            wroteAny = true;
+        }
+        if (mountedOverride.hasJump)
+        {
+            *reinterpret_cast<int *>(dataPtr + 0x18) = mountedOverride.jump;
+            wroteAny = true;
+        }
+        if (mountedOverride.hasFs)
+        {
+            *reinterpret_cast<double *>(dataPtr + 0x20) = mountedOverride.fs;
+            wroteAny = true;
+        }
+        if (mountedOverride.hasSwim)
+        {
+            const double clampedSwim = mountedOverride.swim > 0.0 ? mountedOverride.swim : 0.0;
+            *reinterpret_cast<DWORD *>(dataPtr + 0x28) =
+                static_cast<DWORD>(clampedSwim + 0.5);
+            wroteAny = true;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        if (InterlockedDecrement(&g_MountMovementOverrideMissLogBudget) >= 0)
+        {
+            WriteLogFmt("[MountMoveMiss] stage=write-exception mount=%d key=%d data=0x%08X code=0x%08X",
+                        mountItemId,
+                        dataKey,
+                        static_cast<DWORD>(dataPtr),
+                        static_cast<DWORD>(GetExceptionCode()));
+        }
+        wroteAny = false;
+    }
+
+    if (wroteAny && appliedOverrideOut)
+        *appliedOverrideOut = mountedOverride;
+    return wroteAny;
+}
+
+static const char *DescribeMountMovementObservedDataLookupCaller(DWORD callerRet)
+{
+    switch (callerRet)
+    {
+    case ADDR_B92F2C:
+        return "normal";
+    case ADDR_B930C6:
+        return "special";
+    case ADDR_B932B2:
+        return "mechanic";
+    default:
+        return "unknown";
+    }
+}
+
+static int __cdecl hkMountMovementDataLookup888B30(int dataKey)
+{
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    const int result = oMountMovementDataLookup888B30
+                           ? oMountMovementDataLookup888B30(dataKey)
+                           : 0;
+    if (!IsMountMovementObservedDataLookupCaller(callerRet))
+    {
+        return result;
+    }
+
+    const bool shouldLog = InterlockedDecrement(&g_MountMovementObserveLogBudget) >= 0;
+
+    int mountItemId = 0;
+    TryResolveCurrentUserMountItemIdWithFallback(&mountItemId, nullptr);
+
+    bool readable = false;
+    int rawSpeed = 0;
+    int rawJump = 0;
+    double rawFs = 0.0;
+    DWORD rawSwim = 0;
+    DWORD rawSpeedOverrideFlag = 0;
+    DWORD rawJumpOverrideFlag = 0;
+    int beforePatchSpeed = 0;
+    int beforePatchJump = 0;
+    double beforePatchFs = 0.0;
+    DWORD beforePatchSwim = 0;
+    bool hadBeforePatchSnapshot = false;
+    if (result > 0 &&
+        !SafeIsBadReadPtr(reinterpret_cast<void *>(static_cast<uintptr_t>(result)), 0x38))
+    {
+        __try
+        {
+            const uintptr_t dataPtr = static_cast<uintptr_t>(result);
+            rawSpeed = *reinterpret_cast<int *>(dataPtr + 0x14);
+            rawJump = *reinterpret_cast<int *>(dataPtr + 0x18);
+            rawFs = *reinterpret_cast<double *>(dataPtr + 0x20);
+            rawSwim = *reinterpret_cast<DWORD *>(dataPtr + 0x28);
+            rawSpeedOverrideFlag = *reinterpret_cast<DWORD *>(dataPtr + 0x30);
+            rawJumpOverrideFlag = *reinterpret_cast<DWORD *>(dataPtr + 0x34);
+            readable = true;
+            beforePatchSpeed = rawSpeed;
+            beforePatchJump = rawJump;
+            beforePatchFs = rawFs;
+            beforePatchSwim = rawSwim;
+            hadBeforePatchSnapshot = true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            readable = false;
+        }
+    }
+
+    MountedMovementOverride appliedOverride = {};
+    const bool overrideApplied = TryApplyMountedMovementOverrideToCachedData(
+        mountItemId,
+        dataKey,
+        static_cast<uintptr_t>(result),
+        &appliedOverride);
+
+    if (overrideApplied &&
+        result > 0 &&
+        !SafeIsBadReadPtr(reinterpret_cast<void *>(static_cast<uintptr_t>(result)), 0x38))
+    {
+        __try
+        {
+            const uintptr_t dataPtr = static_cast<uintptr_t>(result);
+            rawSpeed = *reinterpret_cast<int *>(dataPtr + 0x14);
+            rawJump = *reinterpret_cast<int *>(dataPtr + 0x18);
+            rawFs = *reinterpret_cast<double *>(dataPtr + 0x20);
+            rawSwim = *reinterpret_cast<DWORD *>(dataPtr + 0x28);
+            rawSpeedOverrideFlag = *reinterpret_cast<DWORD *>(dataPtr + 0x30);
+            rawJumpOverrideFlag = *reinterpret_cast<DWORD *>(dataPtr + 0x34);
+            readable = true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    if (overrideApplied && hadBeforePatchSnapshot)
+    {
+        RememberMountedFlightPhysicsScaleSample(
+            mountItemId,
+            dataKey,
+            beforePatchFs,
+            static_cast<double>(beforePatchSwim),
+            appliedOverride);
+    }
+
+    if (readable && shouldLog)
+    {
+        if (overrideApplied && hadBeforePatchSnapshot)
+        {
+            WriteLogFmt(
+                "[MountMoveFix] sourceSkill=%d mount=%d key=%d applied=[speed=%d jump=%d fs=%.3f swim=%.3f] before=[speed=%d jump=%d fs=%.3f swim=%u] after=[speed=%d jump=%d fs=%.3f swim=%u]",
+                appliedOverride.sourceSkillId,
+                mountItemId,
+                dataKey,
+                appliedOverride.hasSpeed ? appliedOverride.speed : -1,
+                appliedOverride.hasJump ? appliedOverride.jump : -1,
+                appliedOverride.hasFs ? appliedOverride.fs : -1.0,
+                appliedOverride.hasSwim ? appliedOverride.swim : -1.0,
+                beforePatchSpeed,
+                beforePatchJump,
+                beforePatchFs,
+                beforePatchSwim,
+                rawSpeed,
+                rawJump,
+                rawFs,
+                rawSwim);
+        }
+        WriteLogFmt(
+            "[MountMoveObserve] path=%s caller=0x%08X mount=%d key=%d data=0x%08X raw=[speed=%d jump=%d fs=%.3f swim=%u speedOverride=%u jumpOverride=%u]",
+            DescribeMountMovementObservedDataLookupCaller(callerRet),
+            callerRet,
+            mountItemId,
+            dataKey,
+            result,
+            rawSpeed,
+            rawJump,
+            rawFs,
+            rawSwim,
+            rawSpeedOverrideFlag,
+            rawJumpOverrideFlag);
+    }
+    else if (shouldLog)
+    {
+        WriteLogFmt(
+            "[MountMoveObserve] path=%s caller=0x%08X mount=%d key=%d data=0x%08X raw=unreadable",
+            DescribeMountMovementObservedDataLookupCaller(callerRet),
+            callerRet,
+            mountItemId,
+            dataKey,
+            result);
+    }
+
+    return result;
+}
+
+struct MountedFlightPhysicsSlotPatch
+{
+    uintptr_t slotAddr;
+    double originalValue;
+    double patchedValue;
+    size_t relativeOffset;
+    bool isStateSlot;
+    bool active;
+};
+
+static void ClearMountedSoaringFlightActive()
+{
+    InterlockedExchange(&g_activeMountedSoaringFlightItemId, 0);
+    InterlockedExchange(&g_activeMountedSoaringFlightTick, 0);
+    InterlockedExchange(&g_activeMountedSoaringFlightStartTick, 0);
+}
+
+static void ClearMountedSoaringRuntimeFallbackState()
+{
+    ClearExtendedMountContext();
+    ClearMountedSoaringFlightActive();
+}
+
+static void ObserveMountedSoaringFlightActive(int mountItemId)
+{
+    if (mountItemId <= 0)
+    {
+        return;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    const LONG previousMountItemId =
+        InterlockedCompareExchange(&g_activeMountedSoaringFlightItemId, 0, 0);
+    const LONG previousTick =
+        InterlockedCompareExchange(&g_activeMountedSoaringFlightTick, 0, 0);
+    const bool shouldResetStartTick =
+        previousMountItemId != mountItemId ||
+        previousTick <= 0 ||
+        nowTick - static_cast<DWORD>(previousTick) > kMountedSoaringFlightActiveRefreshGapMs;
+
+    InterlockedExchange(&g_activeMountedSoaringFlightItemId, mountItemId);
+    InterlockedExchange(&g_activeMountedSoaringFlightTick, static_cast<LONG>(nowTick));
+    if (shouldResetStartTick ||
+        InterlockedCompareExchange(&g_activeMountedSoaringFlightStartTick, 0, 0) <= 0)
+    {
+        InterlockedExchange(&g_activeMountedSoaringFlightStartTick, static_cast<LONG>(nowTick));
+    }
+}
+
+static bool TryResolveMountedFlightPhysicsScaleForAxis(
+    bool preferFs,
+    int *mountItemIdOut,
+    int *dataKeyOut,
+    double *scaleOut,
+    const char **scaleSourceOut)
+{
+    if (mountItemIdOut)
+        *mountItemIdOut = 0;
+    if (dataKeyOut)
+        *dataKeyOut = 0;
+    if (scaleOut)
+        *scaleOut = 0.0;
+    if (scaleSourceOut)
+        *scaleSourceOut = nullptr;
+
+    int mountItemId = 0;
+    if (!TryResolveCurrentUserMountItemIdWithFallback(&mountItemId, nullptr) ||
+        !IsExtendedMountSoaringContextMount(mountItemId))
+    {
+        ClearMountedSoaringRuntimeFallbackState();
+        return false;
+    }
+
+    const MountedFlightPhysicsScaleSample sample = g_MountedFlightPhysicsScaleSample;
+    if (sample.mountItemId <= 0 ||
+        sample.mountItemId != mountItemId ||
+        sample.tick == 0)
+    {
+        return false;
+    }
+
+    DWORD activeAgeMs = 0;
+    DWORD activeDurationMs = 0;
+    TryGetMountedSoaringFlightTiming(
+        mountItemId,
+        &activeAgeMs,
+        &activeDurationMs);
+
+    MountedMovementOverride soaringOverride = {};
+    const bool hasSoaringOverride =
+        SkillOverlayBridgeResolveMountedSoaringOverride(mountItemId, sample.dataKey, soaringOverride);
+    const double resolvedOverrideFs =
+        hasSoaringOverride && soaringOverride.hasFs && soaringOverride.fs > sample.overrideFs
+            ? soaringOverride.fs
+            : sample.overrideFs;
+    const double resolvedOverrideSwim =
+        hasSoaringOverride && soaringOverride.hasSwim && soaringOverride.swim > sample.overrideSwim
+            ? soaringOverride.swim
+            : sample.overrideSwim;
+
+    const double swimScale =
+        (resolvedOverrideSwim > sample.nativeSwim && sample.nativeSwim > 0.0)
+            ? (resolvedOverrideSwim / sample.nativeSwim)
+            : 0.0;
+    const double fsScale =
+        (resolvedOverrideFs > sample.nativeFs && sample.nativeFs > 0.0)
+            ? (resolvedOverrideFs / sample.nativeFs)
+            : 0.0;
+
+    double scale = 0.0;
+    const char *source = nullptr;
+    if (preferFs)
+    {
+        if (fsScale > 1.001)
+        {
+            scale = fsScale;
+            source = "fs";
+        }
+        else if (swimScale > 1.001)
+        {
+            scale = swimScale;
+            source = "swim";
+        }
+    }
+    else
+    {
+        if (swimScale > 1.001)
+        {
+            scale = swimScale;
+            source = "swim";
+        }
+        else if (fsScale > 1.001)
+        {
+            scale = fsScale;
+            source = "fs";
+        }
+    }
+
+    if (!(scale > 1.001) || !(scale < 100000.0))
+    {
+        return false;
+    }
+
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = mountItemId;
+    }
+    if (dataKeyOut)
+    {
+        *dataKeyOut = sample.dataKey;
+    }
+    if (scaleOut)
+    {
+        *scaleOut = scale;
+    }
+    if (scaleSourceOut)
+    {
+        *scaleSourceOut = source;
+    }
+    return true;
+}
+
+static bool TryResolveMountedFlightPhysicsScale(
+    int *mountItemIdOut,
+    int *dataKeyOut,
+    double *scaleOut,
+    const char **scaleSourceOut)
+{
+    return TryResolveMountedFlightPhysicsScaleForAxis(
+        false,
+        mountItemIdOut,
+        dataKeyOut,
+        scaleOut,
+        scaleSourceOut);
+}
+
+static bool TryReadEncodedDoubleSlot(uintptr_t slotAddr, double *outValue)
+{
+    if (!slotAddr || !outValue || SafeIsBadReadPtr(reinterpret_cast<void *>(slotAddr), 12))
+    {
+        return false;
+    }
+
+    tEncodedDoubleReadFn readFn =
+        reinterpret_cast<tEncodedDoubleReadFn>(ADDR_445A20);
+    if (!readFn)
+    {
+        return false;
+    }
+
+    __try
+    {
+        *outValue = readFn(reinterpret_cast<void *>(slotAddr));
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+static bool TryWriteEncodedDoubleSlot(uintptr_t slotAddr, double value)
+{
+    if (!slotAddr || SafeIsBadReadPtr(reinterpret_cast<void *>(slotAddr), 12))
+    {
+        return false;
+    }
+
+    tEncodedDoubleWriteFn writeFn =
+        reinterpret_cast<tEncodedDoubleWriteFn>(ADDR_444CA0);
+    if (!writeFn)
+    {
+        return false;
+    }
+
+    unsigned __int64 bits = 0;
+    memcpy(&bits, &value, sizeof(bits));
+
+    __try
+    {
+        writeFn(
+            reinterpret_cast<void *>(slotAddr),
+            static_cast<int>(bits & 0xFFFFFFFFu),
+            static_cast<int>(bits >> 32));
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+static bool TryPatchMountedFlightPhysicsSlot(
+    uintptr_t slotAddr,
+    double scale,
+    MountedFlightPhysicsSlotPatch *outPatch)
+{
+    if (outPatch)
+    {
+        outPatch->slotAddr = 0;
+        outPatch->originalValue = 0.0;
+        outPatch->patchedValue = 0.0;
+        outPatch->relativeOffset = 0;
+        outPatch->isStateSlot = false;
+        outPatch->active = false;
+    }
+
+    if (!slotAddr || !(scale > 1.001))
+    {
+        return false;
+    }
+
+    double originalValue = 0.0;
+    if (!TryReadEncodedDoubleSlot(slotAddr, &originalValue) ||
+        !(originalValue > 0.0) ||
+        !(originalValue < 1000000.0))
+    {
+        return false;
+    }
+
+    const double patchedValue = originalValue * scale;
+    if (!(patchedValue > originalValue) || !(patchedValue < 1000000000.0))
+    {
+        return false;
+    }
+
+    if (!TryWriteEncodedDoubleSlot(slotAddr, patchedValue))
+    {
+        return false;
+    }
+
+    if (outPatch)
+    {
+        outPatch->slotAddr = slotAddr;
+        outPatch->originalValue = originalValue;
+        outPatch->patchedValue = patchedValue;
+        outPatch->active = true;
+    }
+    return true;
+}
+
+static void RestoreMountedFlightPhysicsSlotPatches(
+    MountedFlightPhysicsSlotPatch *patches,
+    size_t patchCount)
+{
+    if (!patches || patchCount == 0)
+    {
+        return;
+    }
+
+    for (size_t i = 0; i < patchCount; ++i)
+    {
+        if (!patches[i].active)
+        {
+            continue;
+        }
+
+        TryWriteEncodedDoubleSlot(patches[i].slotAddr, patches[i].originalValue);
+        patches[i].active = false;
+    }
+}
+
+static size_t BeginMountedFlightPhysicsScalePatchForOffsetsWithScale(
+    void *thisPtr,
+    const char *label,
+    double scale,
+    int mountItemId,
+    int dataKey,
+    const char *scaleSource,
+    const size_t *localSlotOffsets,
+    size_t localSlotCount,
+    const size_t *stateSlotOffsets,
+    size_t stateSlotCount,
+    MountedFlightPhysicsSlotPatch *patches,
+    size_t patchCapacity)
+{
+    if (!thisPtr || !patches || patchCapacity == 0 || !(scale > 1.001))
+    {
+        return 0;
+    }
+
+    for (size_t i = 0; i < patchCapacity; ++i)
+    {
+        patches[i].slotAddr = 0;
+        patches[i].originalValue = 0.0;
+        patches[i].patchedValue = 0.0;
+        patches[i].relativeOffset = 0;
+        patches[i].isStateSlot = false;
+        patches[i].active = false;
+    }
+
+    size_t patchCount = 0;
+    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
+    for (size_t offsetIndex = 0;
+         localSlotOffsets &&
+         offsetIndex < localSlotCount &&
+         patchCount < patchCapacity;
+         ++offsetIndex)
+    {
+        if (TryPatchMountedFlightPhysicsSlot(
+                thisValue + localSlotOffsets[offsetIndex],
+                scale,
+                &patches[patchCount]))
+        {
+            patches[patchCount].relativeOffset = localSlotOffsets[offsetIndex];
+            patches[patchCount].isStateSlot = false;
+            ++patchCount;
+        }
+    }
+
+    uintptr_t statePtr = 0;
+    if (!SafeIsBadReadPtr(reinterpret_cast<void *>(thisValue + 332), sizeof(DWORD)))
+    {
+        __try
+        {
+            statePtr = *reinterpret_cast<uintptr_t *>(thisValue + 332);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            statePtr = 0;
+        }
+    }
+
+    for (size_t offsetIndex = 0;
+         statePtr &&
+         stateSlotOffsets &&
+         offsetIndex < stateSlotCount &&
+         patchCount < patchCapacity;
+         ++offsetIndex)
+    {
+        if (TryPatchMountedFlightPhysicsSlot(
+                statePtr + stateSlotOffsets[offsetIndex],
+                scale,
+                &patches[patchCount]))
+        {
+            patches[patchCount].relativeOffset = stateSlotOffsets[offsetIndex];
+            patches[patchCount].isStateSlot = true;
+            ++patchCount;
+        }
+    }
+
+    if (patchCount > 0 && InterlockedDecrement(&g_MountedFlightPhysicsScaleLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountFlightSpeed] %s mount=%d key=%d scale=%.3f source=%s count=%u s0=%c+%u %.6f->%.6f s1=%c+%u %.6f->%.6f s2=%c+%u %.6f->%.6f s3=%c+%u %.6f->%.6f",
+            label ? label : "unknown",
+            mountItemId,
+            dataKey,
+            scale,
+            scaleSource ? scaleSource : "none",
+            static_cast<unsigned int>(patchCount),
+            patchCount >= 1 ? (patches[0].isStateSlot ? 'S' : 'L') : '-',
+            patchCount >= 1 ? static_cast<unsigned int>(patches[0].relativeOffset) : 0,
+            patchCount >= 1 ? patches[0].originalValue : 0.0,
+            patchCount >= 1 ? patches[0].patchedValue : 0.0,
+            patchCount >= 2 ? (patches[1].isStateSlot ? 'S' : 'L') : '-',
+            patchCount >= 2 ? static_cast<unsigned int>(patches[1].relativeOffset) : 0,
+            patchCount >= 2 ? patches[1].originalValue : 0.0,
+            patchCount >= 2 ? patches[1].patchedValue : 0.0,
+            patchCount >= 3 ? (patches[2].isStateSlot ? 'S' : 'L') : '-',
+            patchCount >= 3 ? static_cast<unsigned int>(patches[2].relativeOffset) : 0,
+            patchCount >= 3 ? patches[2].originalValue : 0.0,
+            patchCount >= 3 ? patches[2].patchedValue : 0.0,
+            patchCount >= 4 ? (patches[3].isStateSlot ? 'S' : 'L') : '-',
+            patchCount >= 4 ? static_cast<unsigned int>(patches[3].relativeOffset) : 0,
+            patchCount >= 4 ? patches[3].originalValue : 0.0,
+            patchCount >= 4 ? patches[3].patchedValue : 0.0);
+    }
+
+    return patchCount;
+}
+
+static size_t BeginMountedFlightPhysicsScalePatchForOffsets(
+    void *thisPtr,
+    const char *label,
+    const size_t *localSlotOffsets,
+    size_t localSlotCount,
+    const size_t *stateSlotOffsets,
+    size_t stateSlotCount,
+    MountedFlightPhysicsSlotPatch *patches,
+    size_t patchCapacity)
+{
+    int mountItemId = 0;
+    int dataKey = 0;
+    double scale = 0.0;
+    const char *scaleSource = nullptr;
+    if (!TryResolveMountedFlightPhysicsScale(&mountItemId, &dataKey, &scale, &scaleSource))
+    {
+        return 0;
+    }
+    return BeginMountedFlightPhysicsScalePatchForOffsetsWithScale(
+        thisPtr,
+        label,
+        scale,
+        mountItemId,
+        dataKey,
+        scaleSource,
+        localSlotOffsets,
+        localSlotCount,
+        stateSlotOffsets,
+        stateSlotCount,
+        patches,
+        patchCapacity);
+}
+
+static size_t BeginMountedFlightPhysicsScalePatch(
+    void *thisPtr,
+    const char *label,
+    MountedFlightPhysicsSlotPatch *patches,
+    size_t patchCapacity)
+{
+    static const size_t kLocalSlotOffsets[] = {
+        340, 352, 364, 376, 388, 400, 412, 424, 436, 448, 460
+    };
+    static const size_t kStateSlotOffsets[] = { 0, 12, 24, 36 };
+    return BeginMountedFlightPhysicsScalePatchForOffsets(
+        thisPtr,
+        label,
+        kLocalSlotOffsets,
+        ARRAYSIZE(kLocalSlotOffsets),
+        kStateSlotOffsets,
+        ARRAYSIZE(kStateSlotOffsets),
+        patches,
+        patchCapacity);
+}
+
+static void ObserveMountedFlightPhysicsEntry(const char *label, void *thisPtr, size_t patchCount)
+{
+    int mountItemId = 0;
+    const char *mountSource = nullptr;
+    const bool hasMountContext =
+        TryResolveCurrentUserMountItemIdWithFallback(&mountItemId, &mountSource);
+    DWORD activeAgeMs = 0;
+    DWORD activeDurationMs = 0;
+    const bool hasActiveTiming =
+        hasMountContext &&
+        TryGetMountedSoaringFlightTiming(
+            mountItemId,
+            &activeAgeMs,
+            &activeDurationMs);
+    int scaleMountItemId = 0;
+    int dataKey = 0;
+    double scale = 0.0;
+    const char *scaleSource = nullptr;
+    const bool hasScale =
+        TryResolveMountedFlightPhysicsScaleForAxis(
+            true,
+            &scaleMountItemId,
+            &dataKey,
+            &scale,
+            &scaleSource);
+    if (hasScale && scaleMountItemId > 0)
+    {
+        mountItemId = scaleMountItemId;
+    }
+
+    if (!hasScale && patchCount == 0 && !hasMountContext && !hasActiveTiming)
+    {
+        return;
+    }
+
+    if (InterlockedDecrement(&g_MountedFlightPhysicsEntryLogBudget) < 0)
+    {
+        return;
+    }
+
+    WriteLogFmt(
+        "[MountFlightEntry] %s this=0x%08X mount=%d mountSource=%s hasActive=%d age=%u duration=%u key=%d hasScale=%d scale=%.3f source=%s patchCount=%u",
+        label ? label : "unknown",
+        (DWORD)(uintptr_t)thisPtr,
+        mountItemId,
+        mountSource ? mountSource : "none",
+        hasActiveTiming ? 1 : 0,
+        static_cast<unsigned int>(activeAgeMs),
+        static_cast<unsigned int>(activeDurationMs),
+        dataKey,
+        hasScale ? 1 : 0,
+        scale,
+        scaleSource ? scaleSource : "none",
+        static_cast<unsigned int>(patchCount));
+}
+
+struct MountedFlightPhysicsStateSnapshot
+{
+    double posX;
+    double posY;
+    double velX;
+    double velY;
+    bool valid;
+};
+
+static bool IsReasonableMountedFlightPhysicsValue(double value)
+{
+    return value == value &&
+           value > -1000000000.0 &&
+           value < 1000000000.0;
+}
+
+static bool TryReadMountedFlightPhysicsStateSnapshot(
+    void *thisPtr,
+    MountedFlightPhysicsStateSnapshot *outSnapshot)
+{
+    if (outSnapshot)
+    {
+        outSnapshot->posX = 0.0;
+        outSnapshot->posY = 0.0;
+        outSnapshot->velX = 0.0;
+        outSnapshot->velY = 0.0;
+        outSnapshot->valid = false;
+    }
+
+    if (!thisPtr || !outSnapshot)
+    {
+        return false;
+    }
+
+    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
+    if (SafeIsBadReadPtr(reinterpret_cast<void *>(thisValue + 40), 32))
+    {
+        return false;
+    }
+
+    __try
+    {
+        outSnapshot->posX = *reinterpret_cast<double *>(thisValue + 40);
+        outSnapshot->posY = *reinterpret_cast<double *>(thisValue + 48);
+        outSnapshot->velX = *reinterpret_cast<double *>(thisValue + 56);
+        outSnapshot->velY = *reinterpret_cast<double *>(thisValue + 64);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        outSnapshot->valid = false;
+        return false;
+    }
+
+    outSnapshot->valid =
+        IsReasonableMountedFlightPhysicsValue(outSnapshot->posX) &&
+        IsReasonableMountedFlightPhysicsValue(outSnapshot->posY) &&
+        IsReasonableMountedFlightPhysicsValue(outSnapshot->velX) &&
+        IsReasonableMountedFlightPhysicsValue(outSnapshot->velY);
+    return outSnapshot->valid;
+}
+
+struct MountedFlightPhysicsScalarSnapshot
+{
+    double pos;
+    double vel;
+    bool valid;
+};
+
+struct MountedFlightScalarBoostRecord
+{
+    uintptr_t thisPtr;
+    int mountItemId;
+    int dataKey;
+    DWORD tick;
+    MountedFlightPhysicsScalarSnapshot snapshot;
+};
+
+struct MountedFlightStateBoostRecord
+{
+    uintptr_t thisPtr;
+    int mountItemId;
+    int dataKey;
+    DWORD tick;
+    MountedFlightPhysicsStateSnapshot snapshot;
+};
+
+static const DWORD kMountedFlightBoostPreserveWindowMs = 120;
+static volatile LONG g_MountedFlightBoostPreserveLogBudget = 32;
+static MountedFlightScalarBoostRecord g_recentMountedFlightScalarBoost = {};
+static MountedFlightStateBoostRecord g_recentMountedFlightStateBoost = {};
+
+static bool IsMountedFlightVelocityDirectionCompatible(double currentValue, double boostedValue)
+{
+    if (fabs(currentValue) <= 0.000001 || fabs(boostedValue) <= 0.000001)
+    {
+        return true;
+    }
+    return (currentValue > 0.0 && boostedValue > 0.0) ||
+           (currentValue < 0.0 && boostedValue < 0.0);
+}
+
+static void ObserveMountedFlightScalarBoost(
+    void *thisPtr,
+    int mountItemId,
+    int dataKey,
+    const MountedFlightPhysicsScalarSnapshot &snapshot)
+{
+    if (!thisPtr || mountItemId <= 0 || !snapshot.valid)
+    {
+        return;
+    }
+
+    g_recentMountedFlightScalarBoost.thisPtr = reinterpret_cast<uintptr_t>(thisPtr);
+    g_recentMountedFlightScalarBoost.mountItemId = mountItemId;
+    g_recentMountedFlightScalarBoost.dataKey = dataKey;
+    g_recentMountedFlightScalarBoost.tick = GetTickCount();
+    g_recentMountedFlightScalarBoost.snapshot = snapshot;
+}
+
+static bool TryRestoreRecentMountedFlightScalarBoost(
+    void *thisPtr,
+    int mountItemId,
+    int dataKey,
+    MountedFlightPhysicsScalarSnapshot *ioSnapshot)
+{
+    if (!thisPtr ||
+        mountItemId <= 0 ||
+        !ioSnapshot ||
+        !ioSnapshot->valid)
+    {
+        return false;
+    }
+
+    const MountedFlightScalarBoostRecord recent = g_recentMountedFlightScalarBoost;
+    if (!recent.snapshot.valid ||
+        recent.thisPtr != reinterpret_cast<uintptr_t>(thisPtr) ||
+        recent.mountItemId != mountItemId ||
+        recent.dataKey != dataKey ||
+        recent.tick == 0)
+    {
+        return false;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    if (nowTick - recent.tick > kMountedFlightBoostPreserveWindowMs)
+    {
+        return false;
+    }
+
+    const double currentAbsVel = fabs(ioSnapshot->vel);
+    const double recentAbsVel = fabs(recent.snapshot.vel);
+    if (!(recentAbsVel > 1.0) ||
+        currentAbsVel >= recentAbsVel * 0.5 ||
+        !IsMountedFlightVelocityDirectionCompatible(ioSnapshot->vel, recent.snapshot.vel))
+    {
+        return false;
+    }
+
+    const double oldVel = ioSnapshot->vel;
+    ioSnapshot->vel = recent.snapshot.vel;
+    ioSnapshot->valid = true;
+
+    if (InterlockedDecrement(&g_MountedFlightBoostPreserveLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountFlightPreserve] scalar this=0x%08X mount=%d key=%d age=%u vel=%.6f->%.6f pos=%.6f",
+            (DWORD)(uintptr_t)thisPtr,
+            mountItemId,
+            dataKey,
+            nowTick - recent.tick,
+            oldVel,
+            ioSnapshot->vel,
+            ioSnapshot->pos);
+    }
+    return true;
+}
+
+static void ObserveMountedFlightStateBoost(
+    void *thisPtr,
+    int mountItemId,
+    int dataKey,
+    const MountedFlightPhysicsStateSnapshot &snapshot)
+{
+    if (!thisPtr || mountItemId <= 0 || !snapshot.valid)
+    {
+        return;
+    }
+
+    g_recentMountedFlightStateBoost.thisPtr = reinterpret_cast<uintptr_t>(thisPtr);
+    g_recentMountedFlightStateBoost.mountItemId = mountItemId;
+    g_recentMountedFlightStateBoost.dataKey = dataKey;
+    g_recentMountedFlightStateBoost.tick = GetTickCount();
+    g_recentMountedFlightStateBoost.snapshot = snapshot;
+}
+
+static bool TryRestoreRecentMountedFlightStateBoost(
+    void *thisPtr,
+    int mountItemId,
+    int dataKey,
+    MountedFlightPhysicsStateSnapshot *ioSnapshot)
+{
+    if (!thisPtr ||
+        mountItemId <= 0 ||
+        !ioSnapshot ||
+        !ioSnapshot->valid)
+    {
+        return false;
+    }
+
+    const MountedFlightStateBoostRecord recent = g_recentMountedFlightStateBoost;
+    if (!recent.snapshot.valid ||
+        recent.thisPtr != reinterpret_cast<uintptr_t>(thisPtr) ||
+        recent.mountItemId != mountItemId ||
+        recent.dataKey != dataKey ||
+        recent.tick == 0)
+    {
+        return false;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    if (nowTick - recent.tick > kMountedFlightBoostPreserveWindowMs)
+    {
+        return false;
+    }
+
+    bool restoredAny = false;
+    const double oldVelX = ioSnapshot->velX;
+    const double oldVelY = ioSnapshot->velY;
+    const double recentAbsVelX = fabs(recent.snapshot.velX);
+    const double currentAbsVelX = fabs(ioSnapshot->velX);
+    if (recentAbsVelX > 1.0 &&
+        currentAbsVelX < recentAbsVelX * 0.5 &&
+        IsMountedFlightVelocityDirectionCompatible(ioSnapshot->velX, recent.snapshot.velX))
+    {
+        ioSnapshot->velX = recent.snapshot.velX;
+        restoredAny = true;
+    }
+
+    const double recentAbsVelY = fabs(recent.snapshot.velY);
+    const double currentAbsVelY = fabs(ioSnapshot->velY);
+    if (recentAbsVelY > 1.0 &&
+        currentAbsVelY < recentAbsVelY * 0.5 &&
+        IsMountedFlightVelocityDirectionCompatible(ioSnapshot->velY, recent.snapshot.velY))
+    {
+        ioSnapshot->velY = recent.snapshot.velY;
+        restoredAny = true;
+    }
+
+    if (restoredAny && InterlockedDecrement(&g_MountedFlightBoostPreserveLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountFlightPreserve] state this=0x%08X mount=%d key=%d age=%u vel=(%.6f,%.6f)->(%.6f,%.6f) pos=(%.6f,%.6f)",
+            (DWORD)(uintptr_t)thisPtr,
+            mountItemId,
+            dataKey,
+            nowTick - recent.tick,
+            oldVelX,
+            oldVelY,
+            ioSnapshot->velX,
+            ioSnapshot->velY,
+            ioSnapshot->posX,
+            ioSnapshot->posY);
+    }
+
+    return restoredAny;
+}
+
+static bool TryReadMountedFlightPhysicsScalarSnapshot(
+    void *thisPtr,
+    size_t posOffset,
+    size_t velOffset,
+    MountedFlightPhysicsScalarSnapshot *outSnapshot)
+{
+    if (outSnapshot)
+    {
+        outSnapshot->pos = 0.0;
+        outSnapshot->vel = 0.0;
+        outSnapshot->valid = false;
+    }
+
+    if (!thisPtr || !outSnapshot)
+    {
+        return false;
+    }
+
+    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
+    if (SafeIsBadReadPtr(reinterpret_cast<void *>(thisValue + posOffset), 16))
+    {
+        return false;
+    }
+
+    __try
+    {
+        outSnapshot->pos = *reinterpret_cast<double *>(thisValue + posOffset);
+        outSnapshot->vel = *reinterpret_cast<double *>(thisValue + velOffset);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        outSnapshot->valid = false;
+        return false;
+    }
+
+    outSnapshot->valid =
+        IsReasonableMountedFlightPhysicsValue(outSnapshot->pos) &&
+        IsReasonableMountedFlightPhysicsValue(outSnapshot->vel);
+    return outSnapshot->valid;
+}
+
+static bool TryWriteMountedFlightPhysicsScalarSnapshot(
+    void *thisPtr,
+    size_t posOffset,
+    size_t velOffset,
+    const MountedFlightPhysicsScalarSnapshot &snapshot)
+{
+    if (!thisPtr ||
+        !snapshot.valid ||
+        !IsReasonableMountedFlightPhysicsValue(snapshot.pos) ||
+        !IsReasonableMountedFlightPhysicsValue(snapshot.vel))
+    {
+        return false;
+    }
+
+    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
+    if (SafeIsBadReadPtr(reinterpret_cast<void *>(thisValue + posOffset), 16))
+    {
+        return false;
+    }
+
+    __try
+    {
+        *reinterpret_cast<double *>(thisValue + posOffset) = snapshot.pos;
+        *reinterpret_cast<double *>(thisValue + velOffset) = snapshot.vel;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+static bool TryReadMountedFlightControlTargets(
+    void *thisPtr,
+    int *horizontalTargetOut,
+    int *verticalTargetOut)
+{
+    if (horizontalTargetOut)
+    {
+        *horizontalTargetOut = 0;
+    }
+    if (verticalTargetOut)
+    {
+        *verticalTargetOut = 0;
+    }
+
+    if (!thisPtr)
+    {
+        return false;
+    }
+
+    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
+    if (SafeIsBadReadPtr(reinterpret_cast<void *>(thisValue + 680), 8))
+    {
+        return false;
+    }
+
+    __try
+    {
+        if (horizontalTargetOut)
+        {
+            *horizontalTargetOut = *reinterpret_cast<int *>(thisValue + 680);
+        }
+        if (verticalTargetOut)
+        {
+            *verticalTargetOut = *reinterpret_cast<int *>(thisValue + 684);
+        }
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        if (horizontalTargetOut)
+        {
+            *horizontalTargetOut = 0;
+        }
+        if (verticalTargetOut)
+        {
+            *verticalTargetOut = 0;
+        }
+        return false;
+    }
+}
+
+enum MountedFlightNativeMotionBranch
+{
+    kMountedFlightNativeMotionBranchUnknown = 0,
+    kMountedFlightNativeMotionBranchPrimary48 = 1,
+    kMountedFlightNativeMotionBranchSecondary40 = 2,
+    kMountedFlightNativeMotionBranchFallback = 3,
+};
+
+static bool TryReadMountedFlightBranchState(void *thisPtr, int *branchStateOut)
+{
+    if (branchStateOut)
+    {
+        *branchStateOut = 0;
+    }
+
+    if (!thisPtr)
+    {
+        return false;
+    }
+
+    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
+    if (SafeIsBadReadPtr(reinterpret_cast<void *>(thisValue + 672), sizeof(DWORD)))
+    {
+        return false;
+    }
+
+    __try
+    {
+        if (branchStateOut)
+        {
+            *branchStateOut = *reinterpret_cast<int *>(thisValue + 672);
+        }
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        if (branchStateOut)
+        {
+            *branchStateOut = 0;
+        }
+        return false;
+    }
+}
+
+static bool TryResolveMountedFlightNativeMotionBranch(
+    void *thisPtr,
+    bool *mode48Out,
+    bool *mode40Out,
+    bool *mode44Out,
+    int *branchOut)
+{
+    if (mode48Out)
+    {
+        *mode48Out = false;
+    }
+    if (mode40Out)
+    {
+        *mode40Out = false;
+    }
+    if (mode44Out)
+    {
+        *mode44Out = false;
+    }
+    if (branchOut)
+    {
+        *branchOut = kMountedFlightNativeMotionBranchUnknown;
+    }
+
+    if (!thisPtr)
+    {
+        return false;
+    }
+
+    const uintptr_t wrapperThis = reinterpret_cast<uintptr_t>(thisPtr) + 16;
+    if (SafeIsBadReadPtr(reinterpret_cast<void *>(wrapperThis), sizeof(DWORD)))
+    {
+        return false;
+    }
+
+    __try
+    {
+        DWORD *vtbl = *reinterpret_cast<DWORD **>(wrapperThis);
+        if (!vtbl)
+        {
+            return false;
+        }
+
+        typedef int(__thiscall *tVirtualIntNoArgFn)(void *thisPtr);
+        tVirtualIntNoArgFn isPrimary48Fn =
+            reinterpret_cast<tVirtualIntNoArgFn>(vtbl[48 / sizeof(DWORD)]);
+        tVirtualIntNoArgFn isSecondary40Fn =
+            reinterpret_cast<tVirtualIntNoArgFn>(vtbl[40 / sizeof(DWORD)]);
+        tVirtualIntNoArgFn isFallback44Fn =
+            reinterpret_cast<tVirtualIntNoArgFn>(vtbl[44 / sizeof(DWORD)]);
+
+        const bool mode48 =
+            isPrimary48Fn && isPrimary48Fn(reinterpret_cast<void *>(wrapperThis)) != 0;
+        bool mode40 = false;
+        bool mode44 = false;
+        int branch = kMountedFlightNativeMotionBranchUnknown;
+        if (mode48)
+        {
+            branch = kMountedFlightNativeMotionBranchPrimary48;
+        }
+        else
+        {
+            mode40 =
+                isSecondary40Fn &&
+                isSecondary40Fn(reinterpret_cast<void *>(wrapperThis)) != 0;
+            if (mode40)
+            {
+                branch = kMountedFlightNativeMotionBranchSecondary40;
+            }
+            else
+            {
+                mode44 =
+                    isFallback44Fn &&
+                    isFallback44Fn(reinterpret_cast<void *>(wrapperThis)) != 0;
+                branch = kMountedFlightNativeMotionBranchFallback;
+            }
+        }
+
+        if (mode48Out)
+        {
+            *mode48Out = mode48;
+        }
+        if (mode40Out)
+        {
+            *mode40Out = mode40;
+        }
+        if (mode44Out)
+        {
+            *mode44Out = mode44;
+        }
+        if (branchOut)
+        {
+            *branchOut = branch;
+        }
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        if (mode48Out)
+        {
+            *mode48Out = false;
+        }
+        if (mode40Out)
+        {
+            *mode40Out = false;
+        }
+        if (mode44Out)
+        {
+            *mode44Out = false;
+        }
+        if (branchOut)
+        {
+            *branchOut = kMountedFlightNativeMotionBranchUnknown;
+        }
+        return false;
+    }
+}
+
+static void ObserveMountedFlightNativeMotionBranch(
+    const char *label,
+    void *thisPtr,
+    int branchState,
+    int horizontalTarget,
+    int verticalTarget,
+    bool hasMotionBranch,
+    bool mode48,
+    bool mode40,
+    bool mode44,
+    int motionBranch)
+{
+    static LONG s_mountedFlightNativeMotionBranchLogBudget = 64;
+    if (InterlockedDecrement(&s_mountedFlightNativeMotionBranchLogBudget) < 0)
+    {
+        return;
+    }
+
+    WriteLogFmt(
+        "[MountFlightBranch] %s this=0x%08X state=%d h=%d v=%d hasMotion=%d branch=%d f48=%d f40=%d f44=%d",
+        label ? label : "unknown",
+        (DWORD)(uintptr_t)thisPtr,
+        branchState,
+        horizontalTarget,
+        verticalTarget,
+        hasMotionBranch ? 1 : 0,
+        motionBranch,
+        mode48 ? 1 : 0,
+        mode40 ? 1 : 0,
+        mode44 ? 1 : 0);
+}
+
+static bool TryWriteMountedFlightPhysicsStateSnapshot(
+    void *thisPtr,
+    const MountedFlightPhysicsStateSnapshot &snapshot)
+{
+    if (!thisPtr ||
+        !snapshot.valid ||
+        !IsReasonableMountedFlightPhysicsValue(snapshot.posX) ||
+        !IsReasonableMountedFlightPhysicsValue(snapshot.posY) ||
+        !IsReasonableMountedFlightPhysicsValue(snapshot.velX) ||
+        !IsReasonableMountedFlightPhysicsValue(snapshot.velY))
+    {
+        return false;
+    }
+
+    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
+    if (SafeIsBadReadPtr(reinterpret_cast<void *>(thisValue + 40), 32))
+    {
+        return false;
+    }
+
+    __try
+    {
+        *reinterpret_cast<double *>(thisValue + 40) = snapshot.posX;
+        *reinterpret_cast<double *>(thisValue + 48) = snapshot.posY;
+        *reinterpret_cast<double *>(thisValue + 56) = snapshot.velX;
+        *reinterpret_cast<double *>(thisValue + 64) = snapshot.velY;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+static double ResolveMountedFlightPhysicsDeltaScaleFromBase(
+    double scale,
+    double extraScaleWeight,
+    double maxDeltaScale)
+{
+    if (!(scale > 1.001))
+    {
+        return 1.0;
+    }
+
+    const double extraScale = scale > 1.0 ? (scale - 1.0) : 0.0;
+    double deltaScale = 1.0 + extraScale * extraScaleWeight;
+    if (maxDeltaScale > 1.001 && deltaScale > maxDeltaScale)
+    {
+        deltaScale = maxDeltaScale;
+    }
+    return deltaScale;
+}
+
+static double ResolveMountedFlightPhysicsEffectiveDeltaScale(double scale)
+{
+    if (!(scale > 1.001))
+    {
+        return 1.0;
+    }
+
+    const double kMaxEffectiveScale = 8.0;
+    if (scale > kMaxEffectiveScale)
+    {
+        return kMaxEffectiveScale;
+    }
+
+    return scale;
+}
+
+static bool IsMountedFlightScaleSourceSwim(const char *scaleSource)
+{
+    return scaleSource && strcmp(scaleSource, "swim") == 0;
+}
+
+static double ResolveMountedFlightHorizontalDeltaExtraScaleWeight(const char *scaleSource)
+{
+    // Mounts whose sustained flight scale comes from `swim` start from a much
+    // smaller native ratio (for example 300000/100000 = 3x on 1932063). The
+    // old generic weight made those mounts feel almost unmodified.
+    return IsMountedFlightScaleSourceSwim(scaleSource) ? 1.45 : 0.10;
+}
+
+static double ResolveMountedFlightHorizontalDeltaMaxScale(const char *scaleSource)
+{
+    return IsMountedFlightScaleSourceSwim(scaleSource) ? 4.25 : 6.0;
+}
+
+static double ResolveMountedFlightHorizontalMinPosDelta(const char *scaleSource)
+{
+    return IsMountedFlightScaleSourceSwim(scaleSource) ? 0.10 : 0.75;
+}
+
+static double ResolveMountedFlightHorizontalMinVelDelta(const char *scaleSource)
+{
+    return IsMountedFlightScaleSourceSwim(scaleSource) ? 2.0 : 12.0;
+}
+
+static double ResolveMountedFlightVerticalDeltaExtraScaleWeight(const char *scaleSource)
+{
+    return IsMountedFlightScaleSourceSwim(scaleSource) ? 1.35 : 0.08;
+}
+
+static double ResolveMountedFlightVerticalDeltaMaxScale(const char *scaleSource)
+{
+    return IsMountedFlightScaleSourceSwim(scaleSource) ? 4.25 : 4.5;
+}
+
+static DWORD ResolveMountedFlightVerticalCruiseMinActiveMs(const char *scaleSource)
+{
+    // Vertical cruise used to wait 2200ms to avoid stretching takeoff. That is
+    // safe for high-ratio fs mounts, but swim-driven mounts never feel faster
+    // with such a late gate. Start earlier once the flight is already in the
+    // sustained cruise branch.
+    return IsMountedFlightScaleSourceSwim(scaleSource) ? 500 : 2200;
+}
+
+static double ResolveMountedFlightVerticalMinPosDelta(const char *scaleSource)
+{
+    return IsMountedFlightScaleSourceSwim(scaleSource) ? 0.18 : 1.5;
+}
+
+static double ResolveMountedFlightVerticalMinVelDelta(const char *scaleSource)
+{
+    return IsMountedFlightScaleSourceSwim(scaleSource) ? 2.0 : 18.0;
+}
+
+static double ResolveMountedFlightVerticalMaxAbsRawVelDelta(const char *scaleSource)
+{
+    // The native "up+jump to enter flight" climb still flows through B844D0.
+    // Those takeoff frames tend to carry a large velocity change spike, while
+    // stable up/down cruise usually settles to near-constant velocity. Skip
+    // scaling the impulse frames so mounted flight gets faster without turning
+    // takeoff into a long upward launch.
+    return IsMountedFlightScaleSourceSwim(scaleSource) ? 8.0 : 0.0;
+}
+
+static bool TryResolveMountedFlightScalarAdaptiveScale(
+    const MountedFlightPhysicsScalarSnapshot &beforeSnapshot,
+    const MountedFlightPhysicsScalarSnapshot &afterSnapshot,
+    double baseScale,
+    double minPosDelta,
+    double minVelDelta,
+    double *appliedScaleOut);
+
+static bool TryGetMountedSoaringFlightTiming(
+    int mountItemId,
+    DWORD *ageMsOut,
+    DWORD *activeDurationMsOut)
+{
+    if (ageMsOut)
+    {
+        *ageMsOut = 0;
+    }
+    if (activeDurationMsOut)
+    {
+        *activeDurationMsOut = 0;
+    }
+    if (mountItemId <= 0)
+    {
+        return false;
+    }
+
+    const LONG activeMountItemId =
+        InterlockedCompareExchange(&g_activeMountedSoaringFlightItemId, 0, 0);
+    if (activeMountItemId <= 0 || activeMountItemId != mountItemId)
+    {
+        return false;
+    }
+
+    const LONG activeTick =
+        InterlockedCompareExchange(&g_activeMountedSoaringFlightTick, 0, 0);
+    if (activeTick <= 0)
+    {
+        return false;
+    }
+
+    const LONG activeStartTick =
+        InterlockedCompareExchange(&g_activeMountedSoaringFlightStartTick, 0, 0);
+    if (activeStartTick <= 0)
+    {
+        return false;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    const DWORD ageMs = nowTick - static_cast<DWORD>(activeTick);
+    if (ageMs > kMountedSoaringFlightActiveTimeoutMs)
+    {
+        ClearMountedSoaringFlightActive();
+        return false;
+    }
+
+    const DWORD activeDurationMs = nowTick - static_cast<DWORD>(activeStartTick);
+    if (ageMsOut)
+    {
+        *ageMsOut = ageMs;
+    }
+    if (activeDurationMsOut)
+    {
+        *activeDurationMsOut = activeDurationMs;
+    }
+    return true;
+}
+
+static bool HasFreshMountedSoaringFlightCruiseTiming(
+    int mountItemId,
+    DWORD *ageMsOut,
+    DWORD *activeDurationMsOut)
+{
+    DWORD ageMs = 0;
+    DWORD activeDurationMs = 0;
+    if (!TryGetMountedSoaringFlightTiming(
+            mountItemId,
+            &ageMs,
+            &activeDurationMs))
+    {
+        return false;
+    }
+
+    // Only boost sustained cruise frames. Skipping the first ~120ms avoids
+    // stretching the takeoff / mounted jump arc. `ageMs` here is not a per-frame
+    // flight heartbeat, so do not use it as a hard stop gate.
+    if (activeDurationMs < kMountedFlightCruiseMinActiveMs)
+    {
+        return false;
+    }
+
+    if (ageMsOut)
+    {
+        *ageMsOut = ageMs;
+    }
+    if (activeDurationMsOut)
+    {
+        *activeDurationMsOut = activeDurationMs;
+    }
+    return true;
+}
+
+static void ApplyMountedFlightPhysicsDeltaScale(
+    void *thisPtr,
+    const char *label,
+    const MountedFlightPhysicsStateSnapshot &beforeSnapshot,
+    double scale,
+    int mountItemId,
+    int dataKey,
+    const char *scaleSource,
+    bool verticalOnly)
+{
+    if (!beforeSnapshot.valid || !(scale > 1.001))
+    {
+        return;
+    }
+
+    MountedFlightPhysicsStateSnapshot afterSnapshot = {};
+    if (!TryReadMountedFlightPhysicsStateSnapshot(thisPtr, &afterSnapshot))
+    {
+        return;
+    }
+
+    const double effectiveScale = ResolveMountedFlightPhysicsEffectiveDeltaScale(scale);
+    if (!(effectiveScale > 1.001))
+    {
+        return;
+    }
+
+    const double rawDeltaX = afterSnapshot.posX - beforeSnapshot.posX;
+    const double rawDeltaY = afterSnapshot.posY - beforeSnapshot.posY;
+    const double rawVelDeltaX = afterSnapshot.velX - beforeSnapshot.velX;
+    const double rawVelDeltaY = afterSnapshot.velY - beforeSnapshot.velY;
+
+    if (verticalOnly)
+    {
+        if (fabs(rawDeltaY) <= 0.000001 && fabs(rawVelDeltaY) <= 0.000001)
+        {
+            return;
+        }
+    }
+    else if (fabs(rawDeltaX) <= 0.000001 &&
+             fabs(rawDeltaY) <= 0.000001 &&
+             fabs(rawVelDeltaX) <= 0.000001 &&
+             fabs(rawVelDeltaY) <= 0.000001)
+    {
+        return;
+    }
+
+    MountedFlightPhysicsStateSnapshot boostedSnapshot = afterSnapshot;
+    if (!verticalOnly)
+    {
+        boostedSnapshot.posX = beforeSnapshot.posX + rawDeltaX * effectiveScale;
+        boostedSnapshot.velX = beforeSnapshot.velX + rawVelDeltaX * effectiveScale;
+    }
+    boostedSnapshot.posY = beforeSnapshot.posY + rawDeltaY * effectiveScale;
+    boostedSnapshot.velY = beforeSnapshot.velY + rawVelDeltaY * effectiveScale;
+    boostedSnapshot.valid = true;
+
+    if (!TryWriteMountedFlightPhysicsStateSnapshot(thisPtr, boostedSnapshot))
+    {
+        return;
+    }
+
+    ObserveMountedFlightStateBoost(
+        thisPtr,
+        mountItemId,
+        dataKey,
+        boostedSnapshot);
+
+    if (InterlockedDecrement(&g_MountedFlightPhysicsDeltaLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountFlightDelta] %s mount=%d key=%d scale=%.3f effective=%.3f source=%s rawDelta=(%.6f,%.6f) rawVelDelta=(%.6f,%.6f) boostedDelta=(%.6f,%.6f) boostedVelDelta=(%.6f,%.6f)",
+            label ? label : "unknown",
+            mountItemId,
+            dataKey,
+            scale,
+            effectiveScale,
+            scaleSource ? scaleSource : "none",
+            rawDeltaX,
+            rawDeltaY,
+            rawVelDeltaX,
+            rawVelDeltaY,
+            boostedSnapshot.posX - beforeSnapshot.posX,
+            boostedSnapshot.posY - beforeSnapshot.posY,
+            boostedSnapshot.velX - beforeSnapshot.velX,
+            boostedSnapshot.velY - beforeSnapshot.velY);
+    }
+}
+
+static void ApplyMountedFlightPhysicsHorizontalDeltaScale(
+    void *thisPtr,
+    const char *label,
+    const MountedFlightPhysicsStateSnapshot &beforeSnapshot,
+    double scale,
+    int mountItemId,
+    int dataKey,
+    const char *scaleSource,
+    double minPosDelta,
+    double minVelDelta)
+{
+    if (!beforeSnapshot.valid || !(scale > 1.001))
+    {
+        return;
+    }
+
+    MountedFlightPhysicsStateSnapshot afterSnapshot = {};
+    if (!TryReadMountedFlightPhysicsStateSnapshot(thisPtr, &afterSnapshot))
+    {
+        return;
+    }
+
+    const MountedFlightPhysicsScalarSnapshot beforeHorizontal = {
+        beforeSnapshot.posX,
+        beforeSnapshot.velX,
+        true,
+    };
+    const MountedFlightPhysicsScalarSnapshot afterHorizontal = {
+        afterSnapshot.posX,
+        afterSnapshot.velX,
+        true,
+    };
+
+    const double effectiveScale = ResolveMountedFlightPhysicsEffectiveDeltaScale(scale);
+    if (!(effectiveScale > 1.001))
+    {
+        return;
+    }
+
+    double adaptiveScale = 1.0;
+    if (!TryResolveMountedFlightScalarAdaptiveScale(
+            beforeHorizontal,
+            afterHorizontal,
+            effectiveScale,
+            minPosDelta,
+            minVelDelta,
+            &adaptiveScale))
+    {
+        return;
+    }
+
+    const double rawDeltaX = afterSnapshot.posX - beforeSnapshot.posX;
+    const double rawVelDeltaX = afterSnapshot.velX - beforeSnapshot.velX;
+    if (fabs(rawDeltaX) <= 0.000001 && fabs(rawVelDeltaX) <= 0.000001)
+    {
+        return;
+    }
+
+    MountedFlightPhysicsStateSnapshot boostedSnapshot = afterSnapshot;
+    boostedSnapshot.posX = beforeSnapshot.posX + rawDeltaX * adaptiveScale;
+    boostedSnapshot.velX = beforeSnapshot.velX + rawVelDeltaX * adaptiveScale;
+    boostedSnapshot.valid = true;
+
+    if (!TryWriteMountedFlightPhysicsStateSnapshot(thisPtr, boostedSnapshot))
+    {
+        return;
+    }
+
+    ObserveMountedFlightStateBoost(
+        thisPtr,
+        mountItemId,
+        dataKey,
+        boostedSnapshot);
+
+    if (InterlockedDecrement(&g_MountedFlightPhysicsDeltaLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountFlightDelta] %s mount=%d key=%d scale=%.3f effective=%.3f adaptive=%.3f source=%s rawDeltaX=%.6f rawVelDeltaX=%.6f boostedDeltaX=%.6f boostedVelDeltaX=%.6f",
+            label ? label : "unknown",
+            mountItemId,
+            dataKey,
+            scale,
+            effectiveScale,
+            adaptiveScale,
+            scaleSource ? scaleSource : "none",
+            rawDeltaX,
+            rawVelDeltaX,
+            boostedSnapshot.posX - beforeSnapshot.posX,
+            boostedSnapshot.velX - beforeSnapshot.velX);
+    }
+}
+
+static bool TryResolveMountedFlightScalarAdaptiveScale(
+    const MountedFlightPhysicsScalarSnapshot &beforeSnapshot,
+    const MountedFlightPhysicsScalarSnapshot &afterSnapshot,
+    double baseScale,
+    double minPosDelta,
+    double minVelDelta,
+    double *appliedScaleOut)
+{
+    if (appliedScaleOut)
+    {
+        *appliedScaleOut = 1.0;
+    }
+    if (!beforeSnapshot.valid || !afterSnapshot.valid)
+    {
+        return false;
+    }
+
+    if (!(baseScale > 1.001))
+    {
+        return false;
+    }
+
+    const double rawPosDelta = afterSnapshot.pos - beforeSnapshot.pos;
+    const double rawVelDelta = afterSnapshot.vel - beforeSnapshot.vel;
+    const double maxAbsVel =
+        max(fabs(beforeSnapshot.vel), fabs(afterSnapshot.vel));
+    if (fabs(rawPosDelta) <= 0.000001 && fabs(rawVelDelta) <= 0.000001)
+    {
+        return false;
+    }
+
+    double posStrength = 0.0;
+    if (minPosDelta > 0.0)
+    {
+        posStrength = min(1.0, fabs(rawPosDelta) / minPosDelta);
+    }
+    else if (fabs(rawPosDelta) > 0.000001)
+    {
+        posStrength = 1.0;
+    }
+
+    double velStrength = 0.0;
+    const double velMetric = max(fabs(rawVelDelta), maxAbsVel);
+    if (minVelDelta > 0.0)
+    {
+        velStrength = min(1.0, velMetric / minVelDelta);
+    }
+    else if (velMetric > 0.000001)
+    {
+        velStrength = 1.0;
+    }
+
+    const double strength = max(posStrength, velStrength);
+    if (!(strength > 0.01))
+    {
+        return false;
+    }
+
+    const double adaptiveScale = 1.0 + (baseScale - 1.0) * strength;
+    if (!(adaptiveScale > 1.001))
+    {
+        return false;
+    }
+
+    if (appliedScaleOut)
+    {
+        *appliedScaleOut = adaptiveScale;
+    }
+
+    return true;
+}
+
+static void ApplyMountedFlightPhysicsScalarDeltaScale(
+    void *thisPtr,
+    const char *label,
+    size_t posOffset,
+    size_t velOffset,
+    const MountedFlightPhysicsScalarSnapshot &beforeSnapshot,
+    double scale,
+    int mountItemId,
+    int dataKey,
+    const char *scaleSource,
+    bool scalePosition,
+    bool scaleVelocity,
+    double minPosDelta,
+    double minVelDelta,
+    double maxAbsRawVelDelta)
+{
+    if (!beforeSnapshot.valid || !(scale > 1.001) || (!scalePosition && !scaleVelocity))
+    {
+        return;
+    }
+
+    MountedFlightPhysicsScalarSnapshot afterSnapshot = {};
+    if (!TryReadMountedFlightPhysicsScalarSnapshot(
+            thisPtr,
+            posOffset,
+            velOffset,
+            &afterSnapshot))
+    {
+        return;
+    }
+
+    const double effectiveScale = ResolveMountedFlightPhysicsEffectiveDeltaScale(scale);
+    if (!(effectiveScale > 1.001))
+    {
+        return;
+    }
+
+    const double rawPosDelta = afterSnapshot.pos - beforeSnapshot.pos;
+    const double rawVelDelta = afterSnapshot.vel - beforeSnapshot.vel;
+    if (maxAbsRawVelDelta > 0.0 && fabs(rawVelDelta) > maxAbsRawVelDelta)
+    {
+        return;
+    }
+    double adaptiveScale = 1.0;
+    if (!TryResolveMountedFlightScalarAdaptiveScale(
+            beforeSnapshot,
+            afterSnapshot,
+            effectiveScale,
+            minPosDelta,
+            minVelDelta,
+            &adaptiveScale))
+    {
+        return;
+    }
+
+    MountedFlightPhysicsScalarSnapshot boostedSnapshot = afterSnapshot;
+    if (scalePosition)
+    {
+        boostedSnapshot.pos = beforeSnapshot.pos + rawPosDelta * adaptiveScale;
+    }
+    if (scaleVelocity)
+    {
+        boostedSnapshot.vel = beforeSnapshot.vel + rawVelDelta * adaptiveScale;
+    }
+    boostedSnapshot.valid = true;
+    if (!TryWriteMountedFlightPhysicsScalarSnapshot(
+            thisPtr,
+            posOffset,
+            velOffset,
+            boostedSnapshot))
+    {
+        return;
+    }
+
+    ObserveMountedFlightScalarBoost(
+        thisPtr,
+        mountItemId,
+        dataKey,
+        boostedSnapshot);
+
+    if (InterlockedDecrement(&g_MountedFlightPhysicsDeltaLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountFlightScalarDelta] %s mount=%d key=%d scale=%.3f effective=%.3f adaptive=%.3f source=%s mode=%s rawPosDelta=%.6f rawVelDelta=%.6f boostedPosDelta=%.6f boostedVelDelta=%.6f",
+            label ? label : "unknown",
+            mountItemId,
+            dataKey,
+            scale,
+            effectiveScale,
+            adaptiveScale,
+            scaleSource ? scaleSource : "none",
+            scalePosition && scaleVelocity ? "pos+vel" : (scalePosition ? "pos" : "vel"),
+            rawPosDelta,
+            rawVelDelta,
+            boostedSnapshot.pos - beforeSnapshot.pos,
+            boostedSnapshot.vel - beforeSnapshot.vel);
+    }
+}
+
+static bool TryResolveB8FE30ExternalFlightSlot(void *thisPtr, uintptr_t *slotAddrOut)
+{
+    if (slotAddrOut)
+    {
+        *slotAddrOut = 0;
+    }
+    if (!thisPtr || !slotAddrOut)
+    {
+        return false;
+    }
+
+    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
+    const uintptr_t mountWrapper = thisValue + 16;
+    if (SafeIsBadReadPtr(reinterpret_cast<void *>(mountWrapper), sizeof(DWORD)))
+    {
+        return false;
+    }
+
+    uintptr_t linkedStatePtr = 0;
+    __try
+    {
+        DWORD *vtbl = *reinterpret_cast<DWORD **>(mountWrapper);
+        if (!vtbl)
+        {
+            return false;
+        }
+
+        typedef int (__thiscall *tVirtualIntNoArgFn)(void *thisPtr);
+        tVirtualIntNoArgFn getLinkedStateFn =
+            reinterpret_cast<tVirtualIntNoArgFn>(vtbl[168 / sizeof(DWORD)]);
+        if (!getLinkedStateFn)
+        {
+            return false;
+        }
+
+        linkedStatePtr = static_cast<uintptr_t>(getLinkedStateFn(reinterpret_cast<void *>(mountWrapper)));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        linkedStatePtr = 0;
+    }
+
+    if (!linkedStatePtr)
+    {
+        return false;
+    }
+
+    uintptr_t ownerField = 0;
+    if (!SafeIsBadReadPtr(reinterpret_cast<void *>(thisValue + 24), sizeof(DWORD)))
+    {
+        __try
+        {
+            ownerField = *reinterpret_cast<DWORD *>(thisValue + 24);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            ownerField = 0;
+        }
+    }
+    if (!ownerField)
+    {
+        return false;
+    }
+
+    const uintptr_t ownerBase = ownerField - 4;
+    if (SafeIsBadReadPtr(reinterpret_cast<void *>(ownerBase + 156), sizeof(DWORD)))
+    {
+        return false;
+    }
+
+    uintptr_t ownerObj = 0;
+    uintptr_t flightObj = 0;
+    __try
+    {
+        ownerObj = *reinterpret_cast<DWORD *>(ownerBase + 156);
+        if (!ownerObj)
+        {
+            return false;
+        }
+
+        const uintptr_t ownerObjThis = ownerObj + 4;
+        DWORD *vtbl = *reinterpret_cast<DWORD **>(ownerObjThis);
+        if (!vtbl)
+        {
+            return false;
+        }
+
+        typedef int (__thiscall *tVirtualOwnerIntFn)(void *thisPtr);
+        tVirtualOwnerIntFn getFlightObjFn =
+            reinterpret_cast<tVirtualOwnerIntFn>(vtbl[32 / sizeof(DWORD)]);
+        if (!getFlightObjFn)
+        {
+            return false;
+        }
+
+        flightObj = static_cast<uintptr_t>(getFlightObjFn(reinterpret_cast<void *>(ownerObjThis)));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        flightObj = 0;
+    }
+
+    if (!flightObj)
+    {
+        return false;
+    }
+
+    *slotAddrOut = flightObj - 16 + 364;
+    return !SafeIsBadReadPtr(reinterpret_cast<void *>(*slotAddrOut), 12);
+}
+
+static void __fastcall hkMountedFlightPhysicsStepB83C90(
+    void *thisPtr,
+    void * /*edxUnused*/,
+    int deltaMs)
+{
+    ObserveMountedFlightPhysicsEntry("B83C90", thisPtr, 0);
+
+    if (oMountedFlightPhysicsStepB83C90)
+    {
+        oMountedFlightPhysicsStepB83C90(thisPtr, deltaMs);
+    }
+}
+
+static int __fastcall hkMountedFlightPhysicsDispatchB87E60(
+    void *thisPtr,
+    void * /*edxUnused*/,
+    int deltaMs)
+{
+    int branchState = 0;
+    const bool hasBranchState =
+        TryReadMountedFlightBranchState(thisPtr, &branchState);
+
+    int horizontalTarget = 0;
+    int verticalTarget = 0;
+    if (hasBranchState && branchState != 0)
+    {
+        TryReadMountedFlightControlTargets(
+            thisPtr,
+            &horizontalTarget,
+            &verticalTarget);
+        ObserveMountedFlightPhysicsEntry("B87E60", thisPtr, 0);
+    }
+
+    int mountItemId = 0;
+    int dataKey = 0;
+    double baseScale = 0.0;
+    const char *scaleSource = nullptr;
+    DWORD activeAgeMs = 0;
+    DWORD activeDurationMs = 0;
+    const bool hasScale =
+        hasBranchState &&
+        branchState != 0 &&
+        TryResolveMountedFlightPhysicsScaleForAxis(
+            true,
+            &mountItemId,
+            &dataKey,
+            &baseScale,
+            &scaleSource);
+    const bool hasFreshCruiseTiming =
+        hasScale &&
+        HasFreshMountedSoaringFlightCruiseTiming(
+            mountItemId,
+            &activeAgeMs,
+            &activeDurationMs);
+
+    const double cruiseScale =
+        hasFreshCruiseTiming
+            ? ResolveMountedFlightPhysicsDeltaScaleFromBase(
+                  baseScale,
+                  ResolveMountedFlightHorizontalDeltaExtraScaleWeight(scaleSource),
+                  ResolveMountedFlightHorizontalDeltaMaxScale(scaleSource))
+            : 1.0;
+
+    MountedFlightPhysicsStateSnapshot beforeSnapshot = {};
+    const bool hasBeforeSnapshot =
+        hasFreshCruiseTiming &&
+        cruiseScale > 1.001 &&
+        horizontalTarget != 0 &&
+        TryReadMountedFlightPhysicsStateSnapshot(thisPtr, &beforeSnapshot);
+
+    const int result = oMountedFlightPhysicsDispatchB87E60
+                           ? oMountedFlightPhysicsDispatchB87E60(thisPtr, deltaMs)
+                           : 0;
+
+    if (hasBeforeSnapshot)
+    {
+        // B87E60 is the sustained mounted flight dispatcher. Only boost the
+        // horizontal pair after the vtbl+0x48 cruise branch has run.
+        ApplyMountedFlightPhysicsHorizontalDeltaScale(
+            thisPtr,
+            "B87E60:X",
+            beforeSnapshot,
+            cruiseScale,
+            mountItemId,
+            dataKey,
+            scaleSource,
+            ResolveMountedFlightHorizontalMinPosDelta(scaleSource),
+            ResolveMountedFlightHorizontalMinVelDelta(scaleSource));
+    }
+
+    return result;
+}
+
+static void __fastcall hkMountedFlightPhysicsStepB844D0(
+    void *thisPtr,
+    void * /*edxUnused*/,
+    int deltaMs)
+{
+    int horizontalMountItemId = 0;
+    int horizontalDataKey = 0;
+    double horizontalScale = 0.0;
+    const char *horizontalScaleSource = nullptr;
+    const bool hasHorizontalScale =
+        TryResolveMountedFlightPhysicsScaleForAxis(
+            true,
+            &horizontalMountItemId,
+            &horizontalDataKey,
+            &horizontalScale,
+            &horizontalScaleSource);
+
+    int verticalMountItemId = 0;
+    int verticalDataKey = 0;
+    double verticalScale = 0.0;
+    const char *verticalScaleSource = nullptr;
+    const bool hasVerticalScale =
+        TryResolveMountedFlightPhysicsScaleForAxis(
+            false,
+            &verticalMountItemId,
+            &verticalDataKey,
+            &verticalScale,
+            &verticalScaleSource);
+    const bool hasAnyScale = hasHorizontalScale || hasVerticalScale;
+    const int activeMountItemId =
+        hasHorizontalScale ? horizontalMountItemId : verticalMountItemId;
+
+    int branchState = 0;
+    int horizontalTarget = 0;
+    int verticalTarget = 0;
+    const bool hasBranchState =
+        TryReadMountedFlightBranchState(thisPtr, &branchState);
+    const bool hasControlTargets =
+        hasBranchState &&
+        TryReadMountedFlightControlTargets(
+            thisPtr,
+            &horizontalTarget,
+            &verticalTarget);
+    bool motionMode48 = false;
+    bool motionMode40 = false;
+    bool motionMode44 = false;
+    int motionBranch = kMountedFlightNativeMotionBranchUnknown;
+    const bool hasMotionBranch =
+        TryResolveMountedFlightNativeMotionBranch(
+            thisPtr,
+            &motionMode48,
+            &motionMode40,
+            &motionMode44,
+            &motionBranch);
+    const bool shouldRefreshActiveFlight =
+        hasAnyScale &&
+        activeMountItemId > 0 &&
+        hasBranchState &&
+        branchState != 0 &&
+        hasMotionBranch &&
+        motionBranch == kMountedFlightNativeMotionBranchSecondary40;
+    if (shouldRefreshActiveFlight)
+    {
+        ObserveMountedSoaringFlightActive(activeMountItemId);
+    }
+    DWORD activeAgeMs = 0;
+    DWORD activeDurationMs = 0;
+    const bool hasFreshCruiseTiming =
+        hasAnyScale &&
+        HasFreshMountedSoaringFlightCruiseTiming(
+            activeMountItemId,
+            &activeAgeMs,
+            &activeDurationMs);
+    const bool shouldScaleHorizontal =
+        hasHorizontalScale &&
+        shouldRefreshActiveFlight &&
+        hasFreshCruiseTiming;
+    const bool shouldScaleVertical =
+        hasVerticalScale &&
+        shouldRefreshActiveFlight &&
+        hasFreshCruiseTiming &&
+        activeDurationMs >=
+            ResolveMountedFlightVerticalCruiseMinActiveMs(verticalScaleSource);
+    const double horizontalDeltaScale =
+        shouldScaleHorizontal
+            ? ResolveMountedFlightPhysicsDeltaScaleFromBase(
+                  horizontalScale,
+                  ResolveMountedFlightHorizontalDeltaExtraScaleWeight(
+                      horizontalScaleSource),
+                  ResolveMountedFlightHorizontalDeltaMaxScale(
+                      horizontalScaleSource))
+            : 1.0;
+    const double verticalDeltaScale =
+        shouldScaleVertical
+            ? ResolveMountedFlightPhysicsDeltaScaleFromBase(
+                  verticalScale,
+                  ResolveMountedFlightVerticalDeltaExtraScaleWeight(
+                      verticalScaleSource),
+                  ResolveMountedFlightVerticalDeltaMaxScale(
+                      verticalScaleSource))
+            : 1.0;
+
+    MountedFlightPhysicsScalarSnapshot beforeHorizontalSnapshot = {};
+    const bool hasBeforeHorizontalSnapshot =
+        shouldScaleHorizontal &&
+        horizontalDeltaScale > 1.001 &&
+        TryReadMountedFlightPhysicsScalarSnapshot(
+            thisPtr,
+            40,
+            56,
+            &beforeHorizontalSnapshot);
+    MountedFlightPhysicsScalarSnapshot beforeVerticalSnapshot = {};
+    const bool hasBeforeVerticalSnapshot =
+        shouldScaleVertical &&
+        verticalDeltaScale > 1.001 &&
+        TryReadMountedFlightPhysicsScalarSnapshot(
+            thisPtr,
+            48,
+            64,
+            &beforeVerticalSnapshot);
+
+    ObserveMountedFlightPhysicsEntry("B844D0", thisPtr, 0);
+    if (hasAnyScale || hasControlTargets || hasMotionBranch)
+    {
+        ObserveMountedFlightNativeMotionBranch(
+            "B844D0",
+            thisPtr,
+            branchState,
+            horizontalTarget,
+            verticalTarget,
+            hasMotionBranch,
+            motionMode48,
+            motionMode40,
+            motionMode44,
+            motionBranch);
+    }
+
+    if (oMountedFlightPhysicsStepB844D0)
+    {
+        oMountedFlightPhysicsStepB844D0(thisPtr, deltaMs);
+    }
+
+    if (hasBeforeHorizontalSnapshot)
+    {
+        // B844D0 also runs through mounted takeoff / jump states. The stable
+        // sustained-flight path we observed lands on state!=0 + vtbl+0x28
+        // (motion branch 2), so keep the boost there and leave the other
+        // motion branches untouched to avoid stretching jump tails again.
+        //
+        // Only scale horizontal position here. Writing amplified velocity back
+        // into the native state keeps cruise fast, but it also leaves residual
+        // horizontal drift after the player releases flight input, which shows
+        // up in game as the "停下来后抽搐慢慢挪动" tail. Per-frame position
+        // amplification is enough to keep the mounted flight speed boost
+        // visible while letting the native velocity settle cleanly on stop.
+        ApplyMountedFlightPhysicsScalarDeltaScale(
+            thisPtr,
+            "B844D0:X",
+            40,
+            56,
+            beforeHorizontalSnapshot,
+            horizontalDeltaScale,
+            horizontalMountItemId,
+            horizontalDataKey,
+            horizontalScaleSource,
+            true,
+            false,
+            ResolveMountedFlightHorizontalMinPosDelta(horizontalScaleSource),
+            ResolveMountedFlightHorizontalMinVelDelta(horizontalScaleSource),
+            0.0);
+    }
+    if (hasBeforeVerticalSnapshot)
+    {
+        // Vertical flight needs a much later cruise gate than horizontal.
+        // The "up+jump" takeoff climb keeps feeding into B844D0 well after the
+        // horizontal cruise boost can safely start, so hold Y acceleration
+        // until the flight has clearly settled. Keep it position-only;
+        // amplifying vertical velocity here tends to leave the mount in a
+        // sticky float state after releasing the fly key.
+        ApplyMountedFlightPhysicsScalarDeltaScale(
+            thisPtr,
+            "B844D0:Y",
+            48,
+            64,
+            beforeVerticalSnapshot,
+            verticalDeltaScale,
+            verticalMountItemId,
+            verticalDataKey,
+            verticalScaleSource,
+            true,
+            false,
+            ResolveMountedFlightVerticalMinPosDelta(verticalScaleSource),
+            ResolveMountedFlightVerticalMinVelDelta(verticalScaleSource),
+            ResolveMountedFlightVerticalMaxAbsRawVelDelta(verticalScaleSource));
+    }
+}
+
+static void __fastcall hkMountedFlightPhysicsStepB88090(
+    void *thisPtr,
+    void * /*edxUnused*/,
+    int deltaMs)
+{
+    ObserveMountedFlightPhysicsEntry("B88090", thisPtr, 0);
+
+    if (oMountedFlightPhysicsStepB88090)
+    {
+        oMountedFlightPhysicsStepB88090(thisPtr, deltaMs);
+    }
+}
+
+static int __fastcall hkMountedFlightPhysicsStateB84D70(
+    void *thisPtr,
+    void * /*edxUnused*/)
+{
+    // B84D70 mostly seeds takeoff / vertical velocity. Scaling it directly makes
+    // mounted jump height explode long before horizontal flight feels faster, so
+    // keep it observe-only and let B844D0 carry sustained flight acceleration.
+    ObserveMountedFlightPhysicsEntry("B84D70", thisPtr, 0);
+
+    const int result = oMountedFlightPhysicsStateB84D70
+                           ? oMountedFlightPhysicsStateB84D70(thisPtr)
+                           : 0;
+
+    return result;
+}
+
+static int __fastcall hkMountedFlightPhysicsVerticalB8FE30(
+    void *thisPtr,
+    void * /*edxUnused*/)
+{
+    // B8FE30 is the vertical flight clamp / landing step. Touching it boosts
+    // takeoff height and dive/fall response more than horizontal travel speed.
+    ObserveMountedFlightPhysicsEntry("B8FE30", thisPtr, 0);
+    const int result = oMountedFlightPhysicsVerticalB8FE30
+                           ? oMountedFlightPhysicsVerticalB8FE30(thisPtr)
+                           : 0;
+    return result;
+}
+
+static int __fastcall hkMountedFlightPhysicsFinalizeB851F0(
+    void *thisPtr,
+    void * /*edxUnused*/,
+    int deltaMs)
+{
+    const int result = oMountedFlightPhysicsFinalizeB851F0
+                           ? oMountedFlightPhysicsFinalizeB851F0(thisPtr, deltaMs)
+                           : 0;
+
+    int mountItemId = 0;
+    if (!TryReadCurrentUserMountItemId(&mountItemId) || mountItemId <= 0)
+    {
+        ClearMountedSoaringRuntimeFallbackState();
+    }
+
+    return result;
+}
+
 static bool ShouldSuppressMountedDoubleJumpUseFailPrompt(
     void *thisPtr,
     int *mountItemIdOut,
@@ -6904,7 +10269,11 @@ static bool ShouldSuppressMountedDoubleJumpUseFailPrompt(
     }
 
     int mountItemId = 0;
-    if (!TryReadMountItemIdFromPlayerObject(thisPtr, &mountItemId))
+    if (!TryResolveMountedDoubleJumpMountItemIdWithFallback(
+            thisPtr,
+            &mountItemId,
+            nullptr,
+            1200))
     {
         return false;
     }
@@ -6963,8 +10332,11 @@ static int __fastcall hkMountedStateGate42DE20(void *thisPtr, void * /*edxUnused
     const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
 
     int mountItemId = 0;
-    if (!TryReadMountItemIdFromPlayerObject(thisPtr, &mountItemId) &&
-        !TryReadCurrentUserMountItemId(&mountItemId))
+    if (!TryResolveMountedDoubleJumpMountItemIdWithFallback(
+            thisPtr,
+            &mountItemId,
+            nullptr,
+            1200))
     {
         return result;
     }
@@ -7051,20 +10423,25 @@ static bool TryResolveExtendedMountContextForSoaring(int *mountItemIdOut, bool *
         return true;
     }
 
-    if (!TryReadCurrentUserMountItemId(&mountItemId) ||
+    const char *mountSource = nullptr;
+    if (!TryResolveCurrentUserMountItemIdWithFallback(&mountItemId, &mountSource) ||
         !IsExtendedMountSoaringContextMount(mountItemId))
     {
         return false;
     }
 
-    ObserveExtendedMountContext(mountItemId);
+    const bool fromUserLocal = mountSource && strcmp(mountSource, "user") == 0;
+    if (fromUserLocal)
+    {
+        ObserveExtendedMountContext(mountItemId);
+    }
     if (mountItemIdOut)
     {
         *mountItemIdOut = mountItemId;
     }
     if (fromUserLocalOut)
     {
-        *fromUserLocalOut = true;
+        *fromUserLocalOut = fromUserLocal;
     }
     return true;
 }
@@ -7127,6 +10504,10 @@ static int __cdecl hkMountNativeFlightSkillMap7CF370(int mountItemId)
     if (extendedSkillId > 0)
     {
         ObserveExtendedMountContext(mountItemId);
+        if (extendedSkillId == 80001089)
+        {
+            SkillOverlayBridgeObserveExtendedMountSoaringIntent(mountItemId, extendedSkillId);
+        }
         static LONG s_mountNativeFlightSkillLogBudget = 8;
         const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountNativeFlightSkillLogBudget);
         if (budgetAfterDecrement >= 0)
@@ -7169,7 +10550,16 @@ static int __fastcall hkMountNativeSoaringReleaseB26290(
     int skillId)
 {
     int mountItemId = 0;
-    const bool hasMountItemId = TryReadMountItemIdFromPlayerObject(thisPtr, &mountItemId);
+    bool hasMountItemId = TryReadMountItemIdFromPlayerObject(thisPtr, &mountItemId);
+    if (!hasMountItemId &&
+        TryResolveCurrentUserMountItemIdWithFallback(&mountItemId, nullptr))
+    {
+        hasMountItemId = mountItemId > 0;
+    }
+    if (skillId == 80001089 && hasMountItemId)
+    {
+        SkillOverlayBridgeObserveExtendedMountSoaringIntent(mountItemId, skillId);
+    }
     const int shadowMountItemId =
         skillId == 80001089 && hasMountItemId && !HasRecentMountedDoubleJumpIntent(mountItemId)
             ? ResolveExtendedMountNativeSoaringShadowMountItemId(mountItemId)
@@ -7255,6 +10645,12 @@ static int __fastcall hkMountNativeSoaringReleaseB26290(
 
     if (skillId == 80001089 && hasMountItemId)
     {
+        SkillOverlayBridgeObserveExtendedMountSoaringIntent(mountItemId, skillId);
+        if (result > 0)
+        {
+            ObserveMountedSoaringFlightActive(mountItemId);
+        }
+
         static LONG s_mountNativeSoaringResultLogBudget = 48;
         const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountNativeSoaringResultLogBudget);
         if (budgetAfterDecrement >= 0)
@@ -7466,6 +10862,7 @@ static BOOL __fastcall hkMountContextIsFlyingFamily7D4CD0(void *thisPtr, void * 
     if (!suppressExtendedSoaringForDoubleJump &&
         IsExtendedMountFamilyGateMount(mountItemId))
     {
+        ObserveMountedSoaringFlightActive(mountItemId);
         static LONG s_mountFamilyPreBypassLogBudget = 24;
         const LONG budgetAfterDecrement = InterlockedDecrement(&s_mountFamilyPreBypassLogBudget);
         if (budgetAfterDecrement >= 0)
@@ -7499,6 +10896,7 @@ static BOOL __fastcall hkMountContextIsFlyingFamily7D4CD0(void *thisPtr, void * 
 
     if (result)
     {
+        ObserveMountedSoaringFlightActive(mountItemId);
         return TRUE;
     }
 
@@ -7521,6 +10919,7 @@ static BOOL __fastcall hkMountContextIsFlyingFamily7D4CD0(void *thisPtr, void * 
                     result ? 1 : 0,
                     fromFallbackContext ? "fallback" : "context");
     }
+    ObserveMountedSoaringFlightActive(mountItemId);
     return TRUE;
 }
 
@@ -7663,7 +11062,11 @@ static BOOL ResolveMountedDoubleJumpSkillGateAllow(
     }
 
     int mountItemId = 0;
-    if (!TryReadCurrentUserMountItemId(&mountItemId))
+    if (!TryResolveMountedDoubleJumpMountItemIdWithFallback(
+            nullptr,
+            &mountItemId,
+            nullptr,
+            1200))
     {
         return FALSE;
     }
@@ -7700,7 +11103,7 @@ static BOOL ResolveMountedDoubleJumpNativeReleaseAllowBySkill(
     }
 
     int currentMountItemId = 0;
-    if (TryReadCurrentUserMountItemId(&currentMountItemId) &&
+    if (TryResolveCurrentUserMountItemIdWithFallback(&currentMountItemId, nullptr) &&
         currentMountItemId > 0 &&
         currentMountItemId != mountItemId)
     {
@@ -10288,6 +13691,24 @@ static bool SetupPacketHook()
     {
         WriteLog("[AbilityRedMaster] 856C60 hook disabled for mount movement rollback");
     }
+    if (kEnableGlobalMovementSetterProtectionHooks)
+    {
+        if (SetupAbilityRedMovementSetterHooks())
+            localHookAnyOk = true;
+    }
+    else
+    {
+        WriteLog("[MoveSetter] movement setter protection disabled");
+    }
+    if (kEnableGlobalMovementOutputClampHook)
+    {
+        if (SetupMovementOutputClampHook())
+            localHookAnyOk = true;
+    }
+    else
+    {
+        WriteLog("[MoveClamp] movement output clamp hook disabled");
+    }
     if (SetupAbilityRedSiblingCalcHooks())
         localHookAnyOk = true;
     if (SetupAbilityRedDiff84C470PreSubHook())
@@ -11339,6 +14760,40 @@ static bool SetupAbilityRedMovementSetterHooks()
     }
 
     return anyOk;
+}
+
+static bool SetupMovementOutputClampHook()
+{
+    if (oMovementOutputClampComputeB93B80Fn)
+        return true;
+
+    BYTE *pTarget = FollowJmpChain((void *)ADDR_B93B80);
+    if (!pTarget)
+    {
+        WriteLog("[MoveClamp] B93B80 target missing");
+        return false;
+    }
+
+    int copyLen = CalcMinCopyLen(pTarget);
+    if (copyLen < 5)
+        copyLen = 5;
+
+    oMovementOutputClampComputeB93B80Fn =
+        (tMovementOutputClampComputeFn)GenericInlineHook5(
+            pTarget,
+            (void *)hkMovementOutputClampComputeB93B80,
+            copyLen);
+    if (!oMovementOutputClampComputeB93B80Fn)
+    {
+        WriteLog("[MoveClamp] B93B80 hook failed");
+        return false;
+    }
+
+    WriteLogFmt("[MoveClamp] OK(B93B80): entry=0x%08X tramp=0x%08X copyLen=%d",
+        (DWORD)(uintptr_t)pTarget,
+        (DWORD)(uintptr_t)oMovementOutputClampComputeB93B80Fn,
+        copyLen);
+    return true;
 }
 
 static bool SetupAbilityRedSiblingCalcHooks()
@@ -12399,6 +15854,292 @@ static bool SetupNativeButtonMetricHooks()
     return ok;
 }
 
+static bool SetupMountMovementObservationHooks()
+{
+    if (oMountMovementDataLookup888B30)
+    {
+        return true;
+    }
+
+    oMountMovementDataLookup888B30 = (tMountMovementDataLookupFn)InstallInlineHook(
+        ADDR_888B30, (void *)hkMountMovementDataLookup888B30);
+    if (!oMountMovementDataLookup888B30)
+    {
+        WriteLog("[MountMoveObserve] hook failed: 888B30");
+        return false;
+    }
+
+    WriteLogFmt("[MountMoveObserve] OK(888B30): tramp=0x%08X",
+                (DWORD)(uintptr_t)oMountMovementDataLookup888B30);
+    return true;
+}
+
+static bool SetupMountedFlightPhysicsSpeedHooks()
+{
+    bool ok = false;
+
+    if (!oMountedFlightPhysicsDispatchB87E60)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_B87E60);
+        if (!pTarget)
+        {
+            WriteLog("[MountFlightSpeed] B87E60 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oMountedFlightPhysicsDispatchB87E60 =
+                (tMountedFlightPhysicsDispatchFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkMountedFlightPhysicsDispatchB87E60,
+                    copyLen);
+            if (oMountedFlightPhysicsDispatchB87E60)
+            {
+                ok = true;
+                WriteLogFmt("[MountFlightSpeed] OK(B87E60): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oMountedFlightPhysicsDispatchB87E60,
+                    copyLen);
+            }
+            else
+            {
+                WriteLog("[MountFlightSpeed] B87E60 hook failed");
+            }
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oMountedFlightPhysicsStepB83C90)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_B83C90);
+        if (!pTarget)
+        {
+            WriteLog("[MountFlightSpeed] B83C90 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oMountedFlightPhysicsStepB83C90 =
+                (tMountedFlightPhysicsStepFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkMountedFlightPhysicsStepB83C90,
+                    copyLen);
+            if (oMountedFlightPhysicsStepB83C90)
+            {
+                ok = true;
+                WriteLogFmt("[MountFlightSpeed] OK(B83C90): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oMountedFlightPhysicsStepB83C90,
+                    copyLen);
+            }
+            else
+            {
+                WriteLog("[MountFlightSpeed] B83C90 hook failed");
+            }
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oMountedFlightPhysicsStepB844D0)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_B844D0);
+        if (!pTarget)
+        {
+            WriteLog("[MountFlightSpeed] B844D0 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oMountedFlightPhysicsStepB844D0 =
+                (tMountedFlightPhysicsStepFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkMountedFlightPhysicsStepB844D0,
+                    copyLen);
+            if (oMountedFlightPhysicsStepB844D0)
+            {
+                ok = true;
+                WriteLogFmt("[MountFlightSpeed] OK(B844D0): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oMountedFlightPhysicsStepB844D0,
+                    copyLen);
+            }
+            else
+            {
+                WriteLog("[MountFlightSpeed] B844D0 hook failed");
+            }
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oMountedFlightPhysicsStateB84D70)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_B84D70);
+        if (!pTarget)
+        {
+            WriteLog("[MountFlightSpeed] B84D70 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oMountedFlightPhysicsStateB84D70 =
+                (tMountedFlightPhysicsStateFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkMountedFlightPhysicsStateB84D70,
+                    copyLen);
+            if (oMountedFlightPhysicsStateB84D70)
+            {
+                ok = true;
+                WriteLogFmt("[MountFlightSpeed] OK(B84D70): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oMountedFlightPhysicsStateB84D70,
+                    copyLen);
+            }
+            else
+            {
+                WriteLog("[MountFlightSpeed] B84D70 hook failed");
+            }
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oMountedFlightPhysicsFinalizeB851F0)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_B851F0);
+        if (!pTarget)
+        {
+            WriteLog("[MountFlightSpeed] B851F0 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oMountedFlightPhysicsFinalizeB851F0 =
+                (tMountedFlightPhysicsFinalizeFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkMountedFlightPhysicsFinalizeB851F0,
+                    copyLen);
+            if (oMountedFlightPhysicsFinalizeB851F0)
+            {
+                ok = true;
+                WriteLogFmt("[MountFlightSpeed] OK(B851F0): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oMountedFlightPhysicsFinalizeB851F0,
+                    copyLen);
+            }
+            else
+            {
+                WriteLog("[MountFlightSpeed] B851F0 hook failed");
+            }
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oMountedFlightPhysicsStepB88090)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_B88090);
+        if (!pTarget)
+        {
+            WriteLog("[MountFlightSpeed] B88090 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oMountedFlightPhysicsStepB88090 =
+                (tMountedFlightPhysicsStepFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkMountedFlightPhysicsStepB88090,
+                    copyLen);
+            if (oMountedFlightPhysicsStepB88090)
+            {
+                ok = true;
+                WriteLogFmt("[MountFlightSpeed] OK(B88090): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oMountedFlightPhysicsStepB88090,
+                    copyLen);
+            }
+            else
+            {
+                WriteLog("[MountFlightSpeed] B88090 hook failed");
+            }
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oMountedFlightPhysicsVerticalB8FE30)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_B8FE30);
+        if (!pTarget)
+        {
+            WriteLog("[MountFlightSpeed] B8FE30 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oMountedFlightPhysicsVerticalB8FE30 =
+                (tMountedFlightPhysicsVerticalFn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkMountedFlightPhysicsVerticalB8FE30,
+                    copyLen);
+            if (oMountedFlightPhysicsVerticalB8FE30)
+            {
+                ok = true;
+                WriteLogFmt("[MountFlightSpeed] OK(B8FE30): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oMountedFlightPhysicsVerticalB8FE30,
+                    copyLen);
+            }
+            else
+            {
+                WriteLog("[MountFlightSpeed] B8FE30 hook failed");
+            }
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    return ok;
+}
+
 static bool SetupSkillNativeIdGateHooks()
 {
     bool ok = false;
@@ -12601,6 +16342,26 @@ static bool SetupSkillNativeIdGateHooks()
     else
     {
         WriteLog("[MountFamilyGate] hook failed: A9AAA0");
+    }
+
+    if (kEnableMountMovementObservationHooks)
+    {
+        if (SetupMountMovementObservationHooks())
+            ok = true;
+    }
+    else
+    {
+        WriteLog("[MountMoveObserve] observation hook disabled");
+    }
+
+    if (kEnableMountedFlightPhysicsSpeedHooks)
+    {
+        if (SetupMountedFlightPhysicsSpeedHooks())
+            ok = true;
+    }
+    else
+    {
+        WriteLog("[MountFlightSpeed] physics speed hooks disabled");
     }
 
     if (kEnableMountMovementCapPatches)

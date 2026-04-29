@@ -612,6 +612,19 @@ namespace
         return (std::max)(1, (std::min)(kIndependentBuffOverlayMaxColumns, maxSlotIndex + 1));
     }
 
+    bool AreAllIndependentBuffEntriesReplacingNativeSlots(const std::vector<IndependentBuffOverlayEntry>& entries)
+    {
+        if (entries.empty())
+            return false;
+
+        for (size_t i = 0; i < entries.size(); ++i)
+        {
+            if (!entries[i].replaceNativeSlot)
+                return false;
+        }
+        return true;
+    }
+
     struct IndependentBuffOverlayLayout
     {
         RECT clientRect = {};
@@ -620,6 +633,7 @@ namespace
         int slotSize = 32;
         int gap = 2;
         bool usedNativeSlotLayout = false;
+        bool replaceNativeSlots = false;
         std::vector<RECT> explicitSlotRects;
     };
 
@@ -884,9 +898,98 @@ namespace
         int height = rows * slotSize + (rows - 1) * gap;
         int x = 0;
         int y = 0;
+        const bool replaceNativeSlots = AreAllIndependentBuffEntriesReplacingNativeSlots(entries);
+        outLayout->replaceNativeSlots = replaceNativeSlots;
 
         NativeBuffSlotMetrics nativeMetrics = {};
-        if (TryGetNativeBuffSlotMetrics(&nativeMetrics) && nativeMetrics.valid)
+        if (replaceNativeSlots)
+        {
+            std::vector<int> semanticNativeSlots;
+            SkillOverlayBridgeGetObservedNativeVisibleSemanticSlots(semanticNativeSlots);
+            std::sort(semanticNativeSlots.begin(), semanticNativeSlots.end());
+            semanticNativeSlots.erase(std::unique(semanticNativeSlots.begin(), semanticNativeSlots.end()), semanticNativeSlots.end());
+            int semanticSpanSlots = maxSlotIndex + 1;
+            if (!semanticNativeSlots.empty())
+                semanticSpanSlots = (std::max)(semanticSpanSlots, semanticNativeSlots.back() + 1);
+
+            outLayout->explicitSlotRects.assign((size_t)(maxSlotIndex + 1), RECT{});
+            if (TryGetNativeBuffSlotMetrics(&nativeMetrics) && nativeMetrics.valid)
+            {
+                slotSize = nativeMetrics.slotSize > 0 ? nativeMetrics.slotSize : slotSize;
+                gap = nativeMetrics.stepX > slotSize ? (nativeMetrics.stepX - slotSize) : 0;
+                std::vector<int> occupiedActualSlots;
+                for (int slot = 0; slot < 6; ++slot)
+                {
+                    if (nativeMetrics.topRowOccupied[slot])
+                        occupiedActualSlots.push_back(slot);
+                }
+
+                int minLeft = INT_MAX;
+                int minTop = INT_MAX;
+                int maxRight = INT_MIN;
+                int maxBottom = INT_MIN;
+                bool anyRect = false;
+                for (size_t i = 0; i < entries.size(); ++i)
+                {
+                    const int normalizedSlot = entries[i].slotIndex >= 0 ? entries[i].slotIndex : (int)i;
+                    if (normalizedSlot < 0 || normalizedSlot > maxSlotIndex)
+                        continue;
+
+                    int actualVisualSlot = normalizedSlot;
+                    if (normalizedSlot >= 0 && normalizedSlot < (int)occupiedActualSlots.size())
+                        actualVisualSlot = occupiedActualSlots[(size_t)normalizedSlot];
+
+                    const int slotLeft = nativeMetrics.baseX + actualVisualSlot * nativeMetrics.stepX;
+                    const int slotTop = nativeMetrics.baseY;
+                    RECT slotRect = MakeRectXYWH(slotLeft, slotTop, slotSize, slotSize);
+                    outLayout->explicitSlotRects[(size_t)normalizedSlot] = slotRect;
+                    if (slotRect.left < minLeft) minLeft = slotRect.left;
+                    if (slotRect.top < minTop) minTop = slotRect.top;
+                    if (slotRect.right > maxRight) maxRight = slotRect.right;
+                    if (slotRect.bottom > maxBottom) maxBottom = slotRect.bottom;
+                    anyRect = true;
+                }
+
+                if (anyRect)
+                {
+                    x = minLeft;
+                    y = minTop;
+                    width = maxRight - minLeft;
+                    height = maxBottom - minTop;
+                    outLayout->usedNativeSlotLayout = true;
+                }
+            }
+
+            if (!outLayout->usedNativeSlotLayout)
+            {
+                const int clientWidth = clientRect.right - clientRect.left;
+                const int baseX = clientWidth - marginX - semanticSpanSlots * slotSize + offsetX;
+                int minLeft = INT_MAX;
+                int minTop = INT_MAX;
+                int maxRight = INT_MIN;
+                int maxBottom = INT_MIN;
+                for (size_t i = 0; i < entries.size(); ++i)
+                {
+                    const int normalizedSlot = entries[i].slotIndex >= 0 ? entries[i].slotIndex : (int)i;
+                    if (normalizedSlot < 0 || normalizedSlot > maxSlotIndex)
+                        continue;
+
+                    const int slotLeft = baseX + normalizedSlot * slotSize;
+                    const int slotTop = marginY + offsetY;
+                    RECT slotRect = MakeRectXYWH(slotLeft, slotTop, slotSize, slotSize);
+                    outLayout->explicitSlotRects[(size_t)normalizedSlot] = slotRect;
+                    if (slotRect.left < minLeft) minLeft = slotRect.left;
+                    if (slotRect.top < minTop) minTop = slotRect.top;
+                    if (slotRect.right > maxRight) maxRight = slotRect.right;
+                    if (slotRect.bottom > maxBottom) maxBottom = slotRect.bottom;
+                }
+                x = minLeft;
+                y = minTop;
+                width = maxRight - minLeft;
+                height = maxBottom - minTop;
+            }
+        }
+        else if (TryGetNativeBuffSlotMetrics(&nativeMetrics) && nativeMetrics.valid)
         {
             slotSize = nativeMetrics.slotSize > 0 ? nativeMetrics.slotSize : slotSize;
             gap = nativeMetrics.stepX > slotSize ? (nativeMetrics.stepX - slotSize) : 0;
@@ -1046,7 +1149,10 @@ namespace
             const int slotIndex = entry.slotIndex >= 0 ? entry.slotIndex : fallbackSlotIndex;
             if (slotIndex < 0 || slotIndex >= (int)layout.explicitSlotRects.size())
                 return false;
-            *outRect = layout.explicitSlotRects[slotIndex];
+            const RECT& slotRect = layout.explicitSlotRects[slotIndex];
+            if (slotRect.right <= slotRect.left || slotRect.bottom <= slotRect.top)
+                return false;
+            *outRect = slotRect;
             return true;
         }
 
@@ -1068,7 +1174,8 @@ namespace
             return false;
         if (!g_overlay8.hwnd)
         {
-            WriteLog("[IndependentBuffOverlayRect] d3d8 fail: hwnd missing");
+            if (EnableIndependentBuffOverlayDiagnosticLogs())
+                WriteLog("[IndependentBuffOverlayRect] d3d8 fail: hwnd missing");
             return false;
         }
 
@@ -1077,14 +1184,16 @@ namespace
         SkillOverlayBridgeGetIndependentBuffOverlayEntries(entries);
         if (entries.empty())
         {
-            WriteLog("[IndependentBuffOverlayRect] d3d8 fail: entries empty");
+            if (EnableIndependentBuffOverlayDiagnosticLogs())
+                WriteLog("[IndependentBuffOverlayRect] d3d8 fail: entries empty");
             return false;
         }
 
         IndependentBuffOverlayLayout layout = {};
         if (!TryBuildIndependentBuffOverlayLayout(entries, &layout))
         {
-            WriteLog("[IndependentBuffOverlayRect] d3d8 fail: GetClientRect");
+            if (EnableIndependentBuffOverlayDiagnosticLogs())
+                WriteLog("[IndependentBuffOverlayRect] d3d8 fail: GetClientRect");
             return false;
         }
         *outRect = layout.overlayRect;
@@ -1154,7 +1263,9 @@ namespace
                 overlayRect.top,
                 overlayRect.right,
                 overlayRect.bottom,
-                layout.usedNativeSlotLayout ? "fixed-child" : "fallback",
+                layout.replaceNativeSlots
+                    ? (layout.usedNativeSlotLayout ? "native-replace-fixed-child" : "native-replace-fallback")
+                    : (layout.usedNativeSlotLayout ? "fixed-child" : "fallback"),
                 (int)layout.explicitSlotRects.size());
         }
 
@@ -1193,10 +1304,12 @@ namespace
                 ImGui::InvisibleButton("independent_buff_icon", ImVec2(slotSize, slotSize));
                 const bool hovered = ImGui::IsItemHovered();
 
-                const ImU32 backColor = IM_COL32(0, 0, 0, 18);
-                const ImU32 borderColor = IM_COL32(255, 255, 255, 46);
+                const bool replaceNativeSlot = entry.replaceNativeSlot;
+                const ImU32 backColor = replaceNativeSlot ? IM_COL32(0, 0, 0, 255) : IM_COL32(0, 0, 0, 18);
+                const ImU32 borderColor = replaceNativeSlot ? IM_COL32(255, 255, 255, 0) : IM_COL32(255, 255, 255, 46);
                 drawList->AddRectFilled(iconMin, iconMax, backColor, 2.0f * scale);
-                drawList->AddRect(iconMin, iconMax, borderColor, 2.0f * scale);
+                if (!replaceNativeSlot)
+                    drawList->AddRect(iconMin, iconMax, borderColor, 2.0f * scale);
 
                 UITexture* iconTexture = GetRetroSkillSkillIconTexture(g_overlay8.assets, entry.iconSkillId);
 
@@ -1208,11 +1321,13 @@ namespace
                         iconMax,
                         ImVec2(0.0f, 0.0f),
                         ImVec2(1.0f, 1.0f),
-                        IM_COL32(255, 255, 255, 217));
+                        replaceNativeSlot ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 255, 255, 217));
                 }
                 else
                 {
-                    drawList->AddRectFilled(iconMin, iconMax, IM_COL32(82, 97, 120, 217), 2.0f * scale);
+                    drawList->AddRectFilled(iconMin, iconMax,
+                        replaceNativeSlot ? IM_COL32(82, 97, 120, 255) : IM_COL32(82, 97, 120, 217),
+                        2.0f * scale);
                 }
 
                 if (entry.totalDurationMs > 0 && entry.remainingMs > 0)
@@ -1544,6 +1659,72 @@ namespace
             return false;
         *outPoint = pt;
         return true;
+    }
+
+    bool DoesCursorVisualOverlapRect(const RetroSkillCursorOverlayVisual& visual, const RECT& rc)
+    {
+        if (!visual.texture || !visual.texture->texture || !RectHasArea(rc))
+            return false;
+
+        return visual.maxX > (float)rc.left &&
+               visual.minX < (float)rc.right &&
+               visual.maxY > (float)rc.top &&
+               visual.minY < (float)rc.bottom;
+    }
+
+    bool TryBuildCurrentOverlayCursorVisual(
+        const POINT& mousePt,
+        bool extraHoverAnimation,
+        bool extraPressed,
+        int observedNativeCursorState,
+        RetroSkillCursorOverlayVisual* outVisual)
+    {
+        return TryBuildRetroSkillCursorOverlayVisual(
+            g_overlay8.state,
+            g_overlay8.assets,
+            g_overlay8.mainScale,
+            (float)mousePt.x,
+            (float)mousePt.y,
+            extraHoverAnimation,
+            extraPressed,
+            g_overlay8.superButtonHoverStartTick,
+            g_overlay8.superButtonHoverInstantUseNormal1,
+            observedNativeCursorState,
+            outVisual);
+    }
+
+    bool DoesOverlayCursorVisualOverlapUi(const RetroSkillCursorOverlayVisual& visual)
+    {
+        RECT overlayRect = {};
+        if (GetIndependentBuffOverlayRect(&overlayRect) &&
+            DoesCursorVisualOverlapRect(visual, overlayRect))
+        {
+            return true;
+        }
+
+        if (HasSuperButtonRect() &&
+            DoesCursorVisualOverlapRect(visual, g_overlay8.superButtonRect))
+        {
+            return true;
+        }
+
+        RECT resetConfirmRect = {};
+        if (GetResetConfirmRectForHitTest(&resetConfirmRect) &&
+            DoesCursorVisualOverlapRect(visual, resetConfirmRect))
+        {
+            return true;
+        }
+
+        if (g_overlay8.anchorX <= -9000 || g_overlay8.anchorY <= -9000)
+            return false;
+
+        const PanelMetrics metrics = GetPanelMetrics(g_overlay8.mainScale);
+        const RECT panelRect = MakeRectXYWH(
+            g_overlay8.anchorX,
+            g_overlay8.anchorY,
+            (int)metrics.width,
+            (int)metrics.height);
+        return DoesCursorVisualOverlapRect(visual, panelRect);
     }
 
     bool AreAnyPhysicalMouseButtonsDown()
@@ -2045,28 +2226,28 @@ void SuperD3D8OverlayRender(void* device8)
     RenderObservedSceneFadeMask();
 
     g_overlay8.mouseHover = hasMousePt && IsPointInsidePanel(mousePt.x, mousePt.y);
-    const bool shouldDrawOverlayCursor = hasMousePt && (g_overlay8.state.isDraggingSkill || g_overlay8.mouseHover || g_overlay8.mouseCapture);
-    if (shouldDrawOverlayCursor)
-    {
-        const ImVec2 savedMousePos = io.MousePos;
-        io.MousePos = ImVec2((float)mousePt.x, (float)mousePt.y);
-        const int observedNativeCursorState = SkillOverlayBridgeGetObservedNativeCursorState();
-        const bool overlayCursorHover = g_overlay8.superButtonHover;
-        const bool overlayCursorPressed =
-            g_overlay8.superButtonPressed ||
-            (hoveredIndependentBuff && AreAnyPhysicalMouseButtonsDown());
-
-        RenderRetroSkillCursorOverlay(
-            g_overlay8.state,
-            g_overlay8.assets,
-            g_overlay8.mainScale,
+    const bool forceOverlayCursorRender =
+        hasMousePt && (g_overlay8.state.isDraggingSkill || g_overlay8.mouseCapture);
+    const int observedNativeCursorState = SkillOverlayBridgeGetObservedNativeCursorState();
+    const bool overlayCursorHover = g_overlay8.superButtonHover;
+    const bool overlayCursorPressed =
+        g_overlay8.superButtonPressed ||
+        (hoveredIndependentBuff && AreAnyPhysicalMouseButtonsDown());
+    RetroSkillCursorOverlayVisual overlayCursorVisual = {};
+    const bool hasOverlayCursorVisual =
+        hasMousePt &&
+        TryBuildCurrentOverlayCursorVisual(
+            mousePt,
             overlayCursorHover,
             overlayCursorPressed,
-            g_overlay8.superButtonHoverStartTick,
-            g_overlay8.superButtonHoverInstantUseNormal1,
-            observedNativeCursorState);
-
-        io.MousePos = savedMousePos;
+            observedNativeCursorState,
+            &overlayCursorVisual);
+    const bool shouldDrawOverlayCursor =
+        forceOverlayCursorRender ||
+        (hasOverlayCursorVisual && DoesOverlayCursorVisualOverlapUi(overlayCursorVisual));
+    if (shouldDrawOverlayCursor && hasOverlayCursorVisual)
+    {
+        DrawRetroSkillCursorOverlayVisual(overlayCursorVisual);
     }
 
     if (g_overlay8.panelExpanded && g_overlay8.mainFont)

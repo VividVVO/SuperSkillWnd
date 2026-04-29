@@ -137,11 +137,15 @@ struct RetroSkillRuntimeState {
     bool superSkillResetConfirmOpenRequested = false;
     int superSkillResetConfirmSpentSp = 0;
     int superSkillResetConfirmCostMeso = 0;
+    int superSkillResetConfirmCurrentMeso = 0;
+    bool superSkillResetConfirmHasCurrentMeso = false;
     bool superSkillResetConfirmCostPending = false;
     unsigned int superSkillResetConfirmPreviewRequestRevision = 0;
     unsigned int superSkillResetConfirmPreviewRequestTick = 0;
     int superSkillResetPreviewSpentSp = 0;
     int superSkillResetPreviewCostMeso = 0;
+    int superSkillResetPreviewCurrentMeso = 0;
+    bool superSkillResetPreviewHasCurrentMeso = false;
     unsigned int superSkillResetPreviewRevision = 0;
 
     QuickSlotBinding quickSlots[8];

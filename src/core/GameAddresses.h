@@ -393,6 +393,9 @@ const DWORD ADDR_4010B0         = 0x004010B0;
 const DWORD ADDR_7D4C00         = 0x007D4C00;
 const DWORD ADDR_7D4CA0         = 0x007D4CA0;
 const DWORD ADDR_7D4CD0         = 0x007D4CD0;
+const DWORD ADDR_AA0CD9         = 0x00AA0CD9;  // AA0B90 mounted move: enter hard cap block (74 44 -> jump over cap logic)
+const DWORD ADDR_AA0CFB         = 0x00AA0CFB;  // AA0B90 mounted special branch: 170 upper cap gate
+const DWORD ADDR_AA0D13         = 0x00AA0D13;  // AA0B90 mounted ground branch: min(max(speed+30,130), mountBase+150)
 // sub_856C60 stat finalize cap: speed clamps to maxBase+140, jump clamps to 123.
 const DWORD ADDR_858D30         = 0x00858D30;  // speed upper clamp: cmp/jl/mov edx,edi
 const DWORD ADDR_858D49         = 0x00858D49;  // jump upper clamp compare
@@ -404,6 +407,29 @@ const DWORD ADDR_8222B0         = 0x008222B0;  // 856C60 current movement speed 
 const DWORD ADDR_8223F0         = 0x008223F0;  // 856C60 current jump getter
 const DWORD ADDR_831F00         = 0x00831F00;  // encrypted movement speed setter
 const DWORD ADDR_832000         = 0x00832000;  // encrypted jump setter
+const DWORD ADDR_82C810         = 0x0082C810;  // movement speed transform helper
+const DWORD ADDR_B93B80         = 0x00B93B80;  // movement speed/jump output clamp compute
+const DWORD ADDR_B93D0F         = 0x00B93D0F;  // B93B80 speed upper clamp: cmp eax,esi / mov eax,esi
+const DWORD ADDR_B93D23         = 0x00B93D23;  // B93B80 jump upper clamp: cmp edi,ebp / mov ebp,edi
+const DWORD ADDR_B93D4A         = 0x00B93D4A;  // B93B80 mode==2 post-transform speed upper clamp
+const DWORD ADDR_B9301F         = 0x00B9301F;  // B92D10 normal mount path: raw speed override gate -> 84CD10
+const DWORD ADDR_B93038         = 0x00B93038;  // B92D10 normal mount path: raw jump override gate -> B92260
+const DWORD ADDR_B92F2C         = 0x00B92F2C;  // B92D10 normal mount path: sub_888B30 return
+const DWORD ADDR_B930C6         = 0x00B930C6;  // B92D10 special mount path: sub_888B30 return
+const DWORD ADDR_B932B2         = 0x00B932B2;  // B92D10 mechanic mount path: sub_888B30 return
+const DWORD ADDR_888B30         = 0x00888B30;  // mount data object lookup by tamingMob/data key
+const DWORD ADDR_889079         = 0x00889079;  // 888DF0 mount data loader: speed upper-cap block (cmp eax,190 / mov eax,190)
+const DWORD ADDR_8890F7         = 0x008890F7;  // 888DF0 mount data loader: jump upper-cap block (cmp eax,123 / mov eax,123)
+const DWORD ADDR_444CA0         = 0x00444CA0;  // encoded double slot writer
+const DWORD ADDR_445A20         = 0x00445A20;  // encoded double slot reader
+const DWORD ADDR_B83C90         = 0x00B83C90;  // mounted movement physics step (alternate branch)
+const DWORD ADDR_B844D0         = 0x00B844D0;  // mounted / air movement physics step
+const DWORD ADDR_B87E60         = 0x00B87E60;  // mounted soaring dispatcher: [this+2A0]==0 -> B844D0, else -> vtbl+0x48 cruise branch
+const DWORD ADDR_B84D70         = 0x00B84D70;  // mounted soaring state transition / speed seed
+const DWORD ADDR_B851F0         = 0x00B851F0;  // mounted movement shared finalize / post-physics settle
+const DWORD ADDR_B88090         = 0x00B88090;  // mounted special movement step
+const DWORD ADDR_B8FE30         = 0x00B8FE30;  // mounted attached-flight vertical follow-up
+const DWORD ADDR_B92990         = 0x00B92990;  // mounted vertical movement / soaring follow-up
 
 // ============================================================================
 // 技能列表构建过滤点（sub_7DD420 LABEL_42 入口，技能加入 entries 前最后一刻）

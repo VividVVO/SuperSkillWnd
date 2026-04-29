@@ -21,6 +21,7 @@ static const ImU32 kRetroDisabledTextColor = IM_COL32(173, 173, 173, 255);
 static const ImU32 kTooltipFillColor = IM_COL32(0x0E, 0x39, 0x5A, 0xCC);
 static const ImU32 kTooltipFrameColor = IM_COL32(255, 255, 255, 255);
 static const ImU32 kTooltipIconBackplateColor = IM_COL32(0xBD, 0xCD, 0xDD, 255);
+static const char* kSuperSpStyleHint = "__SUPER_SP__";
 
 struct WrappedTooltipLine
 {
@@ -1125,10 +1126,8 @@ static void RenderSkillTooltipCard(const SkillEntry& skill, RetroSkillAssets& as
 
     ImGuiIO& io = ImGui::GetIO();
     const float edgePadding = 4.0f;
-    const float followOffsetX = 0.0f;
-    // Independent buff tooltip: keep the existing follow behavior, but lift it
-    // 19px relative to the old placement so it doesn't sit too low.
-    const float followOffsetY = -1.0f * mainScale;
+    const float followOffsetX = 0.0f * mainScale;
+    const float followOffsetY = 20.0f * mainScale;
     float tooltipX = floorf(io.MousePos.x + followOffsetX);
     if (tooltipX < edgePadding)
         tooltipX = edgePadding;
@@ -1146,7 +1145,7 @@ static void RenderSkillTooltipCard(const SkillEntry& skill, RetroSkillAssets& as
         tooltipY = edgePadding;
 
     const ImVec2 tooltipMin(tooltipX, tooltipY);
-    const ImVec2 tooltipMax(tooltipX + tooltipSize.x, tooltipY + tooltipSize.y);
+    const ImVec2 tooltipMax(tooltipMin.x + tooltipSize.x, tooltipMin.y + tooltipSize.y);
 
     LogTooltipDrawState(skill, io.MousePos, tooltipMin, tooltipSize, currentInfoText, nextInfoText);
     DrawTooltipBorder(drawList, tooltipMin, tooltipMax);
@@ -1414,7 +1413,7 @@ void RenderRetroBuffTooltipCard(const SkillEntry& skill, RetroSkillAssets& asset
     ImGuiIO& io = ImGui::GetIO();
     const float edgePadding = 4.0f;
     const float followOffsetX = 0.0f;
-    const float followOffsetY = 18.0f * mainScale;
+    const float followOffsetY = 0.0f * mainScale;
     float tooltipX = floorf(io.MousePos.x + followOffsetX);
     if (tooltipX < edgePadding)
         tooltipX = edgePadding;
@@ -1513,6 +1512,17 @@ static std::string FormatMesoText(int meso)
     for (int insertPos = (int)text.size() - 3; insertPos > 0; insertPos -= 3)
         text.insert((size_t)insertPos, ",");
     return text;
+}
+
+static bool CanConfirmSuperSkillReset(const RetroSkillRuntimeState& state)
+{
+    if (state.superSkillResetConfirmCostPending)
+        return false;
+    if (state.superSkillResetConfirmSpentSp <= 0)
+        return false;
+    if (!state.superSkillResetConfirmHasCurrentMeso)
+        return false;
+    return state.superSkillResetConfirmCostMeso <= state.superSkillResetConfirmCurrentMeso;
 }
 
 static void DrawResetNoticeCenteredLine(
@@ -1630,11 +1640,15 @@ static void CloseResetConfirmWindow(RetroSkillRuntimeState& state)
     state.superSkillResetConfirmOpenRequested = false;
     state.superSkillResetConfirmSpentSp = 0;
     state.superSkillResetConfirmCostMeso = 0;
+    state.superSkillResetConfirmCurrentMeso = 0;
+    state.superSkillResetConfirmHasCurrentMeso = false;
     state.superSkillResetConfirmCostPending = false;
     state.superSkillResetConfirmPreviewRequestRevision = 0;
     state.superSkillResetConfirmPreviewRequestTick = 0;
     state.lastAcceptedClickTime = -1.0;
 }
+
+static const DWORD kSuperSkillResetPreviewPendingVisualTimeoutMs = 1500;
 
 static float MeasureWrappedTooltipBlockHeight(const std::string& text, float maxWidth, float fontSize, float glyphSpacing, float extraLineGap)
 {
@@ -2031,39 +2045,47 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
             char superSpValue[32] = {};
             sprintf_s(superSpValue, "%d", state.superSkillPoints);
 
-            const float superSpFontSizePx = 13.5f;
+            const float superSpFontSizePx = 9.0f;
+            const float superSpGlyphSpacing = 1.0f;
             const float superSpRightX = panelPos.x + 160.0f * mainScale;
             const float superSpCenterY = panelPos.y + (258.0f + 4.0f) * mainScale;
-            ImFont* font = ImGui::GetFont();
-            const ImVec2 superSpTextSize = font
-                ? font->CalcTextSizeA(superSpFontSizePx, FLT_MAX, 0.0f, superSpValue)
-                : ImGui::CalcTextSize(superSpValue);
+            const ImVec2 superSpTextSize = MeasureRetroTextWithStyleHint(
+                kSuperSpStyleHint,
+                superSpValue,
+                superSpFontSizePx,
+                superSpGlyphSpacing);
             const ImVec2 superSpPos(
                 floorf(superSpRightX - superSpTextSize.x),
                 floorf(superSpCenterY - superSpTextSize.y * 0.5f));
 
-            DrawPlainImGuiText(
+            DrawOutlinedTextWithStyleHint(
                 dl,
                 superSpPos,
                 kRetroPureBlackTextColor,
+                kSuperSpStyleHint,
                 superSpValue,
-                superSpFontSizePx);
+                mainScale,
+                superSpFontSizePx,
+                superSpGlyphSpacing);
 
-            if (font)
+            float charX = superSpPos.x;
+            for (const char* p = superSpValue; *p; ++p)
             {
-                float charX = superSpPos.x;
-                for (const char* p = superSpValue; *p; ++p)
+                const std::string superSpChar(1, *p);
+                const ImVec2 charSize = MeasureRetroTextWithStyleHint(
+                    kSuperSpStyleHint,
+                    superSpChar,
+                    superSpFontSizePx,
+                    superSpGlyphSpacing);
+                if (*p == '1' && charSize.x > 0.0f && charSize.y > 0.0f)
                 {
-                    const ImVec2 charSize = font->CalcTextSizeA(superSpFontSizePx, FLT_MAX, 0.0f, p, p + 1);
-                    if (*p == '1')
-                    {
-                        const float footY = floorf(superSpPos.y + charSize.y - 2.0f);
-                        const float footLeft = floorf(charX);
-                        const float footRight = floorf(charX + charSize.x);
-                        dl->AddLine(ImVec2(footLeft, footY), ImVec2(footRight, footY), kRetroPureBlackTextColor, 1.0f);
-                    }
-                    charX += charSize.x;
+                    const float footY = floorf(superSpPos.y + charSize.y - 2.0f);
+                    const float footLeft = floorf(charX);
+                    const float footRight = floorf(charX + charSize.x);
+                    dl->AddLine(ImVec2(footLeft, footY), ImVec2(footRight, footY), kRetroPureBlackTextColor, 1.0f);
                 }
+
+                charX += charSize.x + superSpGlyphSpacing;
             }
         }
 
@@ -2159,6 +2181,11 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
                         state.dragSkillGrabOffset = ImVec2(iconSize.x * 0.5f, iconSize.y * 0.5f);
                         state.dragSkillStartedThisFrame = true;
                         state.dragSkillIsClickMode = true;
+                        WriteLogFmt(
+                            "[RetroSkillPanel] drag begin skillId=%d tab=%d index=%d mode=click",
+                            skill.skillId,
+                            state.activeTab,
+                            (int)i);
                     }
                 }
 
@@ -2450,10 +2477,12 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
                     state.superSkillResetConfirmSpentSp = localSpentSp;
                     state.superSkillResetConfirmPreviewRequestRevision = requestRevision;
                     state.superSkillResetConfirmCostMeso = 0;
+                    state.superSkillResetConfirmCurrentMeso = 0;
+                    state.superSkillResetConfirmHasCurrentMeso = false;
                     state.superSkillResetConfirmCostPending = true;
                     state.superSkillResetConfirmPreviewRequestTick = GetTickCount();
-                    state.superSkillResetConfirmVisible = false;
-                    state.superSkillResetConfirmOpenRequested = true;
+                    state.superSkillResetConfirmVisible = true;
+                    state.superSkillResetConfirmOpenRequested = false;
                     state.isDraggingSkill = false;
                     state.dragSkillTab = -1;
                     state.dragSkillIndex = -1;
@@ -2552,13 +2581,32 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
                 textY = floorf(textY + noticeLineAdvance);
 
                 std::string costLine;
+                std::string statusLine;
+                const bool previewTimedOut =
+                    state.superSkillResetConfirmCostPending &&
+                    state.superSkillResetConfirmPreviewRequestTick != 0 &&
+                    (GetTickCount() - state.superSkillResetConfirmPreviewRequestTick) >=
+                        kSuperSkillResetPreviewPendingVisualTimeoutMs;
                 if (state.superSkillResetConfirmCostPending)
-                    costLine = u8"当前初始化费用：服务器计算中...";
+                    costLine = previewTimedOut
+                        ? u8"当前初始化费用：等待服务器返回费用"
+                        : u8"当前初始化费用：服务器计算中...";
                 else if (state.superSkillResetConfirmSpentSp <= 0)
                     costLine = u8"当前没有需要初始化的超级技能";
+                else if (state.superSkillResetConfirmHasCurrentMeso &&
+                    state.superSkillResetConfirmCostMeso > state.superSkillResetConfirmCurrentMeso)
+                {
+                    costLine = std::string(u8"当前初始化费用：") + FormatMesoText(state.superSkillResetConfirmCostMeso) + u8"金币";
+                    statusLine = u8"金币不足";
+                }
                 else
                     costLine = std::string(u8"当前初始化费用：") + FormatMesoText(state.superSkillResetConfirmCostMeso) + u8"金币";
                 DrawResetNoticeCenteredLine(noticeDrawList, windowPos, noticeSize.x, textY, costLine, true, mainScale);
+                if (!statusLine.empty())
+                {
+                    textY = floorf(textY + noticeLineAdvance);
+                    DrawResetNoticeCenteredLine(noticeDrawList, windowPos, noticeSize.x, textY, statusLine, false, mainScale);
+                }
 
                 if (ImGui::IsMouseHoveringRect(windowPos, noticeMax, false) && io.MouseDown[0])
                     state.isPressingUiButton = true;
@@ -2575,7 +2623,7 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
                     "Notice.btYes.disabled.0",
                     ImVec2(floorf(windowPos.x + 157.0f * mainScale), floorf(windowPos.y + 101.0f * mainScale)),
                     mainScale,
-                    state.superSkillResetConfirmSpentSp > 0,
+                    CanConfirmSuperSkillReset(state),
                     &yesHovered,
                     &yesHeld);
 
@@ -2710,7 +2758,7 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
 
             }
 
-            // Drag-end: 再次按下鼠标结束拖拽（跳过启动当帧）
+            // Drag-end: 点击开始拖拽，再次按下鼠标结束（跳过启动当帧）
             bool shouldEndDrag = false;
             if (!state.dragSkillStartedThisFrame)
             {
@@ -2725,6 +2773,15 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
                                     io.MousePos.y < wp.y || io.MousePos.y >= (wp.y + m.height);
                 // 2) Simulated PostMessage drag events pass through to the game
                 int savedDragIndex = state.dragSkillIndex;
+                WriteLogFmt(
+                    "[RetroSkillPanel] drag end skillId=%d tab=%d index=%d outsidePanel=%d mouse=(%d,%d) mode=%s",
+                    draggedSkill.skillId,
+                    state.activeTab,
+                    savedDragIndex,
+                    outsidePanel ? 1 : 0,
+                    (int)floorf(io.MousePos.x),
+                    (int)floorf(io.MousePos.y),
+                    state.dragSkillIsClickMode ? "click" : "hold_release");
                 state.isDraggingSkill = false;
                 state.dragSkillTab = -1;
                 state.dragSkillIndex = -1;

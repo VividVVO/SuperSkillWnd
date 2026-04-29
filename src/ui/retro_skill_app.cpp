@@ -80,8 +80,8 @@ namespace
 
     ImVec2 GetRetroCursorFixedOffset(RetroSkillAssets& assets, UITexture* currentTex)
     {
-        const ImVec2 normalBaselineOffset(0.0f, -4.0f);
-        const ImVec2 hoverABaselineOffset(0.0f, -2.0f);
+        const ImVec2 normalBaselineOffset(0.0f, -3.0f);
+        const ImVec2 hoverABaselineOffset(0.0f, -1.0f);
         UITexture* normal = GetRetroSkillTexture(assets, "mouse.normal");
         UITexture* hoverA = GetRetroSkillTexture(assets, "mouse.normal.1");
         UITexture* hoverB = GetRetroSkillTexture(assets, "mouse.normal.2");
@@ -192,6 +192,111 @@ namespace
             return false;
         }
     }
+
+    MouseState ResolveOverlayMouseState(
+        RetroSkillRuntimeState& state,
+        bool extraHoverAnimation,
+        bool extraPressed,
+        uint64_t extraHoverStartTick,
+        bool extraHoverInstantUseNormal1,
+        int observedNativeCursorState)
+    {
+        ImGuiIO& io = ImGui::GetIO();
+
+        if (state.isDraggingSkill && ImGui::IsMouseClicked(0) && !state.dragSkillStartedThisFrame)
+        {
+            state.isDraggingSkill = false;
+            state.dragSkillTab = -1;
+            state.dragSkillIndex = -1;
+        }
+
+        const bool isMouseDown = io.MouseDown[0] || io.MouseDown[1] || io.MouseDown[2];
+        const bool stateHoverAnimation = state.isHoveringActionButtons && !state.actionHoverStoppedByClick;
+        MouseState mouseState = MS_NORMAL;
+        const bool wantsDrag = state.isDraggingSkill;
+        const bool wantsPressed = extraPressed || (isMouseDown && state.isPressingUiButton);
+        const bool wantsHover = stateHoverAnimation || extraHoverAnimation;
+
+        if (wantsDrag)
+        {
+            if (IsDragNativeCursorState(observedNativeCursorState) &&
+                TryResolveMouseStateFromNativeCursorState(observedNativeCursorState, &mouseState))
+            {
+            }
+            else
+            {
+                mouseState = MS_DRAG;
+            }
+        }
+        else if (wantsPressed)
+        {
+            if (IsPressedNativeCursorState(observedNativeCursorState) &&
+                TryResolveMouseStateFromNativeCursorState(observedNativeCursorState, &mouseState))
+            {
+            }
+            else
+            {
+                mouseState = MS_PRESSED;
+            }
+        }
+        else if (wantsHover)
+        {
+            double hoverElapsed = 0.0;
+            bool hoverInstantUseNormal1 = false;
+            if (stateHoverAnimation)
+            {
+                hoverElapsed = ImGui::GetTime() - state.actionButtonsHoverStartTime;
+                hoverInstantUseNormal1 = state.actionHoverInstantUseNormal1;
+            }
+            else
+            {
+                const uint64_t nowTick = static_cast<uint64_t>(GetTickCount64());
+                const uint64_t hoverStartTick = extraHoverStartTick ? extraHoverStartTick : nowTick;
+                hoverElapsed = (double)(nowTick - hoverStartTick) / 1000.0;
+                hoverInstantUseNormal1 = extraHoverInstantUseNormal1;
+            }
+            if (hoverElapsed < 0.5)
+                mouseState = hoverInstantUseNormal1 ? MS_HOVER_LOOP_A : MS_HOVER_LOOP_B;
+            else
+            {
+                double loopTime = hoverElapsed - 0.5;
+                int loopFrame = (int)floor(loopTime / 0.5);
+                mouseState = (loopFrame % 2 == 0) ? MS_HOVER_LOOP_A : MS_HOVER_LOOP_B;
+            }
+        }
+        else if (TryResolveMouseStateFromNativeCursorState(observedNativeCursorState, &mouseState))
+        {
+            if (mouseState == MS_HOVER_INSTANT ||
+                mouseState == MS_HOVER_LOOP_A ||
+                mouseState == MS_HOVER_LOOP_B)
+            {
+                mouseState = MS_NORMAL;
+            }
+        }
+
+        return mouseState;
+    }
+
+    UITexture* ResolveOverlayCursorTexture(RetroSkillAssets& assets, MouseState mouseState)
+    {
+        UITexture* mouseTex = nullptr;
+        switch (mouseState)
+        {
+        case MS_NORMAL: mouseTex = GetRetroSkillTexture(assets, "mouse.normal"); break;
+        case MS_PRESSED: mouseTex = GetRetroSkillTexture(assets, "mouse.pressed"); break;
+        case MS_DRAG: mouseTex = GetRetroSkillTexture(assets, "mouse.drag"); break;
+        case MS_HOVER_INSTANT: mouseTex = GetRetroSkillTexture(assets, "mouse.normal.2"); break;
+        case MS_HOVER_LOOP_A: mouseTex = GetRetroSkillTexture(assets, "mouse.normal.1"); break;
+        case MS_HOVER_LOOP_B: mouseTex = GetRetroSkillTexture(assets, "mouse.normal.2"); break;
+        }
+
+        if ((!mouseTex || !mouseTex->texture) && mouseState == MS_HOVER_INSTANT)
+            mouseTex = GetRetroSkillTexture(assets, "mouse.normal");
+        if ((!mouseTex || !mouseTex->texture) && mouseState == MS_HOVER_LOOP_A)
+            mouseTex = GetRetroSkillTexture(assets, "mouse.normal");
+
+        return mouseTex;
+    }
 }
 
 void InitializeRetroSkillApp(RetroSkillRuntimeState& state, RetroSkillAssets& assets, const RetroDeviceRef& deviceRef, const char* assetPath)
@@ -214,6 +319,56 @@ void ConfigureRetroSkillDefaultBehaviorHooks(RetroSkillBehaviorHooks& hooks, Ret
     hooks.onInitAction = OnDefaultInitAction;
 }
 
+bool TryBuildRetroSkillCursorOverlayVisual(
+    RetroSkillRuntimeState& state,
+    RetroSkillAssets& assets,
+    float mainScale,
+    float mouseX,
+    float mouseY,
+    bool extraHoverAnimation,
+    bool extraPressed,
+    uint64_t extraHoverStartTick,
+    bool extraHoverInstantUseNormal1,
+    int observedNativeCursorState,
+    RetroSkillCursorOverlayVisual* outVisual)
+{
+    if (!outVisual)
+        return false;
+
+    *outVisual = RetroSkillCursorOverlayVisual();
+
+    const MouseState mouseState = ResolveOverlayMouseState(
+        state,
+        extraHoverAnimation,
+        extraPressed,
+        extraHoverStartTick,
+        extraHoverInstantUseNormal1,
+        observedNativeCursorState);
+    UITexture* mouseTex = ResolveOverlayCursorTexture(assets, mouseState);
+    if (!mouseTex || !mouseTex->texture)
+        return false;
+
+    const ImVec2 extraOffset = GetRetroCursorFixedOffset(assets, mouseTex);
+    outVisual->texture = mouseTex;
+    outVisual->minX = mouseX + extraOffset.x * mainScale;
+    outVisual->minY = mouseY + extraOffset.y * mainScale;
+    outVisual->maxX = outVisual->minX + mouseTex->width * mainScale;
+    outVisual->maxY = outVisual->minY + mouseTex->height * mainScale;
+    return true;
+}
+
+void DrawRetroSkillCursorOverlayVisual(const RetroSkillCursorOverlayVisual& visual)
+{
+    if (!visual.texture || !visual.texture->texture)
+        return;
+
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    dl->AddImage(
+        (ImTextureID)visual.texture->texture,
+        ImVec2(visual.minX, visual.minY),
+        ImVec2(visual.maxX, visual.maxY));
+}
+
 void RenderRetroSkillScene(RetroSkillRuntimeState& state, RetroSkillAssets& assets, LPDIRECT3DDEVICE9 device, float mainScale)
 {
     RenderRetroSkillSceneEx(state, assets, device, mainScale, nullptr);
@@ -230,107 +385,21 @@ void RenderRetroSkillCursorOverlay(
     int observedNativeCursorState)
 {
     ImGuiIO& io = ImGui::GetIO();
-
-    if (state.isDraggingSkill && ImGui::IsMouseClicked(0) && !state.dragSkillStartedThisFrame)
+    RetroSkillCursorOverlayVisual visual = {};
+    if (TryBuildRetroSkillCursorOverlayVisual(
+            state,
+            assets,
+            mainScale,
+            io.MousePos.x,
+            io.MousePos.y,
+            extraHoverAnimation,
+            extraPressed,
+            extraHoverStartTick,
+            extraHoverInstantUseNormal1,
+            observedNativeCursorState,
+            &visual))
     {
-        state.isDraggingSkill = false;
-        state.dragSkillTab = -1;
-        state.dragSkillIndex = -1;
-    }
-
-    const bool isMouseDown = io.MouseDown[0] || io.MouseDown[1] || io.MouseDown[2];
-    const bool stateHoverAnimation = state.isHoveringActionButtons && !state.actionHoverStoppedByClick;
-    MouseState mouseState = MS_NORMAL;
-    const bool wantsDrag = state.isDraggingSkill;
-    const bool wantsPressed = extraPressed || (isMouseDown && state.isPressingUiButton);
-    const bool wantsHover = stateHoverAnimation || extraHoverAnimation;
-
-    if (wantsDrag)
-    {
-        if (IsDragNativeCursorState(observedNativeCursorState) &&
-            TryResolveMouseStateFromNativeCursorState(observedNativeCursorState, &mouseState))
-        {
-        }
-        else
-        {
-            mouseState = MS_DRAG;
-        }
-    }
-    else if (wantsPressed)
-    {
-        if (IsPressedNativeCursorState(observedNativeCursorState) &&
-            TryResolveMouseStateFromNativeCursorState(observedNativeCursorState, &mouseState))
-        {
-        }
-        else
-        {
-            mouseState = MS_PRESSED;
-        }
-    }
-    else if (wantsHover)
-    {
-        double hoverElapsed = 0.0;
-        bool hoverInstantUseNormal1 = false;
-        if (stateHoverAnimation)
-        {
-            hoverElapsed = ImGui::GetTime() - state.actionButtonsHoverStartTime;
-            hoverInstantUseNormal1 = state.actionHoverInstantUseNormal1;
-        }
-        else
-        {
-            const uint64_t nowTick = static_cast<uint64_t>(GetTickCount64());
-            const uint64_t hoverStartTick = extraHoverStartTick ? extraHoverStartTick : nowTick;
-            hoverElapsed = (double)(nowTick - hoverStartTick) / 1000.0;
-            hoverInstantUseNormal1 = extraHoverInstantUseNormal1;
-        }
-        if (hoverElapsed < 0.5)
-            mouseState = hoverInstantUseNormal1 ? MS_HOVER_LOOP_A : MS_HOVER_LOOP_B;
-        else
-        {
-            double loopTime = hoverElapsed - 0.5;
-            int loopFrame = (int)floor(loopTime / 0.5);
-            mouseState = (loopFrame % 2 == 0) ? MS_HOVER_LOOP_A : MS_HOVER_LOOP_B;
-        }
-    }
-    else if (TryResolveMouseStateFromNativeCursorState(observedNativeCursorState, &mouseState))
-    {
-        if (mouseState == MS_HOVER_INSTANT ||
-            mouseState == MS_HOVER_LOOP_A ||
-            mouseState == MS_HOVER_LOOP_B)
-        {
-            mouseState = MS_NORMAL;
-        }
-    }
-
-    ImDrawList* dl = ImGui::GetForegroundDrawList();
-    ImVec2 mousePos = io.MousePos;
-
-    UITexture* mouseTex = nullptr;
-    switch (mouseState)
-    {
-        case MS_NORMAL: mouseTex = GetRetroSkillTexture(assets, "mouse.normal"); break;
-        case MS_PRESSED: mouseTex = GetRetroSkillTexture(assets, "mouse.pressed"); break;
-        case MS_DRAG: mouseTex = GetRetroSkillTexture(assets, "mouse.drag"); break;
-        case MS_HOVER_INSTANT: mouseTex = GetRetroSkillTexture(assets, "mouse.normal.2"); break;
-        case MS_HOVER_LOOP_A: mouseTex = GetRetroSkillTexture(assets, "mouse.normal.1"); break;
-        case MS_HOVER_LOOP_B: mouseTex = GetRetroSkillTexture(assets, "mouse.normal.2"); break;
-    }
-
-    if ((!mouseTex || !mouseTex->texture) && mouseState == MS_HOVER_INSTANT)
-        mouseTex = GetRetroSkillTexture(assets, "mouse.normal");
-    if ((!mouseTex || !mouseTex->texture) && mouseState == MS_HOVER_LOOP_A)
-        mouseTex = GetRetroSkillTexture(assets, "mouse.normal");
-
-    if (mouseTex && mouseTex->texture)
-    {
-        const ImVec2 extraOffset = GetRetroCursorFixedOffset(assets, mouseTex);
-        ImVec2 cursorMin(
-            mousePos.x + extraOffset.x * mainScale,
-            mousePos.y + extraOffset.y * mainScale);
-        ImVec2 cursorMax(
-            cursorMin.x + mouseTex->width * mainScale,
-            cursorMin.y + mouseTex->height * mainScale);
-        dl->AddImage((ImTextureID)mouseTex->texture, cursorMin, cursorMax);
+        DrawRetroSkillCursorOverlayVisual(visual);
     }
 }
 

@@ -235,30 +235,59 @@ internal static class Program
             return;
 
         using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path, Encoding.UTF8));
-        CollectSkillIdsRecursive(document.RootElement, outSkillIds);
+        CollectSkillIdsRecursive(document.RootElement, outSkillIds, parentPropertyName: null);
     }
 
-    private static void CollectSkillIdsRecursive(JsonElement element, HashSet<int> outSkillIds)
+    private static bool IsTrackedSkillReferencePropertyName(string? propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(propertyName))
+            return false;
+
+        return propertyName.EndsWith("SkillId", StringComparison.OrdinalIgnoreCase) ||
+               propertyName.EndsWith("SkillIds", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(propertyName, "psdSkill", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(propertyName, "psdSkills", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(propertyName, "targetSkill", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(propertyName, "targetSkills", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void TryCollectReferencedSkillId(JsonElement element, HashSet<int> outSkillIds)
+    {
+        if (TryReadInt(element, out int skillId) && skillId > 0)
+            outSkillIds.Add(skillId);
+    }
+
+    private static void CollectSkillIdsRecursive(JsonElement element, HashSet<int> outSkillIds, string? parentPropertyName)
     {
         switch (element.ValueKind)
         {
             case JsonValueKind.Object:
+                if (IsTrackedSkillReferencePropertyName(parentPropertyName))
+                {
+                    foreach (JsonProperty property in element.EnumerateObject())
+                    {
+                        if (int.TryParse(property.Name, out int referencedSkillId) && referencedSkillId > 0)
+                            outSkillIds.Add(referencedSkillId);
+                    }
+                }
+
                 foreach (JsonProperty property in element.EnumerateObject())
                 {
-                    if (string.Equals(property.Name, "skillId", StringComparison.OrdinalIgnoreCase) &&
-                        TryReadInt(property.Value, out int skillId) &&
-                        skillId > 0)
-                    {
-                        outSkillIds.Add(skillId);
-                    }
+                    if (IsTrackedSkillReferencePropertyName(property.Name))
+                        TryCollectReferencedSkillId(property.Value, outSkillIds);
 
-                    CollectSkillIdsRecursive(property.Value, outSkillIds);
+                    CollectSkillIdsRecursive(property.Value, outSkillIds, property.Name);
                 }
                 break;
 
             case JsonValueKind.Array:
                 foreach (JsonElement item in element.EnumerateArray())
-                    CollectSkillIdsRecursive(item, outSkillIds);
+                    CollectSkillIdsRecursive(item, outSkillIds, parentPropertyName);
+                break;
+
+            default:
+                if (IsTrackedSkillReferencePropertyName(parentPropertyName))
+                    TryCollectReferencedSkillId(element, outSkillIds);
                 break;
         }
     }

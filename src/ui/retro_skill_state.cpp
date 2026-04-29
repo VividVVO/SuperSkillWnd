@@ -100,10 +100,14 @@ void ResetRetroSkillData(RetroSkillRuntimeState& state)
     state.superSkillResetConfirmOpenRequested = false;
     state.superSkillResetConfirmSpentSp = 0;
     state.superSkillResetConfirmCostMeso = 0;
+    state.superSkillResetConfirmCurrentMeso = 0;
+    state.superSkillResetConfirmHasCurrentMeso = false;
     state.superSkillResetConfirmCostPending = false;
     state.superSkillResetConfirmPreviewRequestRevision = 0;
     state.superSkillResetConfirmPreviewRequestTick = 0;
     state.superSkillResetPreviewSpentSp = 0;
     state.superSkillResetPreviewCostMeso = 0;
+    state.superSkillResetPreviewCurrentMeso = 0;
+    state.superSkillResetPreviewHasCurrentMeso = false;
     state.superSkillResetPreviewRevision = 0;
 }

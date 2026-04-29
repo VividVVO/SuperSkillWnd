@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -300,8 +301,17 @@ namespace
         bool allowNativeUpgradeFallback = true;
         int behaviorSkillId = 0;
         int mountItemId = 0;
+        int mountTamingMobId = 0;
         bool mountedDoubleJumpEnabled = false;
         int mountedDoubleJumpSkillId = 0;
+        bool hasMountSpeedOverride = false;
+        int mountSpeedOverride = 0;
+        bool hasMountJumpOverride = false;
+        int mountJumpOverride = 0;
+        bool hasMountFsOverride = false;
+        double mountFsOverride = 0.0;
+        bool hasMountSwimOverride = false;
+        double mountSwimOverride = 0.0;
         std::vector<int> visibleJobIds;
         std::string visibleJobLabel;
         bool independentBuffEnabled = false;
@@ -360,6 +370,9 @@ namespace
     std::map<unsigned long long, ActiveIndependentBuffRewriteState> g_activeIndependentBuffRewriteStates;
     ActiveNativeReleaseContext g_activeNativeRelease;
     RecentNativePresentationContext g_recentNativePresentation;
+    int g_recentMountedMovementOverrideMountItemId = 0;
+    int g_recentMountedMovementOverrideSkillId = 0;
+    DWORD g_recentMountedMovementOverrideTick = 0;
     volatile LONG g_recentMountedDoubleJumpRouteArmItemId = 0;
     volatile LONG g_recentMountedDoubleJumpRouteArmTick = 0;
     const bool kEnableMountedDoubleJumpRouteArm = true;
@@ -379,6 +392,8 @@ namespace
     const DWORD kNativeReleaseFollowupWindowMs = 450;
     const int kNativeReleaseRewriteBudget = 3;
     const DWORD kNativePresentationContextTimeoutMs = 1200;
+    const DWORD kMountedMovementOverrideSelectionTimeoutMs = 300000;
+    const DWORD kMountedDoubleJumpMountSelectionFallbackTimeoutMs = 5000;
     const DWORD kMountedDoubleJumpRouteArmTimeoutMs = 400;
     const DWORD kIndependentBuffRefreshCancelIgnoreMs = 3000;
     const DWORD kIndependentBuffClientCancelWindowMs = 1500;
@@ -398,6 +413,65 @@ namespace
     const unsigned short kServerEnergyAttackPacketOpcode = 0x108;
     const int kBuffMaskIntCount = 8;
     const int kBuffMaskByteCount = kBuffMaskIntCount * sizeof(int);
+
+    void ObserveMountedMovementOverrideSelection(int mountItemId, int skillId)
+    {
+        if (mountItemId <= 0)
+        {
+            g_recentMountedMovementOverrideMountItemId = 0;
+            g_recentMountedMovementOverrideSkillId = 0;
+            g_recentMountedMovementOverrideTick = 0;
+            return;
+        }
+
+        // A later mount buff packet can briefly arrive without a resolvable display skill.
+        // Keep the last positive selection for this mount so movement override doesn't
+        // immediately fall back to the first matching definition.
+        if (skillId <= 0)
+            return;
+
+        g_recentMountedMovementOverrideMountItemId = mountItemId;
+        g_recentMountedMovementOverrideSkillId = skillId;
+        g_recentMountedMovementOverrideTick = GetTickCount();
+    }
+
+    bool TryGetPreferredMountedMovementOverrideSkillId(int mountItemId, int& outSkillId)
+    {
+        outSkillId = 0;
+        if (mountItemId <= 0 ||
+            g_recentMountedMovementOverrideMountItemId != mountItemId ||
+            g_recentMountedMovementOverrideSkillId <= 0 ||
+            g_recentMountedMovementOverrideTick == 0)
+        {
+            return false;
+        }
+
+        const DWORD now = GetTickCount();
+        if (now - g_recentMountedMovementOverrideTick > kMountedMovementOverrideSelectionTimeoutMs)
+            return false;
+
+        outSkillId = g_recentMountedMovementOverrideSkillId;
+        return true;
+    }
+
+    bool TryGetRecentMountedMovementOverrideMountItemId(int& outMountItemId, DWORD maxAgeMs)
+    {
+        outMountItemId = 0;
+        if (g_recentMountedMovementOverrideMountItemId <= 0 ||
+            g_recentMountedMovementOverrideTick == 0)
+        {
+            return false;
+        }
+
+        const DWORD now = GetTickCount();
+        const DWORD allowedAgeMs =
+            maxAgeMs > 0 ? maxAgeMs : kMountedDoubleJumpMountSelectionFallbackTimeoutMs;
+        if (now - g_recentMountedMovementOverrideTick > allowedAgeMs)
+            return false;
+
+        outMountItemId = g_recentMountedMovementOverrideMountItemId;
+        return outMountItemId > 0;
+    }
     const int kSingleStatGiveBuffReasonOffset = kBuffMaskByteCount;
     const int kSingleStatGiveBuffSkillIdOffset = kSingleStatGiveBuffReasonOffset + 2;
     const int kSingleStatGiveBuffDurationOffset = kSingleStatGiveBuffSkillIdOffset + 4;
@@ -686,6 +760,7 @@ namespace
     void RefreshSkillNativeState(SkillItem& item);
     bool ReadTextFile(const char* path, std::string& out);
     bool ParseJsonInt(const std::string& json, const char* key, int& outVal);
+    bool ParseJsonDouble(const std::string& json, const char* key, double& outVal);
     bool ParseJsonString(const std::string& json, const char* key, std::string& outVal);
     bool FindArrayElement(const std::string& json, const char* arrayKey, int index, size_t& outBegin, size_t& outEnd);
     SkillItem* FindManagerSkillItem(SkillManager* manager, int skillId);
@@ -697,6 +772,8 @@ namespace
     bool IsKnownSuperSkillCarrierSkillId(int skillId);
     void NormalizeVisibleJobIds(std::vector<int>& visibleJobIds);
     bool FindMountedDoubleJumpDefinitionByMountItemId(int mountItemId, SuperSkillDefinition& outDefinition);
+    bool FindMountedMovementOverrideDefinition(int mountItemId, int tamingMobId, SuperSkillDefinition& outDefinition);
+    bool IsActiveNativeReleaseContextFresh();
     bool TryApplyMountedDoubleJumpStableProxyOverride(
         CustomSkillUseRoute& route,
         bool armRouteIntent);
@@ -1758,6 +1835,22 @@ namespace
         if (mountItemId <= 0)
             return false;
 
+        int preferredSkillId = 0;
+        if (TryGetPreferredMountedMovementOverrideSkillId(mountItemId, preferredSkillId) &&
+            preferredSkillId > 0)
+        {
+            SuperSkillDefinition preferredDefinition = {};
+            if (FindSuperSkillDefinition(preferredSkillId, preferredDefinition) &&
+                preferredDefinition.mountItemId == mountItemId &&
+                preferredDefinition.mountedDoubleJumpEnabled &&
+                preferredDefinition.mountedDoubleJumpSkillId > 0 &&
+                DoesSuperSkillMatchCurrentJob(preferredDefinition))
+            {
+                outDefinition = preferredDefinition;
+                return true;
+            }
+        }
+
         bool hasFallback = false;
         SuperSkillDefinition fallbackDefinition = {};
         for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
@@ -1790,6 +1883,211 @@ namespace
 
         outDefinition = fallbackDefinition;
         return true;
+    }
+
+    bool DefinitionHasMountMovementOverride(const SuperSkillDefinition& definition)
+    {
+        return definition.mountTamingMobId > 0 &&
+               (definition.hasMountSpeedOverride ||
+                definition.hasMountJumpOverride ||
+                definition.hasMountFsOverride ||
+                definition.hasMountSwimOverride);
+    }
+
+    void PopulateMountedMovementOverrideFromDefinition(
+        const SuperSkillDefinition& definition,
+        int tamingMobId,
+        MountedMovementOverride& outOverride)
+    {
+        outOverride = MountedMovementOverride();
+        outOverride.matched = true;
+        outOverride.sourceSkillId = definition.skillId;
+        outOverride.mountItemId = definition.mountItemId;
+        outOverride.tamingMobId = definition.mountTamingMobId > 0 ? definition.mountTamingMobId : tamingMobId;
+        // Mount movement fields are optional. If a config omits mountSpeed /
+        // mountJump / mountFs / mountSwim, the corresponding has* flag stays
+        // false and runtime should keep the original movement values loaded
+        // from the client img/cache instead of forcing a replacement value.
+        outOverride.hasSpeed = definition.hasMountSpeedOverride;
+        outOverride.speed = definition.mountSpeedOverride;
+        outOverride.hasJump = definition.hasMountJumpOverride;
+        outOverride.jump = definition.mountJumpOverride;
+        outOverride.hasFs = definition.hasMountFsOverride;
+        outOverride.fs = definition.mountFsOverride;
+        outOverride.hasSwim = definition.hasMountSwimOverride;
+        outOverride.swim = definition.mountSwimOverride;
+
+        if (outOverride.hasSwim &&
+            outOverride.swim > 0.0 &&
+            !outOverride.hasFs)
+        {
+            // Some mounted flight paths still surface the legacy fs slot even when
+            // the configured flying/swim speed only came from the swim override.
+            // Respect explicit mountFs values from config; only synthesize fs when
+            // the definition omitted it entirely.
+            outOverride.hasFs = true;
+            outOverride.fs = outOverride.swim;
+        }
+    }
+
+    bool TryResolveMountedMovementOverrideDefinitionForSkill(
+        int skillId,
+        int mountItemId,
+        int tamingMobId,
+        SuperSkillDefinition& outDefinition)
+    {
+        if (skillId <= 0)
+            return false;
+
+        SuperSkillDefinition definition = {};
+        if (!FindSuperSkillDefinition(skillId, definition) ||
+            !DefinitionHasMountMovementOverride(definition))
+        {
+            return false;
+        }
+
+        if (definition.mountItemId > 0 && mountItemId > 0 && definition.mountItemId != mountItemId)
+            return false;
+        if (definition.mountTamingMobId > 0 && tamingMobId > 0 && definition.mountTamingMobId != tamingMobId)
+            return false;
+
+        outDefinition = definition;
+        return true;
+    }
+
+    bool TryResolveMountedMovementSelectionSkillId(
+        int mountItemId,
+        int candidateSkillId,
+        int tamingMobId,
+        int& outSkillId)
+    {
+        outSkillId = 0;
+        if (mountItemId <= 0)
+            return false;
+
+        SuperSkillDefinition definition = {};
+        if (candidateSkillId > 0 &&
+            TryResolveMountedMovementOverrideDefinitionForSkill(
+                candidateSkillId,
+                mountItemId,
+                tamingMobId,
+                definition))
+        {
+            outSkillId = candidateSkillId;
+            return true;
+        }
+
+        if (IsActiveNativeReleaseContextFresh() &&
+            g_activeNativeRelease.customSkillId > 0 &&
+            TryResolveMountedMovementOverrideDefinitionForSkill(
+                g_activeNativeRelease.customSkillId,
+                mountItemId,
+                tamingMobId,
+                definition))
+        {
+            outSkillId = g_activeNativeRelease.customSkillId;
+            return true;
+        }
+
+        int preferredSkillId = 0;
+        if (TryGetPreferredMountedMovementOverrideSkillId(mountItemId, preferredSkillId) &&
+            TryResolveMountedMovementOverrideDefinitionForSkill(
+                preferredSkillId,
+                mountItemId,
+                tamingMobId,
+                definition))
+        {
+            outSkillId = preferredSkillId;
+            return true;
+        }
+
+        return false;
+    }
+
+    bool FindMountedMovementOverrideDefinition(int mountItemId, int tamingMobId, SuperSkillDefinition& outDefinition)
+    {
+        if (mountItemId <= 0 && tamingMobId <= 0)
+            return false;
+
+        int preferredSkillId = 0;
+        bool hasJobFallback = false;
+        bool hasAnyFallback = false;
+        SuperSkillDefinition jobFallbackDefinition = {};
+        SuperSkillDefinition anyFallbackDefinition = {};
+
+        if (TryResolveMountedMovementSelectionSkillId(
+                mountItemId,
+                0,
+                tamingMobId,
+                preferredSkillId) &&
+            TryResolveMountedMovementOverrideDefinitionForSkill(
+                preferredSkillId,
+                mountItemId,
+                tamingMobId,
+                outDefinition))
+        {
+            return true;
+        }
+
+        for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
+             it != g_superSkillsBySkillId.end();
+             ++it)
+        {
+            const SuperSkillDefinition& definition = it->second;
+            if (!DefinitionHasMountMovementOverride(definition))
+                continue;
+            if (definition.mountItemId > 0 && mountItemId > 0 && definition.mountItemId != mountItemId)
+                continue;
+            if (definition.mountTamingMobId > 0 && tamingMobId > 0 && definition.mountTamingMobId != tamingMobId)
+                continue;
+
+            const bool jobMatches = DoesSuperSkillMatchCurrentJob(definition);
+            const bool learned = GameGetSkillLevel(definition.skillId) > 0;
+            if (jobMatches && learned)
+            {
+                outDefinition = definition;
+                return true;
+            }
+
+            if (jobMatches && !hasJobFallback)
+            {
+                jobFallbackDefinition = definition;
+                hasJobFallback = true;
+            }
+
+            if (!hasAnyFallback)
+            {
+                anyFallbackDefinition = definition;
+                hasAnyFallback = true;
+            }
+        }
+
+        if (IsActiveNativeReleaseContextFresh() &&
+            g_activeNativeRelease.customSkillId > 0)
+        {
+            if (TryResolveMountedMovementOverrideDefinitionForSkill(
+                    g_activeNativeRelease.customSkillId,
+                    mountItemId,
+                    tamingMobId,
+                    outDefinition))
+            {
+                return true;
+            }
+        }
+
+        if (hasJobFallback)
+        {
+            outDefinition = jobFallbackDefinition;
+            return true;
+        }
+
+        if (hasAnyFallback)
+        {
+            outDefinition = anyFallbackDefinition;
+            return true;
+        }
+
+        return false;
     }
 
     std::string BuildSuperSkillDisplayName(const std::string& skillName, const SuperSkillDefinition& definition)
@@ -2573,6 +2871,27 @@ namespace
         return false;
     }
 
+    bool ParseJsonDouble(const std::string& json, const char* key, double& outVal)
+    {
+        std::string token = std::string("\"") + key + "\"";
+        size_t pos = json.find(token);
+        if (pos == std::string::npos) return false;
+        pos = json.find(':', pos + token.size());
+        if (pos == std::string::npos) return false;
+        ++pos;
+        while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' || json[pos] == '\r' || json[pos] == '\n')) ++pos;
+        if (pos >= json.size()) return false;
+
+        const char* start = json.c_str() + pos;
+        char* endPtr = nullptr;
+        const double parsedValue = strtod(start, &endPtr);
+        if (endPtr == start)
+            return false;
+
+        outVal = parsedValue;
+        return true;
+    }
+
     bool ParseJsonIntArray(const std::string& json, const char* key, std::vector<int>& outValues)
     {
         outValues.clear();
@@ -3083,6 +3402,15 @@ namespace
             ParseJsonBool(skillJson, "allowNativeUpgradeFallback", definition.allowNativeUpgradeFallback);
             ParseJsonInt(skillJson, "behaviorSkillId", definition.behaviorSkillId);
             ParseJsonInt(skillJson, "mountItemId", definition.mountItemId);
+            ParseJsonInt(skillJson, "mountTamingMobId", definition.mountTamingMobId);
+            if (ParseJsonInt(skillJson, "mountSpeed", definition.mountSpeedOverride))
+                definition.hasMountSpeedOverride = true;
+            if (ParseJsonInt(skillJson, "mountJump", definition.mountJumpOverride))
+                definition.hasMountJumpOverride = true;
+            if (ParseJsonDouble(skillJson, "mountFs", definition.mountFsOverride))
+                definition.hasMountFsOverride = true;
+            if (ParseJsonDouble(skillJson, "mountSwim", definition.mountSwimOverride))
+                definition.hasMountSwimOverride = true;
             ParseJsonBool(skillJson, "mountedDoubleJumpEnabled", definition.mountedDoubleJumpEnabled);
             ParseJsonInt(skillJson, "mountedDoubleJumpSkillId", definition.mountedDoubleJumpSkillId);
             LoadVisibleJobRulesFromJson(skillJson, definition);
@@ -4557,6 +4885,14 @@ namespace
     {
         if (skillId <= 0)
             return false;
+
+        // SOARING is sent as a real native buff when flying mounts auto-apply flight.
+        // If we suppress it here, fallback semantic-slot layout undercounts the native
+        // top-row occupancy and our custom buff overlay can slide onto that extra icon.
+        if (skillId == 80001089)
+        {
+            return false;
+        }
 
         if (IsNativeFlyingMountSkillGateFamily(skillId))
         {
@@ -8467,8 +8803,32 @@ int SkillOverlayBridgeGetObservedNativeCursorState()
 
 void SkillOverlayBridgeObserveExtendedMountSoaringIntent(int mountItemId, int skillId)
 {
-    (void)mountItemId;
-    (void)skillId;
+    if (mountItemId <= 0)
+        return;
+
+    int preferredSkillId = 0;
+    const int candidateSkillId = skillId > 0 ? skillId : 80001089;
+    if (!TryResolveMountedMovementSelectionSkillId(
+            mountItemId,
+            candidateSkillId,
+            0,
+            preferredSkillId))
+    {
+        return;
+    }
+
+    ObserveMountedMovementOverrideSelection(mountItemId, preferredSkillId);
+
+    static DWORD s_lastMountedSoaringSelectionLogTick = 0;
+    const DWORD nowTick = GetTickCount();
+    if (nowTick - s_lastMountedSoaringSelectionLogTick > 1000)
+    {
+        s_lastMountedSoaringSelectionLogTick = nowTick;
+        WriteLogFmt(
+            "[MountMoveSelect] soaring mount=%d preferredSkill=%d",
+            mountItemId,
+            preferredSkillId);
+    }
 }
 
 void SkillOverlayBridgeBeginFrameObservation()
@@ -9800,6 +10160,96 @@ int SkillOverlayBridgeResolveMountedDoubleJumpSkillId(int mountItemId)
     return definition.mountedDoubleJumpSkillId > 0 ? definition.mountedDoubleJumpSkillId : 3101003;
 }
 
+bool SkillOverlayBridgeResolveMountedMovementOverride(int mountItemId, int tamingMobId, MountedMovementOverride& outOverride)
+{
+    outOverride = MountedMovementOverride();
+
+    SuperSkillDefinition definition = {};
+    if (!FindMountedMovementOverrideDefinition(mountItemId, tamingMobId, definition))
+        return false;
+
+    PopulateMountedMovementOverrideFromDefinition(definition, tamingMobId, outOverride);
+
+    return outOverride.hasSpeed || outOverride.hasJump || outOverride.hasFs || outOverride.hasSwim;
+}
+
+bool SkillOverlayBridgeResolveMountedSoaringOverride(int mountItemId, int tamingMobId, MountedMovementOverride& outOverride)
+{
+    outOverride = MountedMovementOverride();
+    if (mountItemId <= 0 || tamingMobId <= 0)
+        return false;
+
+    int preferredSkillId = 0;
+    if (TryGetPreferredMountedMovementOverrideSkillId(mountItemId, preferredSkillId))
+    {
+        SuperSkillDefinition preferredDefinition = {};
+        if (TryResolveMountedMovementOverrideDefinitionForSkill(
+                preferredSkillId,
+                mountItemId,
+                tamingMobId,
+                preferredDefinition))
+        {
+            PopulateMountedMovementOverrideFromDefinition(preferredDefinition, tamingMobId, outOverride);
+            return outOverride.hasSpeed || outOverride.hasJump || outOverride.hasFs || outOverride.hasSwim;
+        }
+    }
+
+    bool hasLearnedMatch = false;
+    bool hasJobMatch = false;
+    SuperSkillDefinition learnedDefinition = {};
+    SuperSkillDefinition jobDefinition = {};
+    double learnedScore = -1.0;
+    double jobScore = -1.0;
+
+    for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
+         it != g_superSkillsBySkillId.end();
+         ++it)
+    {
+        const SuperSkillDefinition& definition = it->second;
+        if (!DefinitionHasMountMovementOverride(definition))
+            continue;
+        if (definition.mountItemId > 0 && definition.mountItemId != mountItemId)
+            continue;
+        if (definition.mountTamingMobId > 0 && definition.mountTamingMobId != tamingMobId)
+            continue;
+
+        double candidateScore = 0.0;
+        if (definition.hasMountSwimOverride && definition.mountSwimOverride > candidateScore)
+            candidateScore = definition.mountSwimOverride;
+        if (definition.hasMountFsOverride && definition.mountFsOverride > candidateScore)
+            candidateScore = definition.mountFsOverride;
+        const bool jobMatches = DoesSuperSkillMatchCurrentJob(definition);
+        const bool learned = GameGetSkillLevel(definition.skillId) > 0;
+
+        if (jobMatches && learned && candidateScore > learnedScore)
+        {
+            learnedDefinition = definition;
+            learnedScore = candidateScore;
+            hasLearnedMatch = true;
+        }
+
+        if (jobMatches && candidateScore > jobScore)
+        {
+            jobDefinition = definition;
+            jobScore = candidateScore;
+            hasJobMatch = true;
+        }
+    }
+
+    if (hasLearnedMatch)
+    {
+        PopulateMountedMovementOverrideFromDefinition(learnedDefinition, tamingMobId, outOverride);
+        return true;
+    }
+    if (hasJobMatch)
+    {
+        PopulateMountedMovementOverrideFromDefinition(jobDefinition, tamingMobId, outOverride);
+        return true;
+    }
+
+    return false;
+}
+
 bool SkillOverlayBridgeCanUseMountedDoubleJumpSkill(int mountItemId, int skillId)
 {
     if (mountItemId <= 0 || skillId <= 0)
@@ -9836,7 +10286,22 @@ bool SkillOverlayBridgeCanUseMountedDoubleJumpRuntimeSkill(int mountItemId, int 
 
 bool SkillOverlayBridgeHasRecentMountedDoubleJumpRouteArm(int mountItemId, DWORD maxAgeMs)
 {
-    if (!kEnableMountedDoubleJumpRouteArm)
+    int recentMountItemId = 0;
+    if (!SkillOverlayBridgeTryGetRecentMountedDoubleJumpRouteArmMountItemId(
+            &recentMountItemId,
+            maxAgeMs))
+    {
+        return false;
+    }
+
+    return mountItemId <= 0 || recentMountItemId == mountItemId;
+}
+
+bool SkillOverlayBridgeTryGetRecentMountedDoubleJumpRouteArmMountItemId(
+    int* mountItemIdOut,
+    DWORD maxAgeMs)
+{
+    if (!mountItemIdOut || !kEnableMountedDoubleJumpRouteArm)
     {
         return false;
     }
@@ -9844,11 +10309,6 @@ bool SkillOverlayBridgeHasRecentMountedDoubleJumpRouteArm(int mountItemId, DWORD
     const LONG recentMountItemId =
         InterlockedCompareExchange(&g_recentMountedDoubleJumpRouteArmItemId, 0, 0);
     if (recentMountItemId <= 0)
-    {
-        return false;
-    }
-
-    if (mountItemId > 0 && recentMountItemId != mountItemId)
     {
         return false;
     }
@@ -9863,11 +10323,65 @@ bool SkillOverlayBridgeHasRecentMountedDoubleJumpRouteArm(int mountItemId, DWORD
     const DWORD nowTick = GetTickCount();
     const DWORD allowedAgeMs =
         maxAgeMs > 0 ? maxAgeMs : kMountedDoubleJumpRouteArmTimeoutMs;
-    return nowTick - static_cast<DWORD>(recentTick) <= allowedAgeMs;
+    if (nowTick - static_cast<DWORD>(recentTick) > allowedAgeMs)
+    {
+        return false;
+    }
+
+    *mountItemIdOut = static_cast<int>(recentMountItemId);
+    return true;
 }
 
 namespace
 {
+    bool TryResolveActiveMountedDoubleJumpMountItemId(
+        int routeSkillId,
+        int& outMountItemId,
+        const char** sourceOut)
+    {
+        outMountItemId = 0;
+        if (sourceOut)
+        {
+            *sourceOut = nullptr;
+        }
+
+        if (routeSkillId <= 0)
+        {
+            return false;
+        }
+
+        DWORD userLocal = 0;
+        int mountItemId = 0;
+        if (SafeReadValue(ADDR_UserLocal, userLocal) &&
+            userLocal &&
+            SafeReadValue(static_cast<uintptr_t>(userLocal) + 0x454u, mountItemId) &&
+            mountItemId > 0 &&
+            SkillOverlayBridgeCanUseMountedDoubleJumpSkill(mountItemId, routeSkillId))
+        {
+            outMountItemId = mountItemId;
+            if (sourceOut)
+            {
+                *sourceOut = "user";
+            }
+            return true;
+        }
+
+        if (TryGetRecentMountedMovementOverrideMountItemId(
+                mountItemId,
+                kMountedDoubleJumpMountSelectionFallbackTimeoutMs) &&
+            SkillOverlayBridgeCanUseMountedDoubleJumpSkill(mountItemId, routeSkillId))
+        {
+            outMountItemId = mountItemId;
+            if (sourceOut)
+            {
+                *sourceOut = "recent-mount-selection";
+            }
+            return true;
+        }
+
+        return false;
+    }
+
     void ObserveMountedDoubleJumpRouteArm(
         int mountItemId)
     {
@@ -9878,7 +10392,13 @@ namespace
 
         InterlockedExchange(&g_recentMountedDoubleJumpRouteArmItemId, mountItemId);
         InterlockedExchange(&g_recentMountedDoubleJumpRouteArmTick, static_cast<LONG>(GetTickCount()));
-
+        static DWORD s_lastMountedDoubleJumpRouteArmLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastMountedDoubleJumpRouteArmLogTick > 1000)
+        {
+            s_lastMountedDoubleJumpRouteArmLogTick = nowTick;
+            WriteLogFmt("[MountDoubleJump] early route intent mount=%d", mountItemId);
+        }
     }
 
     bool TryApplyMountedDoubleJumpStableProxyOverride(
@@ -9898,13 +10418,12 @@ namespace
             return false;
         }
 
-        DWORD userLocal = 0;
         int mountItemId = 0;
-        if (!SafeReadValue(ADDR_UserLocal, userLocal) ||
-            !userLocal ||
-            !SafeReadValue(static_cast<uintptr_t>(userLocal) + 0x454u, mountItemId) ||
-            mountItemId <= 0 ||
-            !SkillOverlayBridgeCanUseMountedDoubleJumpSkill(mountItemId, route.skillId))
+        const char* source = nullptr;
+        if (!TryResolveActiveMountedDoubleJumpMountItemId(
+                route.skillId,
+                mountItemId,
+                &source))
         {
             return false;
         }
@@ -9912,6 +10431,17 @@ namespace
         if (armRouteIntent)
         {
             ObserveMountedDoubleJumpRouteArm(mountItemId);
+        }
+
+        static DWORD s_lastMountedDoubleJumpStableProxyLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastMountedDoubleJumpStableProxyLogTick > 1000)
+        {
+            s_lastMountedDoubleJumpStableProxyLogTick = nowTick;
+            WriteLogFmt("[MountDoubleJump] stable proxy custom=%d mount=%d source=%s",
+                route.skillId,
+                mountItemId,
+                source ? source : "unknown");
         }
 
         // Mounted double jump needs the real native double-jump family to keep
@@ -10894,6 +11424,24 @@ void SkillOverlayBridgeInspectOutgoingPacket(void* packetData, int packetLen, ui
             return;
 
         const int displaySkillId = ResolveMountBuffDisplaySkillId(mountItemId, packetSkillId);
+        const int resolvedSkillId = displaySkillId > 0 ? displaySkillId : packetSkillId;
+        int selectionSkillId = 0;
+        if (!TryResolveMountedMovementSelectionSkillId(
+                mountItemId,
+                resolvedSkillId,
+                0,
+                selectionSkillId))
+        {
+            selectionSkillId = resolvedSkillId;
+        }
+        SuperSkillDefinition observedDefinition = {};
+        if (selectionSkillId > 0 &&
+            FindSuperSkillDefinition(selectionSkillId, observedDefinition) &&
+            DefinitionHasMountMovementOverride(observedDefinition))
+        {
+            ObserveMountedMovementOverrideSelection(mountItemId, selectionSkillId);
+        }
+
         if (displaySkillId <= 0 || displaySkillId == packetSkillId)
             return;
 
@@ -11164,6 +11712,16 @@ bool SkillOverlayBridgeUseSkill(int skillId)
                 g_recentIndependentBuffClientUseTickBySkillId[skillId] = GetTickCount();
                 g_recentIndependentBuffClientCancelTickBySkillId.erase(skillId);
                 ClearIndependentBuffVirtualState(skillId);
+
+                SuperSkillDefinition observedDefinition = {};
+                if (FindSuperSkillDefinition(skillId, observedDefinition) &&
+                    DefinitionHasMountMovementOverride(observedDefinition) &&
+                    observedDefinition.mountItemId > 0)
+                {
+                    ObserveMountedMovementOverrideSelection(
+                        observedDefinition.mountItemId,
+                        skillId);
+                }
 
                 const bool releaseOk = TryReleaseSkillViaNativeB2F370(skillId);
                 if (!releaseOk)
