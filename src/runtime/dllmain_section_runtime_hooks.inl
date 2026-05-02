@@ -14551,13 +14551,16 @@ static int __cdecl hkMountedDemonJumpTrace550FF0(int skillId)
             mountItemId,
             runtimeSkillId))
     {
+        // B2F370 reuses this return value twice: forcing it to 1 suppresses the
+        // early fail prompt, but it also trips the later `|| v78` branch at
+        // 00B31123 and skips sub_B273B0, which is the local action setup path.
+        // Keep the native 0 here and let 551170/A01BF0 own the prompt bypass.
         WriteLogFmt(
-            "[MountDemonJumpTrace] 550FF0 force allow skill=%d mount=%d argSkill=%d original=%d -> 1",
+            "[MountDemonJumpTrace] 550FF0 keep original zero skill=%d mount=%d argSkill=%d original=%d",
             runtimeSkillId,
             mountItemId,
             skillId,
             result);
-        return 1;
     }
     if (trace)
     {
