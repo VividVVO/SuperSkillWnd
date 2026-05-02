@@ -14972,6 +14972,72 @@ static int __fastcall hkMountedDemonJumpActionPrepareB273B0(
     return result;
 }
 
+static bool ShouldBypassMountedDemonJumpActionGateA9B710(
+    DWORD callerRet,
+    int runtimeSkillId,
+    int mountItemId,
+    int *rootSkillIdOut,
+    int *currentSkillIdOut,
+    bool *recentIntentOut)
+{
+    if (rootSkillIdOut)
+    {
+        *rootSkillIdOut = 0;
+    }
+    if (currentSkillIdOut)
+    {
+        *currentSkillIdOut = 0;
+    }
+    if (recentIntentOut)
+    {
+        *recentIntentOut = false;
+    }
+
+    if (callerRet != 0x00B3109D ||
+        mountItemId <= 0 ||
+        !IsMountedDemonJumpRuntimeChildSkillId(runtimeSkillId) ||
+        ResolveMountedRuntimeSkillIdForKind(
+            MountedRuntimeSkillKind_DemonJump,
+            mountItemId) != 30010110)
+    {
+        return false;
+    }
+
+    int rootSkillId = 0;
+    int currentSkillId = 0;
+    const bool hasContext = TryReadMountedDemonJumpContextState(
+        &rootSkillId,
+        &currentSkillId,
+        nullptr);
+    const bool hasRecentIntent = HasRecentMountedDemonJumpIntent(
+        mountItemId,
+        1200);
+
+    if (rootSkillIdOut)
+    {
+        *rootSkillIdOut = rootSkillId;
+    }
+    if (currentSkillIdOut)
+    {
+        *currentSkillIdOut = currentSkillId;
+    }
+    if (recentIntentOut)
+    {
+        *recentIntentOut = hasRecentIntent;
+    }
+
+    if (hasContext &&
+        rootSkillId == 30010110 &&
+        (currentSkillId == 30010110 ||
+         currentSkillId == runtimeSkillId ||
+         IsMountedDemonJumpRuntimeChildSkillId(currentSkillId)))
+    {
+        return true;
+    }
+
+    return hasRecentIntent;
+}
+
 static int __fastcall hkMountedDemonJumpActionGateA9B710(
     void *thisPtr,
     void * /*edxUnused*/)
@@ -14979,6 +15045,9 @@ static int __fastcall hkMountedDemonJumpActionGateA9B710(
     const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
     int runtimeSkillId = 0;
     int mountItemId = 0;
+    int rootSkillId = 0;
+    int currentSkillId = 0;
+    bool hasRecentIntent = false;
     const bool trace =
         (callerRet == 0x00B3109D || callerRet == 0x00B311FB) &&
         IsMountedDemonJumpCrashTraceFresh(&runtimeSkillId, &mountItemId);
@@ -14990,6 +15059,26 @@ static int __fastcall hkMountedDemonJumpActionGateA9B710(
             runtimeSkillId,
             mountItemId,
             (DWORD)(uintptr_t)thisPtr);
+    }
+
+    if (trace &&
+        ShouldBypassMountedDemonJumpActionGateA9B710(
+            callerRet,
+            runtimeSkillId,
+            mountItemId,
+            &rootSkillId,
+            &currentSkillId,
+            &hasRecentIntent))
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] A9B710 bypass caller=0x%08X runtime=%d mount=%d root=%d current=%d recent=%d",
+            callerRet,
+            runtimeSkillId,
+            mountItemId,
+            rootSkillId,
+            currentSkillId,
+            hasRecentIntent ? 1 : 0);
+        return 1;
     }
 
     const int result = oMountedDemonJumpActionGateA9B710
@@ -15012,7 +15101,7 @@ static int __cdecl hkMountedDemonJumpActionKind52BAD0(int skillId)
     int runtimeSkillId = 0;
     int mountItemId = 0;
     const bool trace =
-        callerRet == 0x00B312E7 &&
+        callerRet == 0x00B312DF &&
         IsMountedDemonJumpCrashTraceFresh(&runtimeSkillId, &mountItemId);
     if (trace)
     {
