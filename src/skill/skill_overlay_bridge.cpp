@@ -10277,27 +10277,6 @@ int SkillOverlayBridgeResolveNativeClassifierOverrideSkillId(int skillId)
         if (remappedMountedDemonProxy)
         {
             ArmActiveNativeReleaseContext(route);
-            const bool preserveMountedDemonChildClassifier =
-                route.skillId == 30010110 &&
-                IsMountedDemonJumpRuntimeChildSkillId(observedSkillId);
-            if (preserveMountedDemonChildClassifier)
-            {
-                static DWORD s_lastMountedClassifierKeepChildLogTick = 0;
-                const DWORD nowTick = GetTickCount();
-                if (nowTick - s_lastMountedClassifierKeepChildLogTick > 1000)
-                {
-                    s_lastMountedClassifierKeepChildLogTick = nowTick;
-                    WriteLogFmt(
-                        "[MountDemonJump] classifier keep child observed=%d custom=%d mount=%d route=%s releaseClass=%s",
-                        observedSkillId,
-                        route.skillId,
-                        mountedProxyMountItemId,
-                        PacketRouteToString(route.packetRoute),
-                        ReleaseClassToString(route.releaseClass));
-                }
-                return 0;
-            }
-
             static DWORD s_lastMountedClassifierForceCustomLogTick = 0;
             const DWORD nowTick = GetTickCount();
             if (nowTick - s_lastMountedClassifierForceCustomLogTick > 1000)

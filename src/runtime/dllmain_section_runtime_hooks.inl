@@ -7635,35 +7635,6 @@ static void __cdecl hkSkillReleaseClassifierRootDispatch(int skillId)
 {
     DWORD overrideSkillId =
         (DWORD)SkillOverlayBridgeResolveNativeClassifierOverrideSkillId(skillId);
-    if (overrideSkillId > 0 &&
-        overrideSkillId != (DWORD)skillId &&
-        (skillId == 30010183 ||
-         skillId == 30010184 ||
-         skillId == 30010186))
-    {
-        int mountItemId = 0;
-        if (TryResolveMountedDemonJumpMountItemIdWithFallback(
-                nullptr,
-                &mountItemId,
-                nullptr,
-                1200) &&
-            HasRecentMountedDemonJumpIntent(mountItemId) &&
-            SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(mountItemId, skillId))
-        {
-            static LONG s_mountedDemonJumpRootChildOverrideSuppressLogBudget = 24;
-            const LONG budgetAfterDecrement =
-                InterlockedDecrement(&s_mountedDemonJumpRootChildOverrideSuppressLogBudget);
-            if (budgetAfterDecrement >= 0)
-            {
-                WriteLogFmt(
-                    "[MountDemonJump] B31349 keep native child skill=%d mount=%d suppressOverride=%d",
-                    skillId,
-                    mountItemId,
-                    (int)overrideSkillId);
-            }
-            overrideSkillId = 0;
-        }
-    }
     if (IsMountedDemonJumpRelatedSkillId(skillId))
     {
         static LONG s_mountedDemonJumpReleaseRootLogBudget = 24;
@@ -7682,35 +7653,6 @@ static void __cdecl hkSkillReleaseClassifierRootDispatch(int skillId)
 static void __cdecl hkSkillReleaseClassifierB2F370Dispatch(int skillId)
 {
     int overrideSkillId = SkillOverlayBridgeResolveNativeClassifierOverrideSkillId(skillId);
-    if (overrideSkillId > 0 &&
-        overrideSkillId != skillId &&
-        (skillId == 30010183 ||
-         skillId == 30010184 ||
-         skillId == 30010186))
-    {
-        int mountItemId = 0;
-        if (TryResolveMountedDemonJumpMountItemIdWithFallback(
-                nullptr,
-                &mountItemId,
-                nullptr,
-                1200) &&
-            HasRecentMountedDemonJumpIntent(mountItemId) &&
-            SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(mountItemId, skillId))
-        {
-            static LONG s_mountedDemonJumpChildOverrideSuppressLogBudget = 24;
-            const LONG budgetAfterDecrement =
-                InterlockedDecrement(&s_mountedDemonJumpChildOverrideSuppressLogBudget);
-            if (budgetAfterDecrement >= 0)
-            {
-                WriteLogFmt(
-                    "[MountDemonJump] B2F370 keep native child skill=%d mount=%d suppressOverride=%d",
-                    skillId,
-                    mountItemId,
-                    overrideSkillId);
-            }
-            overrideSkillId = 0;
-        }
-    }
     g_ClassifierOverrideSkillId = (DWORD)overrideSkillId;
     if (overrideSkillId > 0 && overrideSkillId != skillId)
     {
