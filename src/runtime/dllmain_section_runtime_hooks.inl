@@ -13088,6 +13088,11 @@ static void __fastcall hkMountedSkillPacketDispatchB26760(
                 rewriteSource = recentChildSource;
             }
         }
+        if (IsMountedDemonJumpRuntimeChildSkillId(rewrittenSkillId))
+        {
+            packet93SkillId = rewrittenSkillId;
+            packet93Level = rewrittenLevel > 0 ? rewrittenLevel : 1;
+        }
         packet93RewriteArmed =
             ArmMountedDemonJumpPendingSpecialMoveRewrite(
                 mountItemId,
