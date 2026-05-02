@@ -304,6 +304,8 @@ namespace
         int mountTamingMobId = 0;
         bool mountedDoubleJumpEnabled = false;
         int mountedDoubleJumpSkillId = 0;
+        bool mountedDemonJumpEnabled = false;
+        int mountedDemonJumpSkillId = 0;
         bool useNativeMountMovement = true;
         bool hasMountSpeedOverride = false;
         int mountSpeedOverride = 0;
@@ -362,6 +364,67 @@ namespace
         uintptr_t rowData = 0;
     };
 
+    enum MountedRuntimeSkillKind
+    {
+        MountedRuntimeSkillKind_DoubleJump = 0,
+        MountedRuntimeSkillKind_DemonJump = 1,
+        MountedRuntimeSkillKind_Count = 2
+    };
+
+    bool IsMountedDemonJumpRuntimeProxySkillId(int skillId)
+    {
+        switch (skillId)
+        {
+        case 20021181:
+        case 23001002:
+        case 33001002:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    bool IsMountedDemonJumpRuntimeChildSkillId(int skillId)
+    {
+        switch (skillId)
+        {
+        case 30010183:
+        case 30010184:
+        case 30010186:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    bool IsMountedRuntimeSkillLinkedChild(
+        int configuredSkillId,
+        int runtimeSkillId,
+        MountedRuntimeSkillKind kind)
+    {
+        if (kind != MountedRuntimeSkillKind_DemonJump)
+            return false;
+
+        if (configuredSkillId <= 0 || runtimeSkillId <= 0)
+            return false;
+
+        if (configuredSkillId != 30010110)
+            return false;
+
+        // Native demon jump is a root-context skill (30010110) that resolves
+        // onto one of its movement children at runtime.
+        if (runtimeSkillId == 30010183 ||
+            runtimeSkillId == 30010184 ||
+            runtimeSkillId == 30010186)
+        {
+            return true;
+        }
+
+        // Mounted fallback can still transiently probe movement-family proxy
+        // skills before the root demon-jump context fully takes over.
+        return IsMountedDemonJumpRuntimeProxySkillId(runtimeSkillId);
+    }
+
     std::map<int, CustomSkillUseRoute> g_customRoutesBySkillId;
     std::map<unsigned long long, CustomSkillUseRoute> g_customRoutesByProxyAndRoute;
     std::map<int, SuperSkillDefinition> g_superSkillsBySkillId;
@@ -374,9 +437,9 @@ namespace
     int g_recentMountedMovementOverrideMountItemId = 0;
     int g_recentMountedMovementOverrideSkillId = 0;
     DWORD g_recentMountedMovementOverrideTick = 0;
-    volatile LONG g_recentMountedDoubleJumpRouteArmItemId = 0;
-    volatile LONG g_recentMountedDoubleJumpRouteArmTick = 0;
-    const bool kEnableMountedDoubleJumpRouteArm = true;
+    volatile LONG g_recentMountedRuntimeSkillRouteArmItemId[MountedRuntimeSkillKind_Count] = {0};
+    volatile LONG g_recentMountedRuntimeSkillRouteArmTick[MountedRuntimeSkillKind_Count] = {0};
+    const bool kEnableMountedRuntimeSkillRouteArm = true;
     bool g_loggedMissingRouteConfig = false;
     bool g_loggedDuplicateRoutes = false;
     bool g_loggedMissingSuperSkillConfig = false;
@@ -414,6 +477,53 @@ namespace
     const unsigned short kServerEnergyAttackPacketOpcode = 0x108;
     const int kBuffMaskIntCount = 8;
     const int kBuffMaskByteCount = kBuffMaskIntCount * sizeof(int);
+
+    const char* GetMountedRuntimeSkillLogTag(MountedRuntimeSkillKind kind)
+    {
+        return kind == MountedRuntimeSkillKind_DemonJump
+                   ? "MountDemonJump"
+                   : "MountDoubleJump";
+    }
+
+    int GetMountedRuntimeSkillDefaultSkillId(MountedRuntimeSkillKind kind)
+    {
+        return kind == MountedRuntimeSkillKind_DemonJump ? 30010110 : 3101003;
+    }
+
+    bool IsMountedRuntimeSkillEnabled(
+        const SuperSkillDefinition& definition,
+        MountedRuntimeSkillKind kind)
+    {
+        switch (kind)
+        {
+        case MountedRuntimeSkillKind_DemonJump:
+            return definition.mountedDemonJumpEnabled;
+        case MountedRuntimeSkillKind_DoubleJump:
+        default:
+            return definition.mountedDoubleJumpEnabled;
+        }
+    }
+
+    int ResolveMountedRuntimeSkillIdFromDefinition(
+        const SuperSkillDefinition& definition,
+        MountedRuntimeSkillKind kind)
+    {
+        if (!IsMountedRuntimeSkillEnabled(definition, kind))
+            return 0;
+
+        switch (kind)
+        {
+        case MountedRuntimeSkillKind_DemonJump:
+            return definition.mountedDemonJumpSkillId > 0
+                       ? definition.mountedDemonJumpSkillId
+                       : GetMountedRuntimeSkillDefaultSkillId(kind);
+        case MountedRuntimeSkillKind_DoubleJump:
+        default:
+            return definition.mountedDoubleJumpSkillId > 0
+                       ? definition.mountedDoubleJumpSkillId
+                       : GetMountedRuntimeSkillDefaultSkillId(kind);
+        }
+    }
 
     void ObserveMountedMovementOverrideSelection(int mountItemId, int skillId)
     {
@@ -772,12 +882,30 @@ namespace
     bool FindNativeSkillInjectionDefinition(int skillId, NativeSkillInjectionDefinition& outDefinition);
     bool IsKnownSuperSkillCarrierSkillId(int skillId);
     void NormalizeVisibleJobIds(std::vector<int>& visibleJobIds);
+    bool FindMountedRuntimeSkillDefinitionByMountItemId(
+        int mountItemId,
+        MountedRuntimeSkillKind kind,
+        SuperSkillDefinition& outDefinition);
     bool FindMountedDoubleJumpDefinitionByMountItemId(int mountItemId, SuperSkillDefinition& outDefinition);
+    bool FindMountedDemonJumpDefinitionByMountItemId(int mountItemId, SuperSkillDefinition& outDefinition);
     bool FindMountedMovementOverrideDefinition(int mountItemId, int tamingMobId, SuperSkillDefinition& outDefinition);
     bool IsActiveNativeReleaseContextFresh();
-    bool TryApplyMountedDoubleJumpStableProxyOverride(
+    bool TryApplyMountedRuntimeSkillStableProxyOverride(
         CustomSkillUseRoute& route,
         bool armRouteIntent);
+    bool ShouldKeepPassiveMountedDemonJumpRoute(const CustomSkillUseRoute& route);
+    void EnsureMountedDemonJumpSyntheticRoutes();
+    bool TryResolveMountedRuntimeProxyCustomSkillId(
+        int runtimeSkillId,
+        MountedRuntimeSkillKind kind,
+        int& outCustomSkillId,
+        int* mountItemIdOut = nullptr,
+        DWORD maxAgeMs = 1200);
+    bool TryResolveActiveMountedRuntimeSkillMountItemId(
+        int routeSkillId,
+        MountedRuntimeSkillKind kind,
+        int& outMountItemId,
+        const char** sourceOut = nullptr);
     int GetObservedBaseSkillLevel(int skillId);
     int GetObservedCurrentSkillLevel(int skillId);
     bool HasObservedBaseSkillLevel(int skillId);
@@ -1831,7 +1959,10 @@ namespace
                    currentJobId) != definition.visibleJobIds.end();
     }
 
-    bool FindMountedDoubleJumpDefinitionByMountItemId(int mountItemId, SuperSkillDefinition& outDefinition)
+    bool FindMountedRuntimeSkillDefinitionByMountItemId(
+        int mountItemId,
+        MountedRuntimeSkillKind kind,
+        SuperSkillDefinition& outDefinition)
     {
         if (mountItemId <= 0)
             return false;
@@ -1843,8 +1974,7 @@ namespace
             SuperSkillDefinition preferredDefinition = {};
             if (FindSuperSkillDefinition(preferredSkillId, preferredDefinition) &&
                 preferredDefinition.mountItemId == mountItemId &&
-                preferredDefinition.mountedDoubleJumpEnabled &&
-                preferredDefinition.mountedDoubleJumpSkillId > 0 &&
+                ResolveMountedRuntimeSkillIdFromDefinition(preferredDefinition, kind) > 0 &&
                 DoesSuperSkillMatchCurrentJob(preferredDefinition))
             {
                 outDefinition = preferredDefinition;
@@ -1860,8 +1990,7 @@ namespace
         {
             const SuperSkillDefinition& definition = it->second;
             if (definition.mountItemId != mountItemId ||
-                !definition.mountedDoubleJumpEnabled ||
-                definition.mountedDoubleJumpSkillId <= 0)
+                ResolveMountedRuntimeSkillIdFromDefinition(definition, kind) <= 0)
             {
                 continue;
             }
@@ -1884,6 +2013,22 @@ namespace
 
         outDefinition = fallbackDefinition;
         return true;
+    }
+
+    bool FindMountedDoubleJumpDefinitionByMountItemId(int mountItemId, SuperSkillDefinition& outDefinition)
+    {
+        return FindMountedRuntimeSkillDefinitionByMountItemId(
+            mountItemId,
+            MountedRuntimeSkillKind_DoubleJump,
+            outDefinition);
+    }
+
+    bool FindMountedDemonJumpDefinitionByMountItemId(int mountItemId, SuperSkillDefinition& outDefinition)
+    {
+        return FindMountedRuntimeSkillDefinitionByMountItemId(
+            mountItemId,
+            MountedRuntimeSkillKind_DemonJump,
+            outDefinition);
     }
 
     bool DefinitionHasMountMovementIdentity(const SuperSkillDefinition& definition)
@@ -3462,6 +3607,8 @@ namespace
                 definition.hasMountSwimOverride = true;
             ParseJsonBool(skillJson, "mountedDoubleJumpEnabled", definition.mountedDoubleJumpEnabled);
             ParseJsonInt(skillJson, "mountedDoubleJumpSkillId", definition.mountedDoubleJumpSkillId);
+            ParseJsonBool(skillJson, "mountedDemonJumpEnabled", definition.mountedDemonJumpEnabled);
+            ParseJsonInt(skillJson, "mountedDemonJumpSkillId", definition.mountedDemonJumpSkillId);
             LoadVisibleJobRulesFromJson(skillJson, definition);
             ParseJsonBool(skillJson, "independentBuffEnabled", definition.independentBuffEnabled);
             ParseJsonInt(skillJson, "independentSourceSkillId", definition.independentSourceSkillId);
@@ -3553,6 +3700,8 @@ namespace
                 definition.superSpCarrierSkillId = g_defaultSuperSpCarrierSkillId;
             if (definition.mountedDoubleJumpEnabled && definition.mountedDoubleJumpSkillId <= 0)
                 definition.mountedDoubleJumpSkillId = 3101003;
+            if (definition.mountedDemonJumpEnabled && definition.mountedDemonJumpSkillId <= 0)
+                definition.mountedDemonJumpSkillId = 30010110;
             if (definition.independentSourceSkillId <= 0)
                 definition.independentSourceSkillId = definition.behaviorSkillId > 0 ? definition.behaviorSkillId : definition.skillId;
             if (definition.independentNativeDisplaySkillId <= 0)
@@ -3990,6 +4139,8 @@ namespace
             const bool hasLocalBehavior = SkillLocalDataGetBehaviorKind(route.skillId, localBehavior);
             SuperSkillDefinition superDefinition = {};
             const bool hasSuperDefinition = FindSuperSkillDefinition(route.skillId, superDefinition);
+            const bool allowPassiveMountedDemonJumpRoute =
+                ShouldKeepPassiveMountedDemonJumpRoute(route);
             if (hasLocalBehavior)
             {
                 if (localBehavior == SkillLocalBehavior_Passive &&
@@ -4093,9 +4244,15 @@ namespace
 
                 if (localBehavior == SkillLocalBehavior_Passive)
                 {
-                    WriteLogFmt("[SkillRoute] skip custom=%d localBehavior=passive (passive uses independent path, not active release route)",
+                    if (!allowPassiveMountedDemonJumpRoute)
+                    {
+                        WriteLogFmt("[SkillRoute] skip custom=%d localBehavior=passive (passive uses independent path, not active release route)",
+                            route.skillId);
+                        continue;
+                    }
+
+                    WriteLogFmt("[SkillRoute] keep custom=%d localBehavior=passive -> mounted_demon_root_route",
                         route.skillId);
-                    continue;
                 }
 
                 if (!hasBorrowDonorVisualConfig &&
@@ -4156,7 +4313,8 @@ namespace
                         PacketRouteToString(route.packetRoute));
                 }
 
-                if (localBehavior == SkillLocalBehavior_Passive)
+                if (localBehavior == SkillLocalBehavior_Passive &&
+                    !allowPassiveMountedDemonJumpRoute)
                 {
                     WriteLogFmt("[SkillRoute] WARN: custom=%d is passive-like; native active release route will not make passive logic truly independent",
                         route.skillId);
@@ -4172,6 +4330,8 @@ namespace
                 route.borrowDonorVisual ? 1 : 0,
                 route.visualSkillId);
         }
+
+        EnsureMountedDemonJumpSyntheticRoutes();
 
         WriteLogFmt("[SkillRoute] ready count=%d path=%s",
             (int)g_customRoutesBySkillId.size(), kCustomSkillRoutePath);
@@ -7731,10 +7891,14 @@ namespace
         }
 
         const bool sameRoute = (g_activeNativeRelease.packetRoute == packetRoute);
+        const bool preserveMountedDemonChildPacket =
+            activeCustomSkillId == 30010110 &&
+            IsMountedDemonJumpRuntimeChildSkillId(observedSkillId);
         const bool matchesPrimaryObserved =
             (observedSkillId == activeCustomSkillId) ||
             (g_activeNativeRelease.classifierProxySkillId > 0 &&
-             observedSkillId == g_activeNativeRelease.classifierProxySkillId);
+             observedSkillId == g_activeNativeRelease.classifierProxySkillId) ||
+            preserveMountedDemonChildPacket;
 
         const DWORD now = GetTickCount();
         if (sameRoute)
@@ -7750,9 +7914,10 @@ namespace
                 return false;
         }
 
-        const int targetSkillId = activeCustomSkillId;
+        const int targetSkillId =
+            preserveMountedDemonChildPacket ? observedSkillId : activeCustomSkillId;
 
-        int customLevel = GetTrackedSkillLevel(targetSkillId);
+        int customLevel = GetTrackedSkillLevel(activeCustomSkillId);
         if (customLevel <= 0)
             customLevel = 1;
         if (customLevel > 255)
@@ -9966,7 +10131,37 @@ DWORD SkillOverlayBridgeResolveNativeReleaseJumpTarget(int skillId)
         return 0;
 
     CustomSkillUseRoute route = {};
+    int mountedCustomSkillId = 0;
+    int mountedProxyMountItemId = 0;
+    bool remappedMountedDemonProxy = false;
     if (!FindRouteByCustomSkillId(skillId, route))
+    {
+        if (TryResolveMountedRuntimeProxyCustomSkillId(
+                skillId,
+                MountedRuntimeSkillKind_DemonJump,
+                mountedCustomSkillId,
+                &mountedProxyMountItemId) &&
+            FindRouteByCustomSkillId(mountedCustomSkillId, route))
+        {
+            remappedMountedDemonProxy = true;
+            static DWORD s_lastMountedReleaseJumpRemapLogTick = 0;
+            const DWORD nowTick = GetTickCount();
+            if (nowTick - s_lastMountedReleaseJumpRemapLogTick > 1000)
+            {
+                s_lastMountedReleaseJumpRemapLogTick = nowTick;
+                WriteLogFmt(
+                    "[MountDemonJump] release jump remap observed=%d -> custom=%d mount=%d route=%s releaseClass=%s",
+                    skillId,
+                    mountedCustomSkillId,
+                    mountedProxyMountItemId,
+                    PacketRouteToString(route.packetRoute),
+                    ReleaseClassToString(route.releaseClass));
+            }
+            skillId = mountedCustomSkillId;
+        }
+    }
+
+    if (!remappedMountedDemonProxy && !FindRouteByCustomSkillId(skillId, route))
     {
         // 同上：只在不属于当前活跃释放链时才清除
         if (!ShouldKeepContextForImmediateProxyClassifierPass(skillId))
@@ -9980,7 +10175,7 @@ DWORD SkillOverlayBridgeResolveNativeReleaseJumpTarget(int skillId)
     if (!RouteUsesNativeReleaseClass(route))
         return 0;
 
-    if (TryApplyMountedDoubleJumpStableProxyOverride(route, true))
+    if (TryApplyMountedRuntimeSkillStableProxyOverride(route, true))
     {
         return 0;
     }
@@ -10014,8 +10209,40 @@ int SkillOverlayBridgeResolveNativeClassifierOverrideSkillId(int skillId)
     if (skillId <= 0)
         return 0;
 
+    const int observedSkillId = skillId;
     CustomSkillUseRoute route = {};
+    int mountedCustomSkillId = 0;
+    int mountedProxyMountItemId = 0;
+    bool remappedMountedDemonProxy = false;
     if (!FindRouteByCustomSkillId(skillId, route))
+    {
+        if (TryResolveMountedRuntimeProxyCustomSkillId(
+                skillId,
+                MountedRuntimeSkillKind_DemonJump,
+                mountedCustomSkillId,
+                &mountedProxyMountItemId) &&
+            FindRouteByCustomSkillId(mountedCustomSkillId, route))
+        {
+            remappedMountedDemonProxy = true;
+            static DWORD s_lastMountedClassifierRemapLogTick = 0;
+            const DWORD nowTick = GetTickCount();
+            if (nowTick - s_lastMountedClassifierRemapLogTick > 1000)
+            {
+                s_lastMountedClassifierRemapLogTick = nowTick;
+                WriteLogFmt(
+                    "[MountDemonJump] classifier remap observed=%d -> custom=%d mount=%d route=%s releaseClass=%s donor=%d",
+                    skillId,
+                    mountedCustomSkillId,
+                    mountedProxyMountItemId,
+                    PacketRouteToString(route.packetRoute),
+                    ReleaseClassToString(route.releaseClass),
+                    route.proxySkillId);
+            }
+            skillId = mountedCustomSkillId;
+        }
+    }
+
+    if (!remappedMountedDemonProxy && !FindRouteByCustomSkillId(skillId, route))
     {
         // 非自定义技能进入分类器：如果残留的 presentation context 不属于
         // 当前仍活跃的释放链（即 proxy 不等于本次 skillId），才清除。
@@ -10031,8 +10258,47 @@ int SkillOverlayBridgeResolveNativeClassifierOverrideSkillId(int skillId)
     if (!RouteUsesNativeClassifierProxy(route))
         return 0;
 
-    if (TryApplyMountedDoubleJumpStableProxyOverride(route, true))
+    if (TryApplyMountedRuntimeSkillStableProxyOverride(route, true))
     {
+        if (remappedMountedDemonProxy)
+        {
+            ArmActiveNativeReleaseContext(route);
+            const bool preserveMountedDemonChildClassifier =
+                route.skillId == 30010110 &&
+                IsMountedDemonJumpRuntimeChildSkillId(observedSkillId);
+            if (preserveMountedDemonChildClassifier)
+            {
+                static DWORD s_lastMountedClassifierKeepChildLogTick = 0;
+                const DWORD nowTick = GetTickCount();
+                if (nowTick - s_lastMountedClassifierKeepChildLogTick > 1000)
+                {
+                    s_lastMountedClassifierKeepChildLogTick = nowTick;
+                    WriteLogFmt(
+                        "[MountDemonJump] classifier keep child observed=%d custom=%d mount=%d route=%s releaseClass=%s",
+                        observedSkillId,
+                        route.skillId,
+                        mountedProxyMountItemId,
+                        PacketRouteToString(route.packetRoute),
+                        ReleaseClassToString(route.releaseClass));
+                }
+                return 0;
+            }
+
+            static DWORD s_lastMountedClassifierForceCustomLogTick = 0;
+            const DWORD nowTick = GetTickCount();
+            if (nowTick - s_lastMountedClassifierForceCustomLogTick > 1000)
+            {
+                s_lastMountedClassifierForceCustomLogTick = nowTick;
+                WriteLogFmt(
+                    "[MountDemonJump] classifier root force custom observed=%d -> custom=%d mount=%d route=%s releaseClass=%s",
+                    observedSkillId,
+                    route.skillId,
+                    mountedProxyMountItemId,
+                    PacketRouteToString(route.packetRoute),
+                    ReleaseClassToString(route.releaseClass));
+            }
+            return route.skillId;
+        }
         return 0;
     }
 
@@ -10114,6 +10380,28 @@ int SkillOverlayBridgeResolveNativePresentationDesiredSkillId(int observedSkillI
     if (overriddenSkillId > 0)
         return overriddenSkillId;
 
+    int mountedCustomSkillId = 0;
+    int mountItemId = 0;
+    if (TryResolveMountedRuntimeProxyCustomSkillId(
+            observedSkillId,
+            MountedRuntimeSkillKind_DemonJump,
+            mountedCustomSkillId,
+            &mountItemId) &&
+        GameLookupSkillEntryPointer(mountedCustomSkillId))
+    {
+        static DWORD s_lastMountedPresentationRemapLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastMountedPresentationRemapLogTick > 1000)
+        {
+            s_lastMountedPresentationRemapLogTick = nowTick;
+            WriteLogFmt("[MountDemonJump] presentation remap observed=%d -> custom=%d mount=%d",
+                observedSkillId,
+                mountedCustomSkillId,
+                mountItemId);
+        }
+        return mountedCustomSkillId;
+    }
+
     CustomSkillUseRoute route = {};
     if (!FindRouteByCustomSkillId(observedSkillId, route))
         return 0;
@@ -10144,7 +10432,7 @@ int SkillOverlayBridgeResolveNativeGateSkillId(int skillId)
     // gate lookup stage; otherwise the first mounted jump can miss the recent
     // intent window and still surface one or more "搭乘中无法使用" prompts
     // before the later release/classifier hooks get a chance to warm up.
-    if (TryApplyMountedDoubleJumpStableProxyOverride(route, true))
+    if (TryApplyMountedRuntimeSkillStableProxyOverride(route, true))
     {
         return skillId;
     }
@@ -10187,12 +10475,446 @@ bool SkillOverlayBridgeShouldForceNativeGateAllow(int skillId)
     return false;
 }
 
+namespace
+{
+    int ResolveMountedRuntimeSkillId(
+        int mountItemId,
+        MountedRuntimeSkillKind kind)
+    {
+        SuperSkillDefinition definition = {};
+        if (!FindMountedRuntimeSkillDefinitionByMountItemId(mountItemId, kind, definition))
+            return 0;
+        return ResolveMountedRuntimeSkillIdFromDefinition(definition, kind);
+    }
+
+    bool CanUseMountedRuntimeSkill(
+        int mountItemId,
+        int skillId,
+        MountedRuntimeSkillKind kind)
+    {
+        if (mountItemId <= 0 || skillId <= 0)
+            return false;
+
+        return ResolveMountedRuntimeSkillId(mountItemId, kind) == skillId;
+    }
+
+    bool CanUseMountedRuntimeSkillWithRouteProxy(
+        int mountItemId,
+        int skillId,
+        MountedRuntimeSkillKind kind)
+    {
+        if (mountItemId <= 0 || skillId <= 0)
+            return false;
+
+        const int configuredSkillId = ResolveMountedRuntimeSkillId(mountItemId, kind);
+        if (configuredSkillId <= 0)
+            return false;
+
+        if (configuredSkillId == skillId)
+            return true;
+
+        if (IsMountedRuntimeSkillLinkedChild(
+                configuredSkillId,
+                skillId,
+                kind))
+        {
+            return true;
+        }
+
+        CustomSkillUseRoute route = {};
+        if (!FindRouteByCustomSkillId(configuredSkillId, route))
+            return false;
+
+        if ((RouteUsesNativeClassifierProxy(route) || RouteUsesLegacyProxyPacketRewrite(route)) &&
+            route.proxySkillId > 0 &&
+            route.proxySkillId == skillId)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    bool TryGetRecentMountedRuntimeSkillRouteArmMountItemId(
+        MountedRuntimeSkillKind kind,
+        int* mountItemIdOut,
+        DWORD maxAgeMs)
+    {
+        if (!mountItemIdOut || !kEnableMountedRuntimeSkillRouteArm)
+        {
+            return false;
+        }
+
+        const LONG recentMountItemId = InterlockedCompareExchange(
+            &g_recentMountedRuntimeSkillRouteArmItemId[kind],
+            0,
+            0);
+        if (recentMountItemId <= 0)
+        {
+            return false;
+        }
+
+        const LONG recentTick = InterlockedCompareExchange(
+            &g_recentMountedRuntimeSkillRouteArmTick[kind],
+            0,
+            0);
+        if (recentTick <= 0)
+        {
+            return false;
+        }
+
+        const DWORD nowTick = GetTickCount();
+        const DWORD allowedAgeMs =
+            maxAgeMs > 0 ? maxAgeMs : kMountedDoubleJumpRouteArmTimeoutMs;
+        if (nowTick - static_cast<DWORD>(recentTick) > allowedAgeMs)
+        {
+            return false;
+        }
+
+        *mountItemIdOut = static_cast<int>(recentMountItemId);
+        return true;
+    }
+
+    bool HasRecentMountedRuntimeSkillRouteArm(
+        MountedRuntimeSkillKind kind,
+        int mountItemId,
+        DWORD maxAgeMs)
+    {
+        int recentMountItemId = 0;
+        if (!TryGetRecentMountedRuntimeSkillRouteArmMountItemId(
+                kind,
+                &recentMountItemId,
+                maxAgeMs))
+        {
+            return false;
+        }
+
+        return mountItemId <= 0 || recentMountItemId == mountItemId;
+    }
+
+    bool TryResolveMountedRuntimeProxyCustomSkillId(
+        int runtimeSkillId,
+        MountedRuntimeSkillKind kind,
+        int& outCustomSkillId,
+        int* mountItemIdOut,
+        DWORD maxAgeMs)
+    {
+        outCustomSkillId = 0;
+        if (mountItemIdOut)
+        {
+            *mountItemIdOut = 0;
+        }
+
+        if (runtimeSkillId <= 0)
+        {
+            return false;
+        }
+
+        int mountItemId = 0;
+        const char* source = nullptr;
+        if (TryGetRecentMountedRuntimeSkillRouteArmMountItemId(
+                kind,
+                &mountItemId,
+                maxAgeMs))
+        {
+            source = "recent-route-arm";
+        }
+        else if (!TryResolveActiveMountedRuntimeSkillMountItemId(
+                     runtimeSkillId,
+                     kind,
+                     mountItemId,
+                     &source))
+        {
+            return false;
+        }
+
+        if (!CanUseMountedRuntimeSkillWithRouteProxy(
+                mountItemId,
+                runtimeSkillId,
+                kind))
+        {
+            return false;
+        }
+
+        const int configuredSkillId = ResolveMountedRuntimeSkillId(mountItemId, kind);
+        if (configuredSkillId <= 0 || configuredSkillId == runtimeSkillId)
+        {
+            return false;
+        }
+
+        outCustomSkillId = configuredSkillId;
+        if (mountItemIdOut)
+        {
+            *mountItemIdOut = mountItemId;
+        }
+
+        static DWORD s_lastMountedRuntimeProxyResolveLogTick[MountedRuntimeSkillKind_Count] = {0};
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastMountedRuntimeProxyResolveLogTick[kind] > 1000)
+        {
+            s_lastMountedRuntimeProxyResolveLogTick[kind] = nowTick;
+            WriteLogFmt(
+                "[%s] proxy remap source=%s runtime=%d -> custom=%d mount=%d",
+                GetMountedRuntimeSkillLogTag(kind),
+                source ? source : "unknown",
+                runtimeSkillId,
+                configuredSkillId,
+                mountItemId);
+        }
+        return true;
+    }
+
+    bool TryResolveActiveMountedRuntimeSkillMountItemId(
+        int routeSkillId,
+        MountedRuntimeSkillKind kind,
+        int& outMountItemId,
+        const char** sourceOut)
+    {
+        outMountItemId = 0;
+        if (sourceOut)
+        {
+            *sourceOut = nullptr;
+        }
+
+        if (routeSkillId <= 0)
+        {
+            return false;
+        }
+
+        DWORD userLocal = 0;
+        int mountItemId = 0;
+        if (SafeReadValue(ADDR_UserLocal, userLocal) &&
+            userLocal &&
+            SafeReadValue(static_cast<uintptr_t>(userLocal) + 0x454u, mountItemId) &&
+            mountItemId > 0 &&
+            CanUseMountedRuntimeSkillWithRouteProxy(
+                mountItemId,
+                routeSkillId,
+                kind))
+        {
+            outMountItemId = mountItemId;
+            if (sourceOut)
+            {
+                *sourceOut = "user";
+            }
+            return true;
+        }
+
+        if (TryGetRecentMountedMovementOverrideMountItemId(
+                mountItemId,
+                kMountedDoubleJumpMountSelectionFallbackTimeoutMs) &&
+            CanUseMountedRuntimeSkillWithRouteProxy(
+                mountItemId,
+                routeSkillId,
+                kind))
+        {
+            outMountItemId = mountItemId;
+            if (sourceOut)
+            {
+                *sourceOut = "recent-mount-selection";
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    bool TryResolveActiveMountedRuntimeSkillContext(
+        int routeSkillId,
+        MountedRuntimeSkillKind& outKind,
+        int& outMountItemId,
+        const char** sourceOut)
+    {
+        if (TryResolveActiveMountedRuntimeSkillMountItemId(
+                routeSkillId,
+                MountedRuntimeSkillKind_DoubleJump,
+                outMountItemId,
+                sourceOut))
+        {
+            outKind = MountedRuntimeSkillKind_DoubleJump;
+            return true;
+        }
+
+        if (TryResolveActiveMountedRuntimeSkillMountItemId(
+                routeSkillId,
+                MountedRuntimeSkillKind_DemonJump,
+                outMountItemId,
+                sourceOut))
+        {
+            outKind = MountedRuntimeSkillKind_DemonJump;
+            return true;
+        }
+
+        return false;
+    }
+
+    void ObserveMountedRuntimeSkillRouteArm(
+        MountedRuntimeSkillKind kind,
+        int mountItemId)
+    {
+        if (mountItemId <= 0)
+        {
+            return;
+        }
+
+        InterlockedExchange(&g_recentMountedRuntimeSkillRouteArmItemId[kind], mountItemId);
+        InterlockedExchange(
+            &g_recentMountedRuntimeSkillRouteArmTick[kind],
+            static_cast<LONG>(GetTickCount()));
+        static DWORD s_lastMountedRuntimeSkillRouteArmLogTick[MountedRuntimeSkillKind_Count] = {0};
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastMountedRuntimeSkillRouteArmLogTick[kind] > 1000)
+        {
+            s_lastMountedRuntimeSkillRouteArmLogTick[kind] = nowTick;
+            WriteLogFmt("[%s] early route intent mount=%d",
+                GetMountedRuntimeSkillLogTag(kind),
+                mountItemId);
+        }
+    }
+
+    bool TryApplyMountedRuntimeSkillStableProxyOverride(
+        CustomSkillUseRoute& route,
+        bool armRouteIntent)
+    {
+        if (!kEnableMountedRuntimeSkillRouteArm)
+        {
+            return false;
+        }
+
+        if (route.skillId <= 0 ||
+            route.packetRoute != CustomSkillPacketRoute_SpecialMove ||
+            route.releaseClass != CustomSkillReleaseClass_NativeClassifierProxy ||
+            route.proxySkillId != route.skillId)
+        {
+            return false;
+        }
+
+        int mountItemId = 0;
+        const char* source = nullptr;
+        MountedRuntimeSkillKind kind = MountedRuntimeSkillKind_DoubleJump;
+        if (!TryResolveActiveMountedRuntimeSkillContext(
+                route.skillId,
+                kind,
+                mountItemId,
+                &source))
+        {
+            return false;
+        }
+
+        if (armRouteIntent)
+        {
+            ObserveMountedRuntimeSkillRouteArm(kind, mountItemId);
+        }
+
+        static DWORD s_lastMountedRuntimeSkillStableProxyLogTick[MountedRuntimeSkillKind_Count] = {0};
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastMountedRuntimeSkillStableProxyLogTick[kind] > 1000)
+        {
+            s_lastMountedRuntimeSkillStableProxyLogTick[kind] = nowTick;
+            WriteLogFmt("[%s] stable proxy custom=%d mount=%d source=%s",
+                GetMountedRuntimeSkillLogTag(kind),
+                route.skillId,
+                mountItemId,
+                source ? source : "unknown");
+        }
+
+        // Mounted movement skills need their real native family to stay intact
+        // during classifier / special-move routing. Rewriting them onto an
+        // unrelated donor can make mounted gates pass, but it also swaps the
+        // action branch and breaks the actual jump / glide behavior.
+        return true;
+    }
+
+    bool IsConfiguredMountedDemonJumpRootSkill(int skillId)
+    {
+        if (skillId <= 0)
+        {
+            return false;
+        }
+
+        for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
+             it != g_superSkillsBySkillId.end();
+             ++it)
+        {
+            const SuperSkillDefinition& definition = it->second;
+            if (definition.mountItemId <= 0 ||
+                !definition.mountedDemonJumpEnabled ||
+                definition.mountedDemonJumpSkillId <= 0)
+            {
+                continue;
+            }
+
+            if (definition.mountedDemonJumpSkillId == skillId)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool ShouldKeepPassiveMountedDemonJumpRoute(const CustomSkillUseRoute& route)
+    {
+        return route.skillId > 0 &&
+               route.skillId == route.proxySkillId &&
+               route.packetRoute == CustomSkillPacketRoute_SpecialMove &&
+               route.releaseClass == CustomSkillReleaseClass_NativeClassifierProxy &&
+               IsConfiguredMountedDemonJumpRootSkill(route.skillId);
+    }
+
+    void EnsureMountedDemonJumpSyntheticRoutes()
+    {
+        for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
+             it != g_superSkillsBySkillId.end();
+             ++it)
+        {
+            const SuperSkillDefinition& definition = it->second;
+            if (definition.mountItemId <= 0 ||
+                !definition.mountedDemonJumpEnabled ||
+                definition.mountedDemonJumpSkillId <= 0)
+            {
+                continue;
+            }
+
+            const int routeSkillId = definition.mountedDemonJumpSkillId;
+            if (g_customRoutesBySkillId.find(routeSkillId) != g_customRoutesBySkillId.end())
+            {
+                continue;
+            }
+
+            CustomSkillUseRoute route = {};
+            route.skillId = routeSkillId;
+            route.proxySkillId = routeSkillId;
+            route.packetRoute = CustomSkillPacketRoute_SpecialMove;
+            route.releaseClass = CustomSkillReleaseClass_NativeClassifierProxy;
+            route.borrowDonorVisual = false;
+            route.visualSkillId = 0;
+            g_customRoutesBySkillId[route.skillId] = route;
+
+            WriteLogFmt(
+                "[SkillRoute] synth mounted demon root custom=%d mountSkill=%d mountItem=%d proxy=%d route=%s releaseClass=%s",
+                route.skillId,
+                definition.skillId,
+                definition.mountItemId,
+                route.proxySkillId,
+                PacketRouteToString(route.packetRoute),
+                ReleaseClassToString(route.releaseClass));
+        }
+    }
+}
+
 int SkillOverlayBridgeResolveMountedDoubleJumpSkillId(int mountItemId)
 {
-    SuperSkillDefinition definition = {};
-    if (!FindMountedDoubleJumpDefinitionByMountItemId(mountItemId, definition))
-        return 0;
-    return definition.mountedDoubleJumpSkillId > 0 ? definition.mountedDoubleJumpSkillId : 3101003;
+    return ResolveMountedRuntimeSkillId(
+        mountItemId,
+        MountedRuntimeSkillKind_DoubleJump);
+}
+
+int SkillOverlayBridgeResolveMountedDemonJumpSkillId(int mountItemId)
+{
+    return ResolveMountedRuntimeSkillId(
+        mountItemId,
+        MountedRuntimeSkillKind_DemonJump);
 }
 
 bool SkillOverlayBridgeResolveMountedMovementOverride(int mountItemId, int tamingMobId, MountedMovementOverride& outOverride)
@@ -10285,210 +11007,124 @@ bool SkillOverlayBridgeResolveMountedSoaringOverride(int mountItemId, int taming
 
 bool SkillOverlayBridgeCanUseMountedDoubleJumpSkill(int mountItemId, int skillId)
 {
-    if (mountItemId <= 0 || skillId <= 0)
-        return false;
+    return CanUseMountedRuntimeSkill(
+        mountItemId,
+        skillId,
+        MountedRuntimeSkillKind_DoubleJump);
+}
 
-    return SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId) == skillId;
+bool SkillOverlayBridgeCanUseMountedDemonJumpSkill(int mountItemId, int skillId)
+{
+    return CanUseMountedRuntimeSkill(
+        mountItemId,
+        skillId,
+        MountedRuntimeSkillKind_DemonJump);
 }
 
 bool SkillOverlayBridgeCanUseMountedDoubleJumpRuntimeSkill(int mountItemId, int skillId)
 {
-    if (mountItemId <= 0 || skillId <= 0)
-        return false;
+    return CanUseMountedRuntimeSkillWithRouteProxy(
+        mountItemId,
+        skillId,
+        MountedRuntimeSkillKind_DoubleJump);
+}
 
-    const int mountedDoubleJumpSkillId = SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId);
-    if (mountedDoubleJumpSkillId <= 0)
-        return false;
-
-    if (mountedDoubleJumpSkillId == skillId)
-        return true;
-
-    CustomSkillUseRoute route = {};
-    if (!FindRouteByCustomSkillId(mountedDoubleJumpSkillId, route))
-        return false;
-
-    if ((RouteUsesNativeClassifierProxy(route) || RouteUsesLegacyProxyPacketRewrite(route)) &&
-        route.proxySkillId > 0 &&
-        route.proxySkillId == skillId)
-    {
-        return true;
-    }
-
-    return false;
+bool SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(int mountItemId, int skillId)
+{
+    return CanUseMountedRuntimeSkillWithRouteProxy(
+        mountItemId,
+        skillId,
+        MountedRuntimeSkillKind_DemonJump);
 }
 
 bool SkillOverlayBridgeHasRecentMountedDoubleJumpRouteArm(int mountItemId, DWORD maxAgeMs)
 {
-    int recentMountItemId = 0;
-    if (!SkillOverlayBridgeTryGetRecentMountedDoubleJumpRouteArmMountItemId(
-            &recentMountItemId,
-            maxAgeMs))
-    {
-        return false;
-    }
+    return HasRecentMountedRuntimeSkillRouteArm(
+        MountedRuntimeSkillKind_DoubleJump,
+        mountItemId,
+        maxAgeMs);
+}
 
-    return mountItemId <= 0 || recentMountItemId == mountItemId;
+bool SkillOverlayBridgeHasRecentMountedDemonJumpRouteArm(int mountItemId, DWORD maxAgeMs)
+{
+    return HasRecentMountedRuntimeSkillRouteArm(
+        MountedRuntimeSkillKind_DemonJump,
+        mountItemId,
+        maxAgeMs);
 }
 
 bool SkillOverlayBridgeTryGetRecentMountedDoubleJumpRouteArmMountItemId(
     int* mountItemIdOut,
     DWORD maxAgeMs)
 {
-    if (!mountItemIdOut || !kEnableMountedDoubleJumpRouteArm)
-    {
-        return false;
-    }
-
-    const LONG recentMountItemId =
-        InterlockedCompareExchange(&g_recentMountedDoubleJumpRouteArmItemId, 0, 0);
-    if (recentMountItemId <= 0)
-    {
-        return false;
-    }
-
-    const LONG recentTick =
-        InterlockedCompareExchange(&g_recentMountedDoubleJumpRouteArmTick, 0, 0);
-    if (recentTick <= 0)
-    {
-        return false;
-    }
-
-    const DWORD nowTick = GetTickCount();
-    const DWORD allowedAgeMs =
-        maxAgeMs > 0 ? maxAgeMs : kMountedDoubleJumpRouteArmTimeoutMs;
-    if (nowTick - static_cast<DWORD>(recentTick) > allowedAgeMs)
-    {
-        return false;
-    }
-
-    *mountItemIdOut = static_cast<int>(recentMountItemId);
-    return true;
+    return TryGetRecentMountedRuntimeSkillRouteArmMountItemId(
+        MountedRuntimeSkillKind_DoubleJump,
+        mountItemIdOut,
+        maxAgeMs);
 }
 
-namespace
+bool SkillOverlayBridgeTryGetRecentMountedDemonJumpRouteArmMountItemId(
+    int* mountItemIdOut,
+    DWORD maxAgeMs)
 {
-    bool TryResolveActiveMountedDoubleJumpMountItemId(
-        int routeSkillId,
-        int& outMountItemId,
-        const char** sourceOut)
-    {
-        outMountItemId = 0;
-        if (sourceOut)
-        {
-            *sourceOut = nullptr;
-        }
-
-        if (routeSkillId <= 0)
-        {
-            return false;
-        }
-
-        DWORD userLocal = 0;
-        int mountItemId = 0;
-        if (SafeReadValue(ADDR_UserLocal, userLocal) &&
-            userLocal &&
-            SafeReadValue(static_cast<uintptr_t>(userLocal) + 0x454u, mountItemId) &&
-            mountItemId > 0 &&
-            SkillOverlayBridgeCanUseMountedDoubleJumpSkill(mountItemId, routeSkillId))
-        {
-            outMountItemId = mountItemId;
-            if (sourceOut)
-            {
-                *sourceOut = "user";
-            }
-            return true;
-        }
-
-        if (TryGetRecentMountedMovementOverrideMountItemId(
-                mountItemId,
-                kMountedDoubleJumpMountSelectionFallbackTimeoutMs) &&
-            SkillOverlayBridgeCanUseMountedDoubleJumpSkill(mountItemId, routeSkillId))
-        {
-            outMountItemId = mountItemId;
-            if (sourceOut)
-            {
-                *sourceOut = "recent-mount-selection";
-            }
-            return true;
-        }
-
-        return false;
-    }
-
-    void ObserveMountedDoubleJumpRouteArm(
-        int mountItemId)
-    {
-        if (mountItemId <= 0)
-        {
-            return;
-        }
-
-        InterlockedExchange(&g_recentMountedDoubleJumpRouteArmItemId, mountItemId);
-        InterlockedExchange(&g_recentMountedDoubleJumpRouteArmTick, static_cast<LONG>(GetTickCount()));
-        static DWORD s_lastMountedDoubleJumpRouteArmLogTick = 0;
-        const DWORD nowTick = GetTickCount();
-        if (nowTick - s_lastMountedDoubleJumpRouteArmLogTick > 1000)
-        {
-            s_lastMountedDoubleJumpRouteArmLogTick = nowTick;
-            WriteLogFmt("[MountDoubleJump] early route intent mount=%d", mountItemId);
-        }
-    }
-
-    bool TryApplyMountedDoubleJumpStableProxyOverride(
-        CustomSkillUseRoute& route,
-        bool armRouteIntent)
-    {
-        if (!kEnableMountedDoubleJumpRouteArm)
-        {
-            return false;
-        }
-
-        if (route.skillId <= 0 ||
-            route.packetRoute != CustomSkillPacketRoute_SpecialMove ||
-            route.releaseClass != CustomSkillReleaseClass_NativeClassifierProxy ||
-            route.proxySkillId != route.skillId)
-        {
-            return false;
-        }
-
-        int mountItemId = 0;
-        const char* source = nullptr;
-        if (!TryResolveActiveMountedDoubleJumpMountItemId(
-                route.skillId,
-                mountItemId,
-                &source))
-        {
-            return false;
-        }
-
-        if (armRouteIntent)
-        {
-            ObserveMountedDoubleJumpRouteArm(mountItemId);
-        }
-
-        static DWORD s_lastMountedDoubleJumpStableProxyLogTick = 0;
-        const DWORD nowTick = GetTickCount();
-        if (nowTick - s_lastMountedDoubleJumpStableProxyLogTick > 1000)
-        {
-            s_lastMountedDoubleJumpStableProxyLogTick = nowTick;
-            WriteLogFmt("[MountDoubleJump] stable proxy custom=%d mount=%d source=%s",
-                route.skillId,
-                mountItemId,
-                source ? source : "unknown");
-        }
-
-        // Mounted double jump needs the real native double-jump family to keep
-        // movement/packet behavior. Rewriting it to 1001003 lets mounted gates
-        // pass more easily, but it also swaps the action branch into a buff-like
-        // donor family and loses the actual second-jump release behavior.
-        return true;
-    }
+    return TryGetRecentMountedRuntimeSkillRouteArmMountItemId(
+        MountedRuntimeSkillKind_DemonJump,
+        mountItemIdOut,
+        maxAgeMs);
 }
 
 int SkillOverlayBridgeResolveNativeLevelLookupSkillId(int skillId)
 {
     if (skillId <= 0)
         return skillId;
+
+    if (IsMountedDemonJumpRuntimeChildSkillId(skillId))
+    {
+        static DWORD s_lastMountedChildLevelKeepLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastMountedChildLevelKeepLogTick > 1000)
+        {
+            s_lastMountedChildLevelKeepLogTick = nowTick;
+            WriteLogFmt("[MountDemonJump] level keep child query=%d",
+                skillId);
+        }
+        return skillId;
+    }
+
+    int mountedCustomSkillId = 0;
+    int mountItemId = 0;
+    if (TryResolveMountedRuntimeProxyCustomSkillId(
+            skillId,
+            MountedRuntimeSkillKind_DemonJump,
+            mountedCustomSkillId,
+            &mountItemId))
+    {
+        if (GameLookupSkillEntryPointer(mountedCustomSkillId))
+        {
+            static DWORD s_lastMountedProxyLevelRemapLogTick = 0;
+            const DWORD nowTick = GetTickCount();
+            if (nowTick - s_lastMountedProxyLevelRemapLogTick > 1000)
+            {
+                s_lastMountedProxyLevelRemapLogTick = nowTick;
+                WriteLogFmt("[MountDemonJump] level remap query=%d -> custom=%d mount=%d",
+                    skillId,
+                    mountedCustomSkillId,
+                    mountItemId);
+            }
+            return mountedCustomSkillId;
+        }
+
+        static DWORD s_lastMissingMountedProxyLevelEntryLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastMissingMountedProxyLevelEntryLogTick > 1000)
+        {
+            s_lastMissingMountedProxyLevelEntryLogTick = nowTick;
+            WriteLogFmt("[MountDemonJump] level remap keep proxy query=%d custom=%d mount=%d (entry missing)",
+                skillId,
+                mountedCustomSkillId,
+                mountItemId);
+        }
+    }
 
     // During native classifier proxy release, many deep checks query donor skill level.
     // Remap those queries back to custom skill id so cross-job donor can still pass.
@@ -11190,6 +11826,40 @@ void SkillOverlayBridgeInspectOutgoingPacketMutable(void** packetDataSlot, int* 
             opcode))
     {
         return;
+    }
+
+    if (packetRoute == CustomSkillPacketRoute_SpecialMove)
+    {
+        int mountedCustomSkillId = 0;
+        int mountItemId = 0;
+        if (TryResolveMountedRuntimeProxyCustomSkillId(
+                observedSkillId,
+                MountedRuntimeSkillKind_DemonJump,
+                mountedCustomSkillId,
+                &mountItemId))
+        {
+            WritePacketInt(packet, skillIdOffset, mountedCustomSkillId);
+
+            int customLevel = GetTrackedSkillLevel(mountedCustomSkillId);
+            if (customLevel <= 0)
+                customLevel = 1;
+            if (customLevel > 255)
+                customLevel = 255;
+
+            if (skillLevelOffset >= 0 && packetLen > skillLevelOffset)
+                packet[skillLevelOffset] = (BYTE)customLevel;
+
+            WriteLogFmt("[SkillPacket] mounted-runtime rewrite opcode=0x%X route=%s proxy=%d -> custom=%d mount=%d level=%d len=%d caller=0x%08X",
+                (unsigned int)opcode,
+                PacketRouteToString(packetRoute),
+                observedSkillId,
+                mountedCustomSkillId,
+                mountItemId,
+                customLevel,
+                packetLen,
+                (DWORD)(uintptr_t)callerRetAddr);
+            return;
+        }
     }
 
     CustomSkillUseRoute route = {};
