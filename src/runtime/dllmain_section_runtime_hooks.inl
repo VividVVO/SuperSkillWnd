@@ -14625,8 +14625,10 @@ static int __fastcall hkMountedDemonJumpTrace829F10(void *thisPtr, void * /*edxU
     const int result = oMountedDemonJumpTrace829F10
                            ? oMountedDemonJumpTrace829F10(thisPtr)
                            : 0;
+    const int expectedMatchValue =
+        runtimeSkillId == 5311002 ? 5310008 : runtimeSkillId;
     if (trace &&
-        result == 0 &&
+        result != expectedMatchValue &&
         mountItemId > 0 &&
         IsMountedDemonJumpRuntimeChildSkillId(runtimeSkillId) &&
         HasRecentMountedDemonJumpIntent(mountItemId) &&
@@ -14635,12 +14637,13 @@ static int __fastcall hkMountedDemonJumpTrace829F10(void *thisPtr, void * /*edxU
             runtimeSkillId))
     {
         WriteLogFmt(
-            "[MountDemonJumpTrace] 829F10 force allow skill=%d mount=%d this=0x%08X original=0x%08X -> 1",
+            "[MountDemonJumpTrace] 829F10 force match skill=%d mount=%d this=0x%08X original=0x%08X -> 0x%08X",
             runtimeSkillId,
             mountItemId,
             (DWORD)(uintptr_t)thisPtr,
-            result);
-        return 1;
+            result,
+            expectedMatchValue);
+        return expectedMatchValue;
     }
     if (trace)
     {
@@ -14670,7 +14673,7 @@ static int __fastcall hkMountedDemonJumpTrace551170(void *thisPtr, void * /*edxU
                            ? oMountedDemonJumpTrace551170(thisPtr)
                            : 0;
     if (trace &&
-        result == 0 &&
+        result != 0 &&
         mountItemId > 0 &&
         IsMountedDemonJumpRuntimeChildSkillId(runtimeSkillId) &&
         HasRecentMountedDemonJumpIntent(mountItemId) &&
@@ -14679,12 +14682,12 @@ static int __fastcall hkMountedDemonJumpTrace551170(void *thisPtr, void * /*edxU
             runtimeSkillId))
     {
         WriteLogFmt(
-            "[MountDemonJumpTrace] 551170 force allow skill=%d mount=%d this=0x%08X original=%d -> 1",
+            "[MountDemonJumpTrace] 551170 force continue skill=%d mount=%d this=0x%08X original=%d -> 0",
             runtimeSkillId,
             mountItemId,
             (DWORD)(uintptr_t)thisPtr,
             result);
-        return 1;
+        return 0;
     }
     if (trace)
     {
@@ -14718,7 +14721,7 @@ static int __fastcall hkMountedDemonJumpTraceA01BF0(
                            ? oMountedDemonJumpTraceA01BF0(thisPtr, skillId)
                            : 0;
     if (trace &&
-        result == 0 &&
+        result != 0 &&
         mountItemId > 0 &&
         IsMountedDemonJumpRuntimeChildSkillId(runtimeSkillId) &&
         HasRecentMountedDemonJumpIntent(mountItemId) &&
@@ -14727,13 +14730,13 @@ static int __fastcall hkMountedDemonJumpTraceA01BF0(
             runtimeSkillId))
     {
         WriteLogFmt(
-            "[MountDemonJumpTrace] A01BF0 force allow skill=%d mount=%d this=0x%08X argSkill=%d original=%d -> 1",
+            "[MountDemonJumpTrace] A01BF0 force continue skill=%d mount=%d this=0x%08X argSkill=%d original=%d -> 0",
             runtimeSkillId,
             mountItemId,
             (DWORD)(uintptr_t)thisPtr,
             skillId,
             result);
-        return 1;
+        return 0;
     }
     if (trace)
     {
