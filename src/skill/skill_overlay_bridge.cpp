@@ -7891,14 +7891,14 @@ namespace
         }
 
         const bool sameRoute = (g_activeNativeRelease.packetRoute == packetRoute);
-        const bool preserveMountedDemonChildPacket =
+        const bool allowMountedDemonChildObserved =
             activeCustomSkillId == 30010110 &&
             IsMountedDemonJumpRuntimeChildSkillId(observedSkillId);
         const bool matchesPrimaryObserved =
             (observedSkillId == activeCustomSkillId) ||
             (g_activeNativeRelease.classifierProxySkillId > 0 &&
              observedSkillId == g_activeNativeRelease.classifierProxySkillId) ||
-            preserveMountedDemonChildPacket;
+            allowMountedDemonChildObserved;
 
         const DWORD now = GetTickCount();
         if (sameRoute)
@@ -7914,14 +7914,28 @@ namespace
                 return false;
         }
 
-        const int targetSkillId =
-            preserveMountedDemonChildPacket ? observedSkillId : activeCustomSkillId;
+        const int targetSkillId = activeCustomSkillId;
 
         int customLevel = GetTrackedSkillLevel(activeCustomSkillId);
         if (customLevel <= 0)
             customLevel = 1;
         if (customLevel > 255)
             customLevel = 255;
+
+        if (allowMountedDemonChildObserved && observedSkillId != targetSkillId)
+        {
+            static DWORD s_lastMountedDemonRootPacketRewriteLogTick = 0;
+            if (now - s_lastMountedDemonRootPacketRewriteLogTick > 1000)
+            {
+                s_lastMountedDemonRootPacketRewriteLogTick = now;
+                WriteLogFmt(
+                    "[MountDemonJump] packet root force observed=%d -> custom=%d route=%s releaseClass=%s",
+                    observedSkillId,
+                    targetSkillId,
+                    PacketRouteToString(packetRoute),
+                    ReleaseClassToString(g_activeNativeRelease.releaseClass));
+            }
+        }
 
         if (observedSkillId != targetSkillId)
             WritePacketInt(packet, skillIdOffset, targetSkillId);

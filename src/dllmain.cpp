@@ -168,9 +168,9 @@ static const bool ENABLE_PRESENT_NATIVE_CHILD_UPDATE = false; // v10.4+: native 
 static const bool ENABLE_REFRESH_NATIVE_CHILD_UPDATE = false; // v10.6: native child 不再在 refresh hook 中高频搬运，优先消除拖动抽搐
 static const char* SAVE_STATE_PATH = "G:\\code\\c++\\SuperSkillWnd\\skill\\save_state.json";
 #if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
-static const char* BUILD_MARKER = "v21.30-2026-05-03-mounted-demon-gate-bypass";
+static const char* BUILD_MARKER = "v21.31-2026-05-03-mounted-demon-root-packet";
 #else
-static const char* BUILD_MARKER = "v21.30-2026-05-03-mounted-demon-gate-bypass";
+static const char* BUILD_MARKER = "v21.31-2026-05-03-mounted-demon-root-packet";
 #endif
 static const wchar_t* SUPER_BTN_RES_PATH = L"UI/UIWindow2.img/Skill/main/BtMacro";
 static const wchar_t* SUPER_BTN_RES_PATH_ALT = L"/UIWindow2.img/Skill/main/BtMacro";
