@@ -14036,6 +14036,7 @@ static bool IsMountedDemonJumpBridgeEntrySkillId(int skillId)
 static volatile LONG g_mountedDemonJumpCrashTraceRuntimeSkillId = 0;
 static volatile LONG g_mountedDemonJumpCrashTraceMountItemId = 0;
 static volatile LONG g_mountedDemonJumpCrashTraceTick = 0;
+static volatile LONG g_mountedUnknownSkillReleaseBranchRuntimeSkillOverride = 0;
 static volatile LONG g_recentMountedDemonJumpNativeChildSkillId = 0;
 static volatile LONG g_recentMountedDemonJumpNativeChildMountItemId = 0;
 static volatile LONG g_recentMountedDemonJumpNativeChildTick = 0;
@@ -14340,6 +14341,14 @@ static bool ArmMountedDemonJumpPendingSpecialMoveRewrite(
         *tickOut = armTick;
     }
     return true;
+}
+
+static int __cdecl ConsumeMountedUnknownSkillReleaseBranchRuntimeSkillOverride()
+{
+    return static_cast<int>(
+        InterlockedExchange(
+            &g_mountedUnknownSkillReleaseBranchRuntimeSkillOverride,
+            0));
 }
 
 static bool TryRewriteMountedDemonJumpOutgoingPacket(
@@ -15902,6 +15911,9 @@ static int __fastcall hkMountedSkillContextGateCallsiteB3009F(
 
 static DWORD __cdecl hkMountedUnknownSkillReleaseBranchTargetB300AC(int skillId)
 {
+    InterlockedExchange(
+        &g_mountedUnknownSkillReleaseBranchRuntimeSkillOverride,
+        0);
     int resolvedMountItemId = 0;
     int recentNativeSkillId = 0;
     MountedRuntimeSkillKind kind = MountedRuntimeSkillKind_DoubleJump;
@@ -15947,6 +15959,41 @@ static DWORD __cdecl hkMountedUnknownSkillReleaseBranchTargetB300AC(int skillId)
             // out. The real child skills 30010183/84/86 are different: they are
             // on B28A00's native whitelist, so they must go back through the
             // full-release branch instead of the generic B30240/B26760 packet.
+            if (isDemonRootSkill &&
+                !isDemonProxySkill &&
+                IsMountedDemonJumpRuntimeChildSkillId(recentNativeSkillId))
+            {
+                InterlockedExchange(
+                    &g_mountedUnknownSkillReleaseBranchRuntimeSkillOverride,
+                    static_cast<LONG>(recentNativeSkillId));
+                RememberMountedDemonJumpNativeChildSkill(
+                    resolvedMountItemId,
+                    recentNativeSkillId,
+                    "B300AC-root-reroute");
+                ArmMountedDemonJumpCrashTrace(
+                    recentNativeSkillId,
+                    resolvedMountItemId);
+                static LONG s_mountedUnknownSkillReleaseBranchRootToChildRerouteLogBudget = 24;
+                const LONG budgetAfterDecrement =
+                    InterlockedDecrement(
+                        &s_mountedUnknownSkillReleaseBranchRootToChildRerouteLogBudget);
+                if (budgetAfterDecrement >= 0)
+                {
+                    WriteLogFmt(
+                        "[MountDemonJump] B300AC root->child reroute root=%d recent=%d configured=%d mount=%d rootCtx=%d current=%d context=%d -> full-release skill=%d(0x%08X)",
+                        skillId,
+                        recentNativeSkillId,
+                        configuredSkillId,
+                        resolvedMountItemId,
+                        demonContextRootSkillId,
+                        demonContextSkillId,
+                        hasMountedDemonContext ? 1 : 0,
+                        recentNativeSkillId,
+                        ADDR_B300E3);
+                }
+                return ADDR_B300E3;
+            }
+
             if (isDemonRootSkill && !isDemonProxySkill)
             {
                 static LONG s_mountedUnknownSkillReleaseBranchKeepRootNativeLogBudget = 24;
@@ -16033,6 +16080,14 @@ __declspec(naked) static void hkMountedUnknownSkillReleaseBranchB300AC()
         push esi
         call hkMountedUnknownSkillReleaseBranchTargetB300AC
         add esp, 4
+        push eax
+        call ConsumeMountedUnknownSkillReleaseBranchRuntimeSkillOverride
+        mov ecx, eax
+        pop eax
+        test ecx, ecx
+        jz no_runtime_override
+        mov esi, ecx
+    no_runtime_override:
         jmp eax
     }
 }
