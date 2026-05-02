@@ -2018,6 +2018,14 @@ static const size_t kMountedDemonJumpReadyFlagOffset = 24197;
 typedef int(__thiscall *tMountedCrashTrace2ArgFn)(void *thisPtr, DWORD arg1, DWORD arg2);
 typedef int(__thiscall *tMountedCrashTraceNoArgFn)(void *thisPtr);
 typedef int(__thiscall *tMountedCrashTrace1ArgFn)(void *thisPtr, int arg1);
+typedef int(__thiscall *tMountedCrashTrace3ArgFn)(void *thisPtr, DWORD arg1, DWORD arg2, DWORD arg3);
+typedef int(__thiscall *tMountedCrashTrace5ArgFn)(
+    void *thisPtr,
+    DWORD arg1,
+    DWORD arg2,
+    DWORD arg3,
+    DWORD arg4,
+    DWORD arg5);
 typedef int(__thiscall *tMountedCrashTrace6ArgFn)(
     void *thisPtr,
     DWORD arg1,
@@ -2036,6 +2044,24 @@ static tMountedCrashTrace1ArgFn oMountedDemonJumpTraceA01BF0 = nullptr;
 static tMountedCrashTraceNoArgFn oMountedDemonJumpTrace4C1720 = nullptr;
 static tMountedCrashTraceNoArgFn oMountedDemonJumpTrace52BCB0 = nullptr;
 static tMountedCrashTrace6ArgFn oMountedDemonJumpTrace805850 = nullptr;
+static tMountedCrashTraceCdecl1ArgFn oMountedDemonJumpActionKind7CE210 = nullptr;
+static tMountedCrashTrace5ArgFn oMountedDemonJumpActionPrepareB273B0 = nullptr;
+static tMountedCrashTraceNoArgFn oMountedDemonJumpActionGateA9B710 = nullptr;
+static tMountedCrashTraceCdecl1ArgFn oMountedDemonJumpActionKind52BAD0 = nullptr;
+static tMountedCrashTrace3ArgFn oMountedDemonJumpActionRouteB29C70 = nullptr;
+static tMountedCrashTrace2ArgFn oMountedDemonJumpActionRouteB24010 = nullptr;
+static tMountedCrashTrace2ArgFn oMountedDemonJumpActionRouteB24EA0 = nullptr;
+static tMountedCrashTrace1ArgFn oMountedDemonJumpActionRouteB26550 = nullptr;
+static tMountedCrashTrace1ArgFn oMountedDemonJumpActionRouteB26050 = nullptr;
+static const DWORD ADDR_MountedDemonJumpActionKind7CE210 = 0x007CE210;
+static const DWORD ADDR_MountedDemonJumpActionPrepareB273B0 = 0x00B273B0;
+static const DWORD ADDR_MountedDemonJumpActionGateA9B710 = 0x00A9B710;
+static const DWORD ADDR_MountedDemonJumpActionKind52BAD0 = 0x0052BAD0;
+static const DWORD ADDR_MountedDemonJumpActionRouteB29C70 = 0x00B29C70;
+static const DWORD ADDR_MountedDemonJumpActionRouteB24010 = 0x00B24010;
+static const DWORD ADDR_MountedDemonJumpActionRouteB24EA0 = 0x00B24EA0;
+static const DWORD ADDR_MountedDemonJumpActionRouteB26550 = 0x00B26550;
+static const DWORD ADDR_MountedDemonJumpActionRouteB26050 = 0x00B26050;
 typedef int(__thiscall *tMountSoaringGateFn)(void *thisPtr, int levelContext, void *mountContext, int skillId, unsigned int **skillEntryOut);
 static tMountSoaringGateFn oMountSoaringGate7DC1B0 = nullptr;
 typedef int(__thiscall *tMountNativeSoaringReleaseFn)(void *thisPtr, int skillId);
@@ -2149,6 +2175,7 @@ static bool SetupMountedFlightPhysicsSpeedHooks();
 static bool SetupMountedDemonJumpCrashTraceHooks();
 static bool SetupMountedDemonJumpPacketObserveHooks();
 static bool SetupMountedDemonJumpLatePathHooks();
+static bool SetupMountedDemonJumpActionTraceHooks();
 enum MountedRuntimeSkillKind
 {
     MountedRuntimeSkillKind_DoubleJump = 0,
@@ -14855,6 +14882,354 @@ static int __fastcall hkMountedDemonJumpTrace805850(
     return result;
 }
 
+static int __cdecl hkMountedDemonJumpActionKind7CE210(int skillId)
+{
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    int runtimeSkillId = 0;
+    int mountItemId = 0;
+    const bool trace =
+        (callerRet == 0x00B31153 || callerRet == 0x00B312B6) &&
+        IsMountedDemonJumpCrashTraceFresh(&runtimeSkillId, &mountItemId);
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] 7CE210 enter caller=0x%08X runtime=%d argSkill=%d mount=%d",
+            callerRet,
+            runtimeSkillId,
+            skillId,
+            mountItemId);
+    }
+
+    const int result = oMountedDemonJumpActionKind7CE210
+                           ? oMountedDemonJumpActionKind7CE210(skillId)
+                           : 0;
+    if (trace)
+    {
+        int rootSkillId = 0;
+        int currentSkillId = 0;
+        TryReadMountedDemonJumpContextState(
+            &rootSkillId,
+            &currentSkillId,
+            nullptr);
+        WriteLogFmt(
+            "[MountDemonJumpAction] 7CE210 leave caller=0x%08X result=%d mount=%d root=%d current=%d",
+            callerRet,
+            result,
+            mountItemId,
+            rootSkillId,
+            currentSkillId);
+    }
+    return result;
+}
+
+static int __fastcall hkMountedDemonJumpActionPrepareB273B0(
+    void *thisPtr,
+    void * /*edxUnused*/,
+    DWORD arg1,
+    DWORD arg2,
+    DWORD arg3,
+    DWORD arg4,
+    DWORD arg5)
+{
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    int runtimeSkillId = 0;
+    int mountItemId = 0;
+    const bool trace =
+        callerRet == 0x00B31199 &&
+        IsMountedDemonJumpCrashTraceFresh(&runtimeSkillId, &mountItemId);
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] B273B0 enter caller=0x%08X runtime=%d mount=%d this=0x%08X args=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X]",
+            callerRet,
+            runtimeSkillId,
+            mountItemId,
+            (DWORD)(uintptr_t)thisPtr,
+            arg1,
+            arg2,
+            arg3,
+            arg4,
+            arg5);
+    }
+
+    const int result = oMountedDemonJumpActionPrepareB273B0
+                           ? oMountedDemonJumpActionPrepareB273B0(
+                                 thisPtr,
+                                 arg1,
+                                 arg2,
+                                 arg3,
+                                 arg4,
+                                 arg5)
+                           : 0;
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] B273B0 leave caller=0x%08X result=%d mount=%d",
+            callerRet,
+            result,
+            mountItemId);
+    }
+    return result;
+}
+
+static int __fastcall hkMountedDemonJumpActionGateA9B710(
+    void *thisPtr,
+    void * /*edxUnused*/)
+{
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    int runtimeSkillId = 0;
+    int mountItemId = 0;
+    const bool trace =
+        (callerRet == 0x00B3109D || callerRet == 0x00B311FB) &&
+        IsMountedDemonJumpCrashTraceFresh(&runtimeSkillId, &mountItemId);
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] A9B710 enter caller=0x%08X runtime=%d mount=%d this=0x%08X",
+            callerRet,
+            runtimeSkillId,
+            mountItemId,
+            (DWORD)(uintptr_t)thisPtr);
+    }
+
+    const int result = oMountedDemonJumpActionGateA9B710
+                           ? oMountedDemonJumpActionGateA9B710(thisPtr)
+                           : 0;
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] A9B710 leave caller=0x%08X result=%d mount=%d",
+            callerRet,
+            result,
+            mountItemId);
+    }
+    return result;
+}
+
+static int __cdecl hkMountedDemonJumpActionKind52BAD0(int skillId)
+{
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    int runtimeSkillId = 0;
+    int mountItemId = 0;
+    const bool trace =
+        callerRet == 0x00B312E7 &&
+        IsMountedDemonJumpCrashTraceFresh(&runtimeSkillId, &mountItemId);
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] 52BAD0 enter caller=0x%08X runtime=%d argSkill=%d mount=%d",
+            callerRet,
+            runtimeSkillId,
+            skillId,
+            mountItemId);
+    }
+
+    const int result = oMountedDemonJumpActionKind52BAD0
+                           ? oMountedDemonJumpActionKind52BAD0(skillId)
+                           : 0;
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] 52BAD0 leave caller=0x%08X result=%d(0x%08X) mount=%d",
+            callerRet,
+            result,
+            result,
+            mountItemId);
+    }
+    return result;
+}
+
+static int __fastcall hkMountedDemonJumpActionRouteB29C70(
+    void *thisPtr,
+    void * /*edxUnused*/,
+    DWORD arg1,
+    DWORD arg2,
+    DWORD arg3)
+{
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    int runtimeSkillId = 0;
+    int mountItemId = 0;
+    const bool trace =
+        IsMountedDemonJumpCrashTraceFresh(&runtimeSkillId, &mountItemId);
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] B29C70 enter caller=0x%08X runtime=%d mount=%d this=0x%08X args=[0x%08X,0x%08X,0x%08X]",
+            callerRet,
+            runtimeSkillId,
+            mountItemId,
+            (DWORD)(uintptr_t)thisPtr,
+            arg1,
+            arg2,
+            arg3);
+    }
+
+    const int result = oMountedDemonJumpActionRouteB29C70
+                           ? oMountedDemonJumpActionRouteB29C70(
+                                 thisPtr,
+                                 arg1,
+                                 arg2,
+                                 arg3)
+                           : 0;
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] B29C70 leave caller=0x%08X result=%d mount=%d",
+            callerRet,
+            result,
+            mountItemId);
+    }
+    return result;
+}
+
+static int __fastcall hkMountedDemonJumpActionRouteB24010(
+    void *thisPtr,
+    void * /*edxUnused*/,
+    DWORD arg1,
+    DWORD arg2)
+{
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    int runtimeSkillId = 0;
+    int mountItemId = 0;
+    const bool trace =
+        callerRet == 0x00B31320 &&
+        IsMountedDemonJumpCrashTraceFresh(&runtimeSkillId, &mountItemId);
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] B24010 enter caller=0x%08X runtime=%d mount=%d this=0x%08X args=[0x%08X,0x%08X]",
+            callerRet,
+            runtimeSkillId,
+            mountItemId,
+            (DWORD)(uintptr_t)thisPtr,
+            arg1,
+            arg2);
+    }
+
+    const int result = oMountedDemonJumpActionRouteB24010
+                           ? oMountedDemonJumpActionRouteB24010(thisPtr, arg1, arg2)
+                           : 0;
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] B24010 leave caller=0x%08X result=%d mount=%d",
+            callerRet,
+            result,
+            mountItemId);
+    }
+    return result;
+}
+
+static int __fastcall hkMountedDemonJumpActionRouteB24EA0(
+    void *thisPtr,
+    void * /*edxUnused*/,
+    DWORD arg1,
+    DWORD arg2)
+{
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    int runtimeSkillId = 0;
+    int mountItemId = 0;
+    const bool trace =
+        callerRet == 0x00B31337 &&
+        IsMountedDemonJumpCrashTraceFresh(&runtimeSkillId, &mountItemId);
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] B24EA0 enter caller=0x%08X runtime=%d mount=%d this=0x%08X args=[0x%08X,0x%08X]",
+            callerRet,
+            runtimeSkillId,
+            mountItemId,
+            (DWORD)(uintptr_t)thisPtr,
+            arg1,
+            arg2);
+    }
+
+    const int result = oMountedDemonJumpActionRouteB24EA0
+                           ? oMountedDemonJumpActionRouteB24EA0(thisPtr, arg1, arg2)
+                           : 0;
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] B24EA0 leave caller=0x%08X result=%d mount=%d",
+            callerRet,
+            result,
+            mountItemId);
+    }
+    return result;
+}
+
+static int __fastcall hkMountedDemonJumpActionRouteB26550(
+    void *thisPtr,
+    void * /*edxUnused*/,
+    int skillId)
+{
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    int runtimeSkillId = 0;
+    int mountItemId = 0;
+    const bool trace =
+        callerRet == 0x00B31345 &&
+        IsMountedDemonJumpCrashTraceFresh(&runtimeSkillId, &mountItemId);
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] B26550 enter caller=0x%08X runtime=%d mount=%d this=0x%08X argSkill=%d",
+            callerRet,
+            runtimeSkillId,
+            mountItemId,
+            (DWORD)(uintptr_t)thisPtr,
+            skillId);
+    }
+
+    const int result = oMountedDemonJumpActionRouteB26550
+                           ? oMountedDemonJumpActionRouteB26550(thisPtr, skillId)
+                           : 0;
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] B26550 leave caller=0x%08X result=%d mount=%d",
+            callerRet,
+            result,
+            mountItemId);
+    }
+    return result;
+}
+
+static int __fastcall hkMountedDemonJumpActionRouteB26050(
+    void *thisPtr,
+    void * /*edxUnused*/,
+    int skillId)
+{
+    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
+    int runtimeSkillId = 0;
+    int mountItemId = 0;
+    const bool trace =
+        callerRet == 0x00B313F6 &&
+        IsMountedDemonJumpCrashTraceFresh(&runtimeSkillId, &mountItemId);
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] B26050 enter caller=0x%08X runtime=%d mount=%d this=0x%08X argSkill=%d",
+            callerRet,
+            runtimeSkillId,
+            mountItemId,
+            (DWORD)(uintptr_t)thisPtr,
+            skillId);
+    }
+
+    const int result = oMountedDemonJumpActionRouteB26050
+                           ? oMountedDemonJumpActionRouteB26050(thisPtr, skillId)
+                           : 0;
+    if (trace)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpAction] B26050 leave caller=0x%08X result=%d mount=%d",
+            callerRet,
+            result,
+            mountItemId);
+    }
+    return result;
+}
+
 static bool IsAddressInCurrentModule(DWORD address)
 {
     if (!address)
@@ -16495,6 +16870,220 @@ static bool SetupMountedDemonJumpLatePathHooks()
         else
         {
             WriteLog("[MountDemonJumpLate] hook failed: BDBFD0");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    return ok;
+}
+
+static bool SetupMountedDemonJumpActionTraceHooks()
+{
+    bool ok = false;
+
+    if (!oMountedDemonJumpActionKind7CE210)
+    {
+        oMountedDemonJumpActionKind7CE210 =
+            (tMountedCrashTraceCdecl1ArgFn)InstallInlineHook(
+                ADDR_MountedDemonJumpActionKind7CE210,
+                (void *)hkMountedDemonJumpActionKind7CE210);
+        if (oMountedDemonJumpActionKind7CE210)
+        {
+            ok = true;
+            WriteLogFmt(
+                "[MountDemonJumpAction] OK(7CE210): tramp=0x%08X",
+                (DWORD)(uintptr_t)oMountedDemonJumpActionKind7CE210);
+        }
+        else
+        {
+            WriteLog("[MountDemonJumpAction] hook failed: 7CE210");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oMountedDemonJumpActionPrepareB273B0)
+    {
+        oMountedDemonJumpActionPrepareB273B0 =
+            (tMountedCrashTrace5ArgFn)InstallInlineHook(
+                ADDR_MountedDemonJumpActionPrepareB273B0,
+                (void *)hkMountedDemonJumpActionPrepareB273B0);
+        if (oMountedDemonJumpActionPrepareB273B0)
+        {
+            ok = true;
+            WriteLogFmt(
+                "[MountDemonJumpAction] OK(B273B0): tramp=0x%08X",
+                (DWORD)(uintptr_t)oMountedDemonJumpActionPrepareB273B0);
+        }
+        else
+        {
+            WriteLog("[MountDemonJumpAction] hook failed: B273B0");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oMountedDemonJumpActionGateA9B710)
+    {
+        oMountedDemonJumpActionGateA9B710 =
+            (tMountedCrashTraceNoArgFn)InstallInlineHook(
+                ADDR_MountedDemonJumpActionGateA9B710,
+                (void *)hkMountedDemonJumpActionGateA9B710);
+        if (oMountedDemonJumpActionGateA9B710)
+        {
+            ok = true;
+            WriteLogFmt(
+                "[MountDemonJumpAction] OK(A9B710): tramp=0x%08X",
+                (DWORD)(uintptr_t)oMountedDemonJumpActionGateA9B710);
+        }
+        else
+        {
+            WriteLog("[MountDemonJumpAction] hook failed: A9B710");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oMountedDemonJumpActionKind52BAD0)
+    {
+        oMountedDemonJumpActionKind52BAD0 =
+            (tMountedCrashTraceCdecl1ArgFn)InstallInlineHook(
+                ADDR_MountedDemonJumpActionKind52BAD0,
+                (void *)hkMountedDemonJumpActionKind52BAD0);
+        if (oMountedDemonJumpActionKind52BAD0)
+        {
+            ok = true;
+            WriteLogFmt(
+                "[MountDemonJumpAction] OK(52BAD0): tramp=0x%08X",
+                (DWORD)(uintptr_t)oMountedDemonJumpActionKind52BAD0);
+        }
+        else
+        {
+            WriteLog("[MountDemonJumpAction] hook failed: 52BAD0");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oMountedDemonJumpActionRouteB29C70)
+    {
+        oMountedDemonJumpActionRouteB29C70 =
+            (tMountedCrashTrace3ArgFn)InstallInlineHook(
+                ADDR_MountedDemonJumpActionRouteB29C70,
+                (void *)hkMountedDemonJumpActionRouteB29C70);
+        if (oMountedDemonJumpActionRouteB29C70)
+        {
+            ok = true;
+            WriteLogFmt(
+                "[MountDemonJumpAction] OK(B29C70): tramp=0x%08X",
+                (DWORD)(uintptr_t)oMountedDemonJumpActionRouteB29C70);
+        }
+        else
+        {
+            WriteLog("[MountDemonJumpAction] hook failed: B29C70");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oMountedDemonJumpActionRouteB24010)
+    {
+        oMountedDemonJumpActionRouteB24010 =
+            (tMountedCrashTrace2ArgFn)InstallInlineHook(
+                ADDR_MountedDemonJumpActionRouteB24010,
+                (void *)hkMountedDemonJumpActionRouteB24010);
+        if (oMountedDemonJumpActionRouteB24010)
+        {
+            ok = true;
+            WriteLogFmt(
+                "[MountDemonJumpAction] OK(B24010): tramp=0x%08X",
+                (DWORD)(uintptr_t)oMountedDemonJumpActionRouteB24010);
+        }
+        else
+        {
+            WriteLog("[MountDemonJumpAction] hook failed: B24010");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oMountedDemonJumpActionRouteB24EA0)
+    {
+        oMountedDemonJumpActionRouteB24EA0 =
+            (tMountedCrashTrace2ArgFn)InstallInlineHook(
+                ADDR_MountedDemonJumpActionRouteB24EA0,
+                (void *)hkMountedDemonJumpActionRouteB24EA0);
+        if (oMountedDemonJumpActionRouteB24EA0)
+        {
+            ok = true;
+            WriteLogFmt(
+                "[MountDemonJumpAction] OK(B24EA0): tramp=0x%08X",
+                (DWORD)(uintptr_t)oMountedDemonJumpActionRouteB24EA0);
+        }
+        else
+        {
+            WriteLog("[MountDemonJumpAction] hook failed: B24EA0");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oMountedDemonJumpActionRouteB26550)
+    {
+        oMountedDemonJumpActionRouteB26550 =
+            (tMountedCrashTrace1ArgFn)InstallInlineHook(
+                ADDR_MountedDemonJumpActionRouteB26550,
+                (void *)hkMountedDemonJumpActionRouteB26550);
+        if (oMountedDemonJumpActionRouteB26550)
+        {
+            ok = true;
+            WriteLogFmt(
+                "[MountDemonJumpAction] OK(B26550): tramp=0x%08X",
+                (DWORD)(uintptr_t)oMountedDemonJumpActionRouteB26550);
+        }
+        else
+        {
+            WriteLog("[MountDemonJumpAction] hook failed: B26550");
+        }
+    }
+    else
+    {
+        ok = true;
+    }
+
+    if (!oMountedDemonJumpActionRouteB26050)
+    {
+        oMountedDemonJumpActionRouteB26050 =
+            (tMountedCrashTrace1ArgFn)InstallInlineHook(
+                ADDR_MountedDemonJumpActionRouteB26050,
+                (void *)hkMountedDemonJumpActionRouteB26050);
+        if (oMountedDemonJumpActionRouteB26050)
+        {
+            ok = true;
+            WriteLogFmt(
+                "[MountDemonJumpAction] OK(B26050): tramp=0x%08X",
+                (DWORD)(uintptr_t)oMountedDemonJumpActionRouteB26050);
+        }
+        else
+        {
+            WriteLog("[MountDemonJumpAction] hook failed: B26050");
         }
     }
     else
@@ -20945,6 +21534,10 @@ static bool SetupSkillNativeIdGateHooks()
         {
             ok = true;
         }
+        if (SetupMountedDemonJumpActionTraceHooks())
+        {
+            ok = true;
+        }
         if (SetupMountedUseFailPromptSuppressHook())
         {
             ok = true;
@@ -20996,6 +21589,15 @@ static bool SetupSkillNativeIdGateHooks()
         oMountedDemonJumpMoveB1C9E0 = nullptr;
         oMountedDemonJumpBranchADEDA0 = nullptr;
         oMountedDemonJumpFilterBDBFD0 = nullptr;
+        oMountedDemonJumpActionKind7CE210 = nullptr;
+        oMountedDemonJumpActionPrepareB273B0 = nullptr;
+        oMountedDemonJumpActionGateA9B710 = nullptr;
+        oMountedDemonJumpActionKind52BAD0 = nullptr;
+        oMountedDemonJumpActionRouteB29C70 = nullptr;
+        oMountedDemonJumpActionRouteB24010 = nullptr;
+        oMountedDemonJumpActionRouteB24EA0 = nullptr;
+        oMountedDemonJumpActionRouteB26550 = nullptr;
+        oMountedDemonJumpActionRouteB26050 = nullptr;
         g_MountedSkillContextGateCallsiteOriginalTarget = 0;
         g_MountedUnknownSkillReleaseBranchOriginalTarget = 0;
         WriteLog("[MountDoubleJump] runtime hooks disabled");
