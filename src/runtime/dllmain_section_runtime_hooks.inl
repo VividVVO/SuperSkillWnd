@@ -13289,6 +13289,59 @@ static int __fastcall hkMountedSkillAttackPacketB28A00(
         HasRecentMountedDemonJumpIntent(mountItemId, 1200);
     const bool shouldLog =
         IsMountedDemonJumpRelatedSkillId(skillId) || hasRecentIntent;
+    int rewrittenSkillId = skillId;
+    bool rewroteMountedDemonRootToChild = false;
+    if (skillIdPtr &&
+        resolvedMount &&
+        mountItemId > 0 &&
+        skillId == 30010110 &&
+        hasRecentIntent)
+    {
+        int rootSkillId = 0;
+        int currentSkillId = 0;
+        if (TryReadMountedDemonJumpContextState(
+                &rootSkillId,
+                &currentSkillId,
+                nullptr) &&
+            rootSkillId == 30010110 &&
+            IsMountedDemonJumpRuntimeChildSkillId(currentSkillId))
+        {
+            rewrittenSkillId = currentSkillId;
+        }
+        else
+        {
+            int recentChildSkillId = 0;
+            if (TryGetRecentMountedDemonJumpNativeChildSkill(
+                    mountItemId,
+                    &recentChildSkillId,
+                    nullptr,
+                    1500) &&
+                IsMountedDemonJumpRuntimeChildSkillId(recentChildSkillId))
+            {
+                rewrittenSkillId = recentChildSkillId;
+            }
+        }
+
+        if (IsMountedDemonJumpRuntimeChildSkillId(rewrittenSkillId))
+        {
+            *skillIdPtr = rewrittenSkillId;
+            rewroteMountedDemonRootToChild = true;
+            static LONG s_mountedDemonJumpAttackPacketRewriteLogBudget = 32;
+            const LONG budgetAfterDecrement =
+                InterlockedDecrement(
+                    &s_mountedDemonJumpAttackPacketRewriteLogBudget);
+            if (budgetAfterDecrement >= 0)
+            {
+                WriteLogFmt(
+                    "[MountDemonJumpPacket] B28A00 rewrite root=%d -> child=%d mount=%d source=%s recentIntent=%d",
+                    skillId,
+                    rewrittenSkillId,
+                    mountItemId,
+                    mountSource ? mountSource : (resolvedMount ? "player" : "none"),
+                    hasRecentIntent ? 1 : 0);
+            }
+        }
+    }
 
     const int result = oMountedSkillAttackPacketB28A00
                            ? oMountedSkillAttackPacketB28A00(
@@ -13301,6 +13354,10 @@ static int __fastcall hkMountedSkillAttackPacketB28A00(
                                  a7,
                                  a8)
                            : 0;
+    if (rewroteMountedDemonRootToChild && skillIdPtr)
+    {
+        *skillIdPtr = skillId;
+    }
 
     if (shouldLog)
     {
@@ -13317,7 +13374,7 @@ static int __fastcall hkMountedSkillAttackPacketB28A00(
                 "[MountDemonJumpPacket] B28A00 caller=0x%08X player=0x%08X skill=%d mount=%d source=%s recentIntent=%d root=%d current=%d context=%d result=%d count=%d arg4=%d opcode147Tail=%u",
                 (DWORD)(uintptr_t)_ReturnAddress(),
                 (DWORD)(uintptr_t)thisPtr,
-                skillId,
+                rewroteMountedDemonRootToChild ? rewrittenSkillId : skillId,
                 mountItemId,
                 mountSource ? mountSource : (resolvedMount ? "player" : "none"),
                 hasRecentIntent ? 1 : 0,
