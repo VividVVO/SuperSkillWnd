@@ -2227,6 +2227,9 @@ static bool TryGetRecentMountedDemonJumpNativeChildSkill(
     int *skillIdOut,
     const char **sourceOut = nullptr,
     DWORD maxAgeMs = 0);
+static int ResolveMountedRuntimeSkillIdForKind(
+    MountedRuntimeSkillKind kind,
+    int mountItemId);
 static bool SendMountedDemonJumpSyntheticSpecialMovePacket(
     int skillId,
     int level,
@@ -7631,10 +7634,122 @@ static void __cdecl hkSkillReleaseClassifierDispatch(int skillId)
     g_ForcedNativeReleaseJump = forcedJump;
 }
 
+static int ResolveMountedDemonJumpContextFallbackOverrideSkillId(
+    int observedSkillId,
+    int *mountItemIdOut,
+    int *rootSkillIdOut,
+    int *currentSkillIdOut)
+{
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = 0;
+    }
+    if (rootSkillIdOut)
+    {
+        *rootSkillIdOut = 0;
+    }
+    if (currentSkillIdOut)
+    {
+        *currentSkillIdOut = 0;
+    }
+
+    if (!IsMountedDemonJumpRuntimeChildSkillId(observedSkillId))
+    {
+        return 0;
+    }
+
+    int mountItemId = 0;
+    if (!TryResolveMountedDemonJumpMountItemIdWithFallback(
+            nullptr,
+            &mountItemId,
+            nullptr,
+            1200) ||
+        mountItemId <= 0)
+    {
+        return 0;
+    }
+
+    if (ResolveMountedRuntimeSkillIdForKind(
+            MountedRuntimeSkillKind_DemonJump,
+            mountItemId) != 30010110)
+    {
+        return 0;
+    }
+
+    int rootSkillId = 0;
+    int currentSkillId = 0;
+    if (!TryReadMountedDemonJumpContextState(
+            &rootSkillId,
+            &currentSkillId,
+            nullptr) ||
+        rootSkillId != 30010110)
+    {
+        return 0;
+    }
+
+    if (!(currentSkillId == observedSkillId ||
+          currentSkillId == 30010110 ||
+          IsMountedDemonJumpRuntimeChildSkillId(currentSkillId)))
+    {
+        return 0;
+    }
+
+    if (!SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(
+            mountItemId,
+            observedSkillId))
+    {
+        return 0;
+    }
+
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = mountItemId;
+    }
+    if (rootSkillIdOut)
+    {
+        *rootSkillIdOut = rootSkillId;
+    }
+    if (currentSkillIdOut)
+    {
+        *currentSkillIdOut = currentSkillId;
+    }
+    return 30010110;
+}
+
 static void __cdecl hkSkillReleaseClassifierRootDispatch(int skillId)
 {
     DWORD overrideSkillId =
         (DWORD)SkillOverlayBridgeResolveNativeClassifierOverrideSkillId(skillId);
+    if (overrideSkillId == 0)
+    {
+        int mountItemId = 0;
+        int rootSkillId = 0;
+        int currentSkillId = 0;
+        const int contextOverrideSkillId =
+            ResolveMountedDemonJumpContextFallbackOverrideSkillId(
+                skillId,
+                &mountItemId,
+                &rootSkillId,
+                &currentSkillId);
+        if (contextOverrideSkillId > 0)
+        {
+            overrideSkillId = static_cast<DWORD>(contextOverrideSkillId);
+            static LONG s_mountedDemonJumpContextRootOverrideLogBudget = 24;
+            const LONG budgetAfterDecrement =
+                InterlockedDecrement(
+                    &s_mountedDemonJumpContextRootOverrideLogBudget);
+            if (budgetAfterDecrement >= 0)
+            {
+                WriteLogFmt(
+                    "[MountDemonJump] B31349 context fallback skill=%d mount=%d root=%d current=%d override=%d",
+                    skillId,
+                    mountItemId,
+                    rootSkillId,
+                    currentSkillId,
+                    contextOverrideSkillId);
+            }
+        }
+    }
     if (IsMountedDemonJumpRelatedSkillId(skillId))
     {
         static LONG s_mountedDemonJumpReleaseRootLogBudget = 24;
@@ -7653,6 +7768,36 @@ static void __cdecl hkSkillReleaseClassifierRootDispatch(int skillId)
 static void __cdecl hkSkillReleaseClassifierB2F370Dispatch(int skillId)
 {
     int overrideSkillId = SkillOverlayBridgeResolveNativeClassifierOverrideSkillId(skillId);
+    if (overrideSkillId == 0)
+    {
+        int mountItemId = 0;
+        int rootSkillId = 0;
+        int currentSkillId = 0;
+        const int contextOverrideSkillId =
+            ResolveMountedDemonJumpContextFallbackOverrideSkillId(
+                skillId,
+                &mountItemId,
+                &rootSkillId,
+                &currentSkillId);
+        if (contextOverrideSkillId > 0)
+        {
+            overrideSkillId = contextOverrideSkillId;
+            static LONG s_mountedDemonJumpContextBranchOverrideLogBudget = 24;
+            const LONG budgetAfterDecrement =
+                InterlockedDecrement(
+                    &s_mountedDemonJumpContextBranchOverrideLogBudget);
+            if (budgetAfterDecrement >= 0)
+            {
+                WriteLogFmt(
+                    "[MountDemonJump] B2F370 context fallback skill=%d mount=%d root=%d current=%d override=%d",
+                    skillId,
+                    mountItemId,
+                    rootSkillId,
+                    currentSkillId,
+                    contextOverrideSkillId);
+            }
+        }
+    }
     g_ClassifierOverrideSkillId = (DWORD)overrideSkillId;
     if (overrideSkillId > 0 && overrideSkillId != skillId)
     {
@@ -14999,9 +15144,44 @@ static int __fastcall hkMountedDemonJumpActionGateA9B710(
     int rootSkillId = 0;
     int currentSkillId = 0;
     bool hasRecentIntent = false;
-    const bool trace =
+    bool trace =
         (callerRet == 0x00B3109D || callerRet == 0x00B311FB) &&
         IsMountedDemonJumpCrashTraceFresh(&runtimeSkillId, &mountItemId);
+    if (!trace &&
+        (callerRet == 0x00B3109D || callerRet == 0x00B311FB) &&
+        TryResolveMountedDemonJumpMountItemIdWithFallback(
+            nullptr,
+            &mountItemId,
+            nullptr,
+            1200) &&
+        mountItemId > 0 &&
+        ResolveMountedRuntimeSkillIdForKind(
+            MountedRuntimeSkillKind_DemonJump,
+            mountItemId) == 30010110 &&
+        TryReadMountedDemonJumpContextState(
+            &rootSkillId,
+            &currentSkillId,
+            nullptr) &&
+        rootSkillId == 30010110)
+    {
+        if (!IsMountedDemonJumpRuntimeChildSkillId(currentSkillId))
+        {
+            int recentChildSkillId = 0;
+            if (TryGetRecentMountedDemonJumpNativeChildSkill(
+                    mountItemId,
+                    &recentChildSkillId,
+                    nullptr,
+                    1200))
+            {
+                currentSkillId = recentChildSkillId;
+            }
+        }
+        if (IsMountedDemonJumpRuntimeChildSkillId(currentSkillId))
+        {
+            runtimeSkillId = currentSkillId;
+            trace = true;
+        }
+    }
     if (trace)
     {
         WriteLogFmt(
