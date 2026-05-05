@@ -965,7 +965,7 @@
               <pre class="preview-code">{{ fixedTextPreview }}</pre>
             </div>
             <div class="preview-hint">
-              <el-icon><InfoFilled /></el-icon> 当前版本：{{ versionLabel(form.version_code) }}。基础格式为“产品名|添加时间|到期时间|提示语|绑定IP|参数1|参数2|参数3|服务器IP|参数4|绑定QQ”，只有当前用户开启“追加尾串”时，才会在最后自动追加第 12 段文本。
+              <el-icon><InfoFilled /></el-icon> 当前版本：{{ versionLabel(form.version_code) }}。基础格式为“产品名|添加时间|到期时间|提示语|hfy-IP1|参数1|参数2|参数3|hfy-IP2|参数4|绑定QQ”，其中 hfy 第 1 个 IP 位取“绑定 IP”，第 2 个 IP 位取“服务器IP”；如果服务器IP留空，第 2 个 IP 位会回退成绑定 IP。支持尾串的版本在开启“追加尾串”后，会在最后自动追加第 12 段文本，且第 12 段使用第 2 个 IP 位参与计算。
             </div>
           </el-card>
 
@@ -1020,13 +1020,13 @@
           <div class="section-caption">绑定验证</div>
           <el-row :gutter="20">
             <el-col :xs="24" :md="8">
-              <el-form-item label="绑定 IP (核心校验)" prop="bound_ip">
-                <el-input v-model.trim="form.bound_ip" placeholder="例如：159.75.226.54" :prefix-icon="PositionIcon"></el-input>
+              <el-form-item label="绑定 IP" prop="bound_ip">
+                <el-input v-model.trim="form.bound_ip" placeholder="例如：159.75.226.54（验证IP / hfy-IP1）" :prefix-icon="PositionIcon"></el-input>
               </el-form-item>
             </el-col>
             <el-col :xs="24" :md="8">
-              <el-form-item label="服务器IP (第二个IP)" prop="server_ip">
-                <el-input v-model.trim="form.server_ip" placeholder="留空默认等于绑定 IP" :prefix-icon="PositionIcon"></el-input>
+              <el-form-item label="服务器IP/加盾IP" prop="server_ip">
+                <el-input v-model.trim="form.server_ip" placeholder="留空则为绑定 IP" :prefix-icon="PositionIcon"></el-input>
               </el-form-item>
             </el-col>
             <el-col :xs="24" :md="8">
@@ -1159,7 +1159,7 @@
             <pre class="preview-code" style="padding: 12px;">{{ fixedTextPreview }}</pre>
           </div>
           <div class="preview-hint" style="margin-top: 12px;">
-            已选择 {{ versionLabel(form.version_code) }}，{{ fixedTextTail ? '当前用户已开启追加尾串，会自动追加第 12 段文本。' : '当前用户未追加尾串。' }}
+            已选择 {{ versionLabel(form.version_code) }}，{{ form.append_version_tail ? (selectedVersionHasTail ? '当前用户已开启追加尾串，会自动追加第 12 段文本。' : '该版本没有可追加的第 12 段。') : '当前用户未追加尾串。' }}
           </div>
         </div>
 
@@ -1167,7 +1167,8 @@
           <div class="side-title"><el-icon><Warning /></el-icon> 核心验证机制</div>
           <ul class="helper-list">
             <li><strong>IP 绑定</strong>是放行的最核心校验字段，新增授权时会检查重复 IP，不能重复添加。</li>
-            <li><strong>服务器IP</strong>控制固定文本里的第二个 IP，留空时默认使用绑定 IP。</li>
+            <li><strong>绑定 IP</strong>会写入 hfy 第 1 个 IP 位，也是服务端放行校验的核心 IP。</li>
+            <li><strong>服务器IP</strong>控制 hfy 固定文本里的第 2 个 IP 位；第 12 段尾串也使用这个 IP 计算，留空时默认回退成绑定 IP。</li>
             <li><strong>追加尾串</strong>8.13最新版本开启，7.53以下版本关闭。</li>
             <li><strong>产品名</strong>会随版本自动带出，但你仍然可以按需要手动修改。</li>
             <li>点击“一键推算到期时间”会自动覆盖当前的到期时间输入框。</li>

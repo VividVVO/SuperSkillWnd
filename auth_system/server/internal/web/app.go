@@ -100,11 +100,12 @@ type adminSettings struct {
 }
 
 type adminVersionItem struct {
-	Code        string `json:"code"`
-	Label       string `json:"label"`
-	ProductName string `json:"product_name"`
-	HasTail     bool   `json:"has_tail"`
-	TailPreview string `json:"tail_preview"`
+	Code           string `json:"code"`
+	Label          string `json:"label"`
+	ProductName    string `json:"product_name"`
+	HasTail        bool   `json:"has_tail"`
+	TailPrefix     string `json:"tail_prefix"`
+	SecondIPSuffix string `json:"second_ip_suffix"`
 }
 
 type adminLicenseItem struct {
@@ -772,10 +773,15 @@ func (a *App) payloadToInput(payload adminLicensePayload) (licenses.UpsertInput,
 		return licenses.UpsertInput{}, err
 	}
 
+	versionProfile, ok := hfycodec.ResolveVersionProfile(payload.VersionCode)
+	if !ok {
+		return licenses.UpsertInput{}, licenses.ValidationError{Message: fmt.Sprintf("不支持的版本编号: %s", strings.TrimSpace(payload.VersionCode))}
+	}
+
 	input := licenses.UpsertInput{
 		Name:              payload.Name,
-		ProductName:       firstNonEmpty(payload.ProductName, a.cfg.ProductName),
-		VersionCode:       payload.VersionCode,
+		ProductName:       firstNonEmpty(payload.ProductName, versionProfile.ProductName, a.cfg.ProductName),
+		VersionCode:       versionProfile.Code,
 		AppendVersionTail: payload.AppendVersionTail,
 		Disclaimer:        firstNonEmpty(payload.Disclaimer, a.cfg.Disclaimer),
 		BoundIP:           payload.BoundIP,
@@ -792,12 +798,6 @@ func (a *App) payloadToInput(payload adminLicensePayload) (licenses.UpsertInput,
 		DurationValue:     payload.DurationValue,
 		DurationUnit:      firstNonEmpty(payload.DurationUnit, a.cfg.DefaultUnit),
 	}
-
-	versionProfile, ok := hfycodec.ResolveVersionProfile(input.VersionCode)
-	if !ok {
-		return licenses.UpsertInput{}, licenses.ValidationError{Message: fmt.Sprintf("不支持的版本编号: %s", strings.TrimSpace(payload.VersionCode))}
-	}
-	input.VersionCode = versionProfile.Code
 
 	return input, input.Normalize()
 }
@@ -1186,11 +1186,12 @@ func convertVersionProfiles(items []hfycodec.VersionProfile) []adminVersionItem 
 	out := make([]adminVersionItem, 0, len(items))
 	for _, item := range items {
 		out = append(out, adminVersionItem{
-			Code:        item.Code,
-			Label:       item.Label,
-			ProductName: item.ProductName,
-			HasTail:     item.Tail != "",
-			TailPreview: item.Tail,
+			Code:           item.Code,
+			Label:          item.Label,
+			ProductName:    item.ProductName,
+			HasTail:        item.HasTail,
+			TailPrefix:     item.TailPrefix,
+			SecondIPSuffix: item.SecondIPSuffix,
 		})
 	}
 	return out

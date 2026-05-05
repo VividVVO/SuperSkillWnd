@@ -2,6 +2,7 @@ package hfycodec
 
 import (
 	"crypto/md5"
+	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -14,7 +15,18 @@ import (
 
 const FixedMagic uint32 = 89742336
 
-const fixedTextAuthorizationSuffix = "VSDIPPBCDJFJFJJLNCMBDNDPMOGONODNHDDKFEKIMKHMCFKONCMAMLLDCJIDPADIEGKHLNPPHMKAIKOGJJCFIMPPBBMAKGHPJJEBIOKKOIFMMNCADFKDNAOMAPEAHOPLOHDAFOOLNOBJLPPJKMECMKFKNHBCIBAGEDOABMBJFANMKBAGHLKLKGKJDGNBLDDFIENNBPAJAHPODFCKAJDCBEBKEJFNGNPDDNIMPPKDLELLLILLDBLHLMBMDMLPFCNEDMKIDEHCAENMGNNECILCMLGIOAPDFPMFDHPKLBEJMHHMBKLFALIIHJBDIOMCLPDNBDCIAJNDCGMOODAHPFDMNCGGGNDHFGONCLKHDCKKEFJPLANAKNMEKLKDNIPKNGAGEELECMIMGMFFJBECBPBGGNCMJGNGBJFKHAFBIIPJFLPMPIKMMOBPLBHPKEDFBEDIBMEOPAOFJEBEIHBCADMFMMHCDHFLMPCGPAAJMAJGBBGIFADCIBNHADJHPOBDPJDBHDBFFGCPEFCIOGIGOILPEDPKAGDFLAJLKKBMEHIDJPMOMMMHFKGMKCOFILOPMNELPBHDFPIOIMJIFFELBMGAPLBJKEEDIAPABCCGLPHFOBEDPMBNBMJGMBNKEHPCKCCELKHLGKKKLBBKDOCMEJOHGKJNDFCOJOJABLLKPJDMOBPLKBPEGFLEPDPIPDPCFKFHCNPIHPMGPBCJIHPMDGLAHDJPPOGAFBMDGHBFNOHEPPLBGEOBMIMEGBONCKLBPLEHCLNKJGEJJLOFGDCHJEAIPDBLOEJKFDBBMILENNGNHBEHJFFMDLCOBJAANPAOKJOOMMCAFHJELKNECHECIAAIIALADEHHMNKBECDBLHFJJCENKKEPNEOGHJDCFAGOMGFCHFNPCIKKLGPHAOBHMNGJMGCILOFFPCBGMABJEPOMBHKNCBPIMLLEFNBCHGGOGAFPAPDJKEIOBGIIHKBMHPFEHNPDDNDDDDLDKNCDGMBDCJJIAMEFIFNGCMJIEEMALLGAJGKFHLDJHKNLEBBGKNNNIIDPMNEGCJNPJHLHNLMJFNBJMPIFFPEJGOFFCNMIKJHAIDJBKLHJLA"
+var versionTailPlaintext = strings.Join([]string{
+	"00AD8580,00BE4F24,00BF3CD8,00D8A1EC,00E32F74,00F6D130",
+	"00AD8530,00BE4ED4,00BF3C6C,00D8A188,00E32F10,00F6D0BC",
+	"004F1DB5,009AFEEF,009A3D81,00AFA655,00AB167A,00B67E39",
+	"0081324A,0050D7A6,009516C2,00545476,00B0DEA9,00BC3A78",
+	"0070EC25,00A00FA0,009536E0,00A911A3,00A5EEDD,00BC3A7D",
+	"00A10FB8,00A00FA5,008AD01A,009D2B67,00A2B828,00B1086E",
+	"005BD868,008BE044,0077E055,009E86FB,009416A0,00AD85D8",
+	"00719DA7,008C8BAF,00AFE8A0,00C8C5F8,00D021B8,009D9CE0",
+	"008E0C06,00B064B8,0079023C,0084D268,00603071,009F6C8D",
+	"008F36FA,0079645B,007806D0,0066E565,005C597F,0062ACD1",
+}, "\r\n")
 
 func FormatLicenseTime(t time.Time) string {
 	return fmt.Sprintf("%04d/%d/%d %02d:%02d:%02d",
@@ -35,9 +47,15 @@ func FormatFixedText(
 	versionCode string,
 	appendVersionTail bool,
 ) string {
-	serverIP = strings.TrimSpace(serverIP)
-	if serverIP == "" {
-		serverIP = strings.TrimSpace(boundIP)
+	firstHfyIP := strings.TrimSpace(boundIP)
+	secondHfyIP := strings.TrimSpace(serverIP)
+	if secondHfyIP == "" {
+		secondHfyIP = firstHfyIP
+	}
+	profile, hasProfile := ResolveVersionProfile(versionCode)
+	repeatedHfyIP := secondHfyIP
+	if hasProfile && profile.SecondIPSuffix != "" {
+		repeatedHfyIP += profile.SecondIPSuffix
 	}
 
 	parts := []string{
@@ -45,22 +63,70 @@ func FormatFixedText(
 		FormatLicenseTime(addedAt),
 		FormatLicenseTime(expiresAt),
 		disclaimer,
-		boundIP,
+		firstHfyIP,
 		boolDigit(param1),
 		boolDigit(param2),
 		boolDigit(param3),
-		serverIP,
+		repeatedHfyIP,
 		boolDigit(param4),
 		boundQQ,
 	}
 
 	if appendVersionTail {
-		if profile, ok := ResolveVersionProfile(versionCode); ok && profile.Tail != "" {
-			parts = append(parts, profile.Tail)
+		if hasProfile && profile.HasTail {
+			if tail := BuildVersionTail(secondHfyIP, profile.TailPrefix); tail != "" {
+				parts = append(parts, tail)
+			}
 		}
 	}
 
 	return strings.Join(parts, "|")
+}
+
+func BuildVersionTail(boundIP, prefix string) string {
+	boundIP = strings.TrimSpace(boundIP)
+	if boundIP == "" {
+		return ""
+	}
+
+	prefix = normalizeTailPrefix(prefix)
+	key := []byte(boundIP + prefix)
+	encoded := versionTailCrypt([]byte(versionTailPlaintext), key)
+
+	var out strings.Builder
+	out.Grow(2 + len(encoded)*2)
+	out.WriteString(prefix)
+	for _, b := range encoded {
+		out.WriteByte('A' + (b >> 4))
+		out.WriteByte('A' + (b & 0x0F))
+	}
+	return out.String()
+}
+
+func normalizeTailPrefix(prefix string) string {
+	prefix = strings.ToUpper(strings.TrimSpace(prefix))
+	if len(prefix) >= 2 {
+		return prefix[:2]
+	}
+	return randomTailPrefix()
+}
+
+func randomTailPrefix() string {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+	buf := make([]byte, 2)
+	if _, err := rand.Read(buf); err != nil {
+		now := time.Now().UnixNano()
+		return string([]byte{
+			alphabet[int((now>>8)%26)],
+			alphabet[int((now>>16)%26)],
+		})
+	}
+
+	return string([]byte{
+		alphabet[int(buf[0])%26],
+		alphabet[int(buf[1])%26],
+	})
 }
 
 func BuildEncryptedFromTemplatePath(templatePath string, fixedText string, key []byte) ([]byte, error) {
@@ -263,6 +329,35 @@ func crypt(data []byte, key []byte, initPos int) []byte {
 func md5HexLower(raw []byte) string {
 	sum := md5.Sum(raw)
 	return hex.EncodeToString(sum[:])
+}
+
+func versionTailCrypt(data, key []byte) []byte {
+	if len(data) == 0 || len(key) == 0 {
+		return nil
+	}
+
+	s := make([]byte, 256)
+	for idx := range s {
+		s[idx] = byte(idx)
+	}
+
+	j := 0
+	for i := 1; i <= 256; i++ {
+		j = ((j + int(s[i-1]) + int(key[(i-1)%len(key)])) % 256) + 1
+		s[i-1], s[j-1] = s[j-1], s[i-1]
+	}
+
+	out := make([]byte, len(data))
+	i := 0
+	j = 0
+	for idx, b := range data {
+		i = ((i + 1) % 256) + 1
+		j = ((j + int(s[i-1])) % 256) + 1
+		s[i-1], s[j-1] = s[j-1], s[i-1]
+		t := ((int(s[j-1]) + int(s[i-1])) % 256) + 1
+		out[idx] = b ^ s[t-1]
+	}
+	return out
 }
 
 func boolDigit(value bool) string {

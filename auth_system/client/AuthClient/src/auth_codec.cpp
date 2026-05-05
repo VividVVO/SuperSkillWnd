@@ -16,6 +16,8 @@
 namespace auth {
 namespace {
 
+constexpr std::uint32_t kFixedMagic = 89742336U;
+
 struct Rc4State {
     std::array<std::uint8_t, 256> s{};
     std::uint8_t i = 0;
@@ -302,6 +304,36 @@ std::vector<std::uint8_t> Encrypt(const std::vector<std::uint8_t>& data,
 }
 
 }  // namespace
+
+std::vector<std::uint8_t> BuildEncryptedText(
+    const std::string& plainTextUtf8,
+    const std::string& keyAscii,
+    std::string* errorMessage) {
+    if (errorMessage) {
+        errorMessage->clear();
+    }
+
+    const std::wstring plainTextWide = Utf8ToWide(plainTextUtf8);
+    std::vector<std::uint8_t> blob;
+    if (!WideToCodePage(plainTextWide, 936, &blob)) {
+        if (errorMessage) {
+            *errorMessage = "文本转 GBK 失败";
+        }
+        return {};
+    }
+
+    const std::vector<std::uint8_t> key(keyAscii.begin(), keyAscii.end());
+    const std::string digest64 = Md5HexLower(key) + Md5HexLower(blob);
+
+    std::vector<std::uint8_t> plainOut;
+    plainOut.reserve(4 + digest64.size() + 4 + blob.size());
+    AppendLe32(&plainOut, kFixedMagic);
+    plainOut.insert(plainOut.end(), digest64.begin(), digest64.end());
+    AppendLe32(&plainOut, static_cast<std::uint32_t>(blob.size()));
+    plainOut.insert(plainOut.end(), blob.begin(), blob.end());
+
+    return Encrypt(plainOut, key);
+}
 
 std::vector<std::uint8_t> BuildEncryptedFromTemplate(
     const std::vector<std::uint8_t>& templateBytes,

@@ -76,7 +76,7 @@ func (in *UpsertInput) Normalize() error {
 	in.Notes = strings.TrimSpace(in.Notes)
 	in.DurationUnit = strings.TrimSpace(strings.ToLower(in.DurationUnit))
 	if in.VersionCode == "" {
-		in.VersionCode = "099"
+		in.VersionCode = "095"
 	}
 
 	if in.Name == "" {

@@ -459,6 +459,7 @@ namespace
     const DWORD kMountedMovementOverrideSelectionTimeoutMs = 300000;
     const DWORD kMountedDoubleJumpMountSelectionFallbackTimeoutMs = 5000;
     const DWORD kMountedDoubleJumpRouteArmTimeoutMs = 400;
+    const DWORD kMountedDemonJumpRouteArmTimeoutMs = 400;
     const DWORD kIndependentBuffRefreshCancelIgnoreMs = 3000;
     const DWORD kIndependentBuffClientCancelWindowMs = 1500;
     const size_t kNativeSkillRowCloneBytes = 0x800;
@@ -7894,6 +7895,8 @@ namespace
         const bool allowMountedDemonChildObserved =
             activeCustomSkillId == 30010110 &&
             IsMountedDemonJumpRuntimeChildSkillId(observedSkillId);
+        const bool keepMountedDemonChildPacket =
+            allowMountedDemonChildObserved;
         const bool matchesPrimaryObserved =
             (observedSkillId == activeCustomSkillId) ||
             (g_activeNativeRelease.classifierProxySkillId > 0 &&
@@ -7937,8 +7940,24 @@ namespace
             }
         }
 
-        if (observedSkillId != targetSkillId)
+        if (keepMountedDemonChildPacket)
+        {
+            static DWORD s_lastMountedDemonKeepChildPacketLogTick = 0;
+            if (now - s_lastMountedDemonKeepChildPacketLogTick > 1000)
+            {
+                s_lastMountedDemonKeepChildPacketLogTick = now;
+                WriteLogFmt(
+                    "[MountDemonJump] packet keep child observed=%d custom=%d route=%s releaseClass=%s",
+                    observedSkillId,
+                    targetSkillId,
+                    PacketRouteToString(packetRoute),
+                    ReleaseClassToString(g_activeNativeRelease.releaseClass));
+            }
+        }
+        else if (observedSkillId != targetSkillId)
+        {
             WritePacketInt(packet, skillIdOffset, targetSkillId);
+        }
 
         if (skillLevelOffset >= 0 && packetLen > skillLevelOffset)
             packet[skillLevelOffset] = (BYTE)customLevel;
@@ -10557,8 +10576,16 @@ namespace
         }
 
         const DWORD nowTick = GetTickCount();
-        const DWORD allowedAgeMs =
+        DWORD allowedAgeMs =
             maxAgeMs > 0 ? maxAgeMs : kMountedDoubleJumpRouteArmTimeoutMs;
+        const DWORD hardCapAgeMs =
+            kind == MountedRuntimeSkillKind_DemonJump
+                ? kMountedDemonJumpRouteArmTimeoutMs
+                : kMountedDoubleJumpRouteArmTimeoutMs;
+        if (allowedAgeMs > hardCapAgeMs)
+        {
+            allowedAgeMs = hardCapAgeMs;
+        }
         if (nowTick - static_cast<DWORD>(recentTick) > allowedAgeMs)
         {
             return false;
@@ -10566,6 +10593,12 @@ namespace
 
         *mountItemIdOut = static_cast<int>(recentMountItemId);
         return true;
+    }
+
+    void ClearMountedRuntimeSkillRouteArm(MountedRuntimeSkillKind kind)
+    {
+        InterlockedExchange(&g_recentMountedRuntimeSkillRouteArmItemId[kind], 0);
+        InterlockedExchange(&g_recentMountedRuntimeSkillRouteArmTick[kind], 0);
     }
 
     bool HasRecentMountedRuntimeSkillRouteArm(
@@ -10693,9 +10726,13 @@ namespace
             return true;
         }
 
+        const DWORD selectionFallbackMs =
+            kind == MountedRuntimeSkillKind_DemonJump
+                ? kMountedDemonJumpRouteArmTimeoutMs
+                : kMountedDoubleJumpRouteArmTimeoutMs;
         if (TryGetRecentMountedMovementOverrideMountItemId(
                 mountItemId,
-                kMountedDoubleJumpMountSelectionFallbackTimeoutMs) &&
+                selectionFallbackMs) &&
             CanUseMountedRuntimeSkillWithRouteProxy(
                 mountItemId,
                 routeSkillId,
@@ -11066,6 +11103,36 @@ bool SkillOverlayBridgeTryGetRecentMountedDemonJumpRouteArmMountItemId(
         maxAgeMs);
 }
 
+void SkillOverlayBridgeClearMountedDemonJumpTransientState(
+    int mountItemId,
+    const char* reason)
+{
+    (void)mountItemId;
+
+    ClearMountedRuntimeSkillRouteArm(MountedRuntimeSkillKind_DemonJump);
+
+    const bool hasMountedDemonJumpNativeRelease =
+        g_activeNativeRelease.customSkillId == 30010110 ||
+        g_recentNativePresentation.customSkillId == 30010110 ||
+        g_recentNativePresentation.proxySkillId == 30010110 ||
+        g_recentNativePresentation.visualSkillId == 23001002;
+    if (hasMountedDemonJumpNativeRelease)
+    {
+        ClearActiveNativeReleaseContext();
+        ClearRecentNativePresentationContext();
+    }
+
+    static LONG s_clearMountedDemonJumpTransientStateLogBudget = 64;
+    if (InterlockedDecrement(&s_clearMountedDemonJumpTransientStateLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountDemonJump] clear bridge transient state mount=%d reason=%s native=%d",
+            mountItemId,
+            reason ? reason : "unknown",
+            hasMountedDemonJumpNativeRelease ? 1 : 0);
+    }
+}
+
 int SkillOverlayBridgeResolveNativeLevelLookupSkillId(int skillId)
 {
     if (skillId <= 0)
@@ -11323,6 +11390,45 @@ void SkillOverlayBridgeObserveLevelResult(int skillId, int level, bool isBaseLev
 uintptr_t SkillOverlayBridgeLookupSkillEntryPointer(int skillId)
 {
     return GameLookupSkillEntryPointer(skillId);
+}
+
+void SkillOverlayBridgeCompleteMountedNativeReleaseContext(int customSkillId, int observedSkillId)
+{
+    if (customSkillId <= 0 || observedSkillId <= 0)
+        return;
+
+    if (g_activeNativeRelease.customSkillId != customSkillId ||
+        g_activeNativeRelease.packetRoute != CustomSkillPacketRoute_SpecialMove ||
+        g_activeNativeRelease.releaseClass != CustomSkillReleaseClass_NativeClassifierProxy)
+    {
+        return;
+    }
+
+    const bool preserveMountedDemonJumpTail =
+        customSkillId == 30010110 &&
+        (observedSkillId == 30010183 ||
+         observedSkillId == 30010184 ||
+         observedSkillId == 30010186);
+    if (preserveMountedDemonJumpTail)
+    {
+        WriteLogFmt("[MountDemonJump] delay native release context clear custom=%d observed=%d donor=%d firstRewriteTick=%u remain=%d",
+            g_activeNativeRelease.customSkillId,
+            observedSkillId,
+            g_activeNativeRelease.classifierProxySkillId,
+            g_activeNativeRelease.firstRewriteTick,
+            g_activeNativeRelease.remainingRewriteBudget);
+        return;
+    }
+
+    WriteLogFmt("[MountDemonJump] clear native release context custom=%d observed=%d donor=%d firstRewriteTick=%u remain=%d",
+        g_activeNativeRelease.customSkillId,
+        observedSkillId,
+        g_activeNativeRelease.classifierProxySkillId,
+        g_activeNativeRelease.firstRewriteTick,
+        g_activeNativeRelease.remainingRewriteBudget);
+
+    ClearActiveNativeReleaseContext();
+    ClearRecentNativePresentationContext();
 }
 
 void SkillOverlayBridgeApplyConfiguredPassiveEffectBonuses(uintptr_t skillEntryPtr, int level, uintptr_t effectPtr, const char* sourceTag)

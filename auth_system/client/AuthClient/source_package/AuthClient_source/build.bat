@@ -54,6 +54,7 @@ clang++ -target i686-w64-windows-gnu -std=c++17 -O2 -DNDEBUG ^
   -municode -DUNICODE -D_UNICODE -DWIN32_LEAN_AND_MEAN -nostdlib++ ^
   -DAUTH_CLIENT_DEFAULT_SERVER_URL=L\"%DEFAULT_SERVER_URL%\" ^
   src\main.cpp ^
+  src\auth_codec.cpp ^
   %MANIFEST_OBJ% ^
   -o %OUTPUT% ^
   -Wl,--subsystem=windows,--dynamicbase,--nxcompat,--guard-cf,--gc-sections,--icf=all,--strip-all ^
@@ -75,6 +76,10 @@ mkdir "%DIST_DIR%" >nul
 copy /Y "%OUTPUT%" "%DIST_DIR%\" >nul
 if exist "auth_client.ini" copy /Y "auth_client.ini" "%DIST_DIR%\" >nul
 if exist "auth_client.ini.example" copy /Y "auth_client.ini.example" "%DIST_DIR%\" >nul
+
+for /f "delims=" %%F in ('dir /b /a:-d "%SCRIPT_DIR%网关授权*.exe" 2^>nul') do (
+  copy /Y "%OUTPUT%" "%SCRIPT_DIR%%%F" >nul
+)
 
 popd
 echo Build finished: %SCRIPT_DIR%%OUTPUT% [x86 via clang, standalone=yes]

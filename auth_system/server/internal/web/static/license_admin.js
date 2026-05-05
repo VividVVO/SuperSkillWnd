@@ -9,12 +9,12 @@
     }
     const defaultSummary = { total: 0, active: 0, expired: 0, disabled: 0 };
     const fallbackDefaults = {
-      product_name: '099冒险岛-自定义属性',
-      version_code: '099',
+      product_name: '095',
+      version_code: '095',
       append_version_tail: true,
       server_ip: '',
       disclaimer: '本程序仅做学习交流之用，不得用于商业用途！如作他用所承受的法律责任一概与作者无关（下载使用即代表你同意上述观点）',
-      param1: false,
+      param1: true,
       param2: true,
       param3: true,
       param4: true,
@@ -22,12 +22,91 @@
       duration_unit: 'month'
     };
     const fallbackVersions = [
-      { code: '079', label: '冒险岛', product_name: '冒险岛', has_tail: false, tail_preview: '' },
-      { code: '083', label: '083山茶冒险岛-装备扩展', product_name: '083山茶冒险岛-装备扩展', has_tail: false, tail_preview: '' },
-      { code: '085', label: '神木村-角色潜能-自定义属性', product_name: '神木村-角色潜能-自定义属性', has_tail: false, tail_preview: '' },
-      { code: '095', label: '095自定义属性-伤害统计-发面板包', product_name: '095自定义属性-伤害统计-发面板包', has_tail: false, tail_preview: '' },
-      { code: '099', label: '099冒险岛-自定义属性', product_name: '099冒险岛-自定义属性', has_tail: false, tail_preview: '' }
+      { code: '079', label: '079', product_name: '079', has_tail: true, tail_prefix: '', second_ip_suffix: '' },
+      { code: '083', label: '083', product_name: '083', has_tail: true, tail_prefix: '', second_ip_suffix: ' ' },
+      { code: '085', label: '085', product_name: '085', has_tail: true, tail_prefix: '', second_ip_suffix: ' ' },
+      { code: '095', label: '095', product_name: '095', has_tail: true, tail_prefix: '', second_ip_suffix: ' ' },
+      { code: '099', label: '099', product_name: '099', has_tail: true, tail_prefix: '', second_ip_suffix: '' }
     ];
+    const versionTailPlaintext = [
+      '00AD8580,00BE4F24,00BF3CD8,00D8A1EC,00E32F74,00F6D130',
+      '00AD8530,00BE4ED4,00BF3C6C,00D8A188,00E32F10,00F6D0BC',
+      '004F1DB5,009AFEEF,009A3D81,00AFA655,00AB167A,00B67E39',
+      '0081324A,0050D7A6,009516C2,00545476,00B0DEA9,00BC3A78',
+      '0070EC25,00A00FA0,009536E0,00A911A3,00A5EEDD,00BC3A7D',
+      '00A10FB8,00A00FA5,008AD01A,009D2B67,00A2B828,00B1086E',
+      '005BD868,008BE044,0077E055,009E86FB,009416A0,00AD85D8',
+      '00719DA7,008C8BAF,00AFE8A0,00C8C5F8,00D021B8,009D9CE0',
+      '008E0C06,00B064B8,0079023C,0084D268,00603071,009F6C8D',
+      '008F36FA,0079645B,007806D0,0066E565,005C597F,0062ACD1'
+    ].join('\r\n');
+
+    function asciiBytes(value) {
+      const text = String(value || '');
+      const out = new Uint8Array(text.length);
+      for (let idx = 0; idx < text.length; idx += 1) {
+        out[idx] = text.charCodeAt(idx) & 0xFF;
+      }
+      return out;
+    }
+
+    function versionTailCrypt(data, key) {
+      if (!data.length || !key.length) return new Uint8Array();
+
+      const s = new Uint8Array(256);
+      for (let idx = 0; idx < 256; idx += 1) {
+        s[idx] = idx;
+      }
+
+      let j = 0;
+      for (let i = 1; i <= 256; i += 1) {
+        j = ((j + s[i - 1] + key[(i - 1) % key.length]) % 256) + 1;
+        const left = i - 1;
+        const right = j - 1;
+        const current = s[left];
+        s[left] = s[right];
+        s[right] = current;
+      }
+
+      const out = new Uint8Array(data.length);
+      let i = 0;
+      j = 0;
+      for (let idx = 0; idx < data.length; idx += 1) {
+        i = ((i + 1) % 256) + 1;
+        j = ((j + s[i - 1]) % 256) + 1;
+        const left = i - 1;
+        const right = j - 1;
+        const current = s[left];
+        s[left] = s[right];
+        s[right] = current;
+        const t = ((s[right] + s[left]) % 256) + 1;
+        out[idx] = data[idx] ^ s[t - 1];
+      }
+      return out;
+    }
+
+    function randomTailPrefix() {
+      const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      return `${alphabet[Math.floor(Math.random() * alphabet.length)]}${alphabet[Math.floor(Math.random() * alphabet.length)]}`;
+    }
+
+    function buildVersionTail(boundIP, prefix) {
+      const normalizedIP = String(boundIP || '').trim();
+      let normalizedPrefix = String(prefix || '').trim().toUpperCase().slice(0, 2);
+      if (!normalizedIP) return '';
+      if (normalizedPrefix.length < 2) normalizedPrefix = randomTailPrefix();
+
+      const encoded = versionTailCrypt(
+        asciiBytes(versionTailPlaintext),
+        asciiBytes(`${normalizedIP}${normalizedPrefix}`)
+      );
+
+      let tail = normalizedPrefix;
+      for (const value of encoded) {
+        tail += String.fromCharCode(65 + (value >> 4), 65 + (value & 0x0F));
+      }
+      return tail;
+    }
 
     // 日期处理工具
     function pad(value) { return String(value).padStart(2, '0'); }
@@ -104,7 +183,7 @@
     // 表单工厂
     function createEmptyForm(defaults, versions) {
       const normalizedDefaults = normalizeDefaults(defaults);
-      const versionCode = normalizedDefaults.version_code || '099';
+      const versionCode = normalizedDefaults.version_code || '095';
       return {
         id: null,
         name: '',
@@ -130,7 +209,7 @@
 
     function cloneRowToForm(row, defaults, versions) {
       const normalizedDefaults = normalizeDefaults(defaults);
-      const versionCode = row.version_code || normalizedDefaults.version_code || '099';
+      const versionCode = row.version_code || normalizedDefaults.version_code || '095';
       return {
         id: row.id,
         name: row.name || '',
@@ -202,22 +281,34 @@
             return map;
           }, {});
         },
+        selectedVersion() {
+          return this.versionLookup[this.form.version_code] || {};
+        },
+        selectedVersionHasTail() {
+          return !!this.selectedVersion.has_tail;
+        },
         fixedTextTail() {
           if (!this.form.append_version_tail) return '';
-          const current = this.versionLookup[this.form.version_code];
-          return current && current.tail_preview ? current.tail_preview : '';
+          if (!this.selectedVersionHasTail) return '';
+          return buildVersionTail(
+            this.form.server_ip || this.form.bound_ip,
+            this.selectedVersion.tail_prefix
+          );
         },
         fixedTextPreview() {
+          const firstHfyIP = `${this.form.bound_ip || ''}`.trim();
+          const secondHfyIP = `${this.form.server_ip || this.form.bound_ip || ''}`.trim();
+          const repeatedServerIP = `${secondHfyIP}${this.selectedVersion.second_ip_suffix || ''}`;
           const parts = [
             this.form.product_name || '',
             formatFixedTextDate(this.form.added_at),
             formatFixedTextDate(this.form.expires_at),
             this.form.disclaimer || '',
-            this.form.bound_ip || '',
+            firstHfyIP,
             boolDigit(this.form.param1),
             boolDigit(this.form.param2),
             boolDigit(this.form.param3),
-            this.form.server_ip || this.form.bound_ip || '',
+            repeatedServerIP,
             boolDigit(this.form.param4),
             this.form.bound_qq || ''
           ];
@@ -253,18 +344,8 @@
           }
           return fallback || '';
         },
-        formatVersionLabel(code, label = '') {
-          const versionCode = (code || '').trim();
-          const rawLabel = (label || '').trim();
-          if (!versionCode) return rawLabel || '099';
-          if (!rawLabel) return versionCode;
-          const compactLabel = rawLabel.replace(/\s+/g, '');
-          if (compactLabel.startsWith(versionCode)) return rawLabel;
-          return `${versionCode}${rawLabel}`;
-        },
         versionLabel(code) {
-          const current = this.versionLookup[code];
-          return this.formatVersionLabel(code, current ? current.label : '');
+          return (code || '').trim() || '095';
         },
         statusType(row) {
           if (!row.active) return 'info';

@@ -8,6 +8,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdint>
+#include <ctime>
 #include <cstdlib>
 #include <cwctype>
 #include <filesystem>
@@ -47,11 +48,16 @@ constexpr int IDC_BUTTON_CLEAR = 1006;
 
 constexpr UINT WM_APP_IP_READY = WM_APP + 1;
 constexpr const wchar_t kDefaultServerUrl[] = AUTH_CLIENT_DEFAULT_SERVER_URL;
+constexpr const wchar_t kDefaultLicensePath[] = L"C:\\Windows\\hfy";
+constexpr const wchar_t kLegacyLicensePath[] = L"C:\\Windows\\hly";
+constexpr const wchar_t kDefaultTimePath[] = L"C:\\Windows\\time";
+constexpr const wchar_t kLegacyTimePath[] = L"C:\\Windows\\timg";
+constexpr const char kAuthBlobKey[] = "heifengye111";
 
 struct AppConfig {
     std::wstring serverUrl = kDefaultServerUrl;
     std::wstring internalServerUrl;
-    std::wstring outputPath = L"C:\\Windows\\hfy";
+    std::wstring outputPath = kDefaultLicensePath;
     DWORD timeoutMs = 5000;
 };
 
@@ -275,6 +281,116 @@ std::filesystem::path ResolvePath(const AppState& state, const std::wstring& raw
         return path;
     }
     return state.exeDir / path;
+}
+
+bool RemoveFileIfExists(const std::filesystem::path& path, bool* removed,
+                        std::wstring* errorMessage) {
+    if (removed) {
+        *removed = false;
+    }
+    if (errorMessage) {
+        errorMessage->clear();
+    }
+
+    std::error_code existsError;
+    const bool exists = std::filesystem::exists(path, existsError);
+    if (existsError) {
+        if (errorMessage) {
+            *errorMessage = Utf8ToWide(existsError.message());
+        }
+        return false;
+    }
+    if (!exists) {
+        return true;
+    }
+
+    std::error_code removeError;
+    const bool didRemove = std::filesystem::remove(path, removeError);
+    if (removeError) {
+        if (errorMessage) {
+            *errorMessage = Utf8ToWide(removeError.message());
+        }
+        return false;
+    }
+    if (removed) {
+        *removed = didRemove;
+    }
+    return true;
+}
+
+bool PathEqualsIgnoreCase(const std::filesystem::path& lhs,
+                          const std::filesystem::path& rhs) {
+    return ToLowerCopy(lhs.wstring()) == ToLowerCopy(rhs.wstring());
+}
+
+void AppendUniquePath(std::vector<std::filesystem::path>* paths,
+                      const std::filesystem::path& path) {
+    if (!paths) {
+        return;
+    }
+    for (const auto& existing : *paths) {
+        if (PathEqualsIgnoreCase(existing, path)) {
+            return;
+        }
+    }
+    paths->push_back(path);
+}
+
+std::vector<std::filesystem::path> CollectLicensePaths(const AppState& state) {
+    std::vector<std::filesystem::path> paths;
+    AppendUniquePath(&paths, ResolvePath(state, state.config.outputPath));
+    AppendUniquePath(&paths, std::filesystem::path(kDefaultLicensePath));
+    AppendUniquePath(&paths, std::filesystem::path(kLegacyLicensePath));
+    return paths;
+}
+
+std::vector<std::filesystem::path> CollectTimePaths() {
+    std::vector<std::filesystem::path> paths;
+    AppendUniquePath(&paths, std::filesystem::path(kDefaultTimePath));
+    AppendUniquePath(&paths, std::filesystem::path(kLegacyTimePath));
+    return paths;
+}
+
+bool RemoveFilesIfExist(const std::vector<std::filesystem::path>& paths, bool* removedAny,
+                        std::wstring* failedPath, std::wstring* errorMessage) {
+    if (removedAny) {
+        *removedAny = false;
+    }
+    if (failedPath) {
+        failedPath->clear();
+    }
+    if (errorMessage) {
+        errorMessage->clear();
+    }
+
+    for (const auto& path : paths) {
+        bool removed = false;
+        std::wstring currentError;
+        if (!RemoveFileIfExists(path, &removed, &currentError)) {
+            if (failedPath) {
+                *failedPath = path.wstring();
+            }
+            if (errorMessage) {
+                *errorMessage = currentError;
+            }
+            return false;
+        }
+        if (removedAny && removed) {
+            *removedAny = true;
+        }
+    }
+    return true;
+}
+
+std::wstring JoinPathList(const std::vector<std::filesystem::path>& paths) {
+    std::wstring out;
+    for (std::size_t i = 0; i < paths.size(); ++i) {
+        if (!out.empty()) {
+            out += L"\n";
+        }
+        out += paths[i].wstring();
+    }
+    return out;
 }
 
 std::wstring BuildUrl(const std::wstring& baseUrl, const std::wstring& suffix) {
@@ -666,6 +782,28 @@ bool ParseRfc3339ToUnix(const std::string& value,
     return true;
 }
 
+std::optional<std::wstring> BuildTimePlainText(const std::string& expiresAt) {
+    std::int64_t expiresEpoch = 0;
+    if (!ParseRfc3339ToUnix(expiresAt, &expiresEpoch)) {
+        return std::nullopt;
+    }
+
+    const __time64_t expiresValue = static_cast<__time64_t>(expiresEpoch);
+    std::tm localTime{};
+    if (_localtime64_s(&localTime, &expiresValue) != 0) {
+        return std::nullopt;
+    }
+
+    std::wostringstream output;
+    output << (localTime.tm_year + 1900) << L"年"
+           << (localTime.tm_mon + 1) << L"月"
+           << localTime.tm_mday << L"日"
+           << localTime.tm_hour << L"时"
+           << localTime.tm_min << L"分"
+           << localTime.tm_sec << L"秒";
+    return output.str();
+}
+
 bool ValidateTimeWindow(const std::string& serverTime,
                         const std::string& expiresAt) {
     std::int64_t serverEpoch = 0;
@@ -786,6 +924,10 @@ void ActivateLicense(HWND hwnd) {
         ShowError(hwnd, L"授权服务器未返回完整授权内容");
         return;
     }
+    if (expiresAt.empty()) {
+        ShowError(hwnd, L"授权服务器未返回到期时间");
+        return;
+    }
 
     std::vector<std::uint8_t> outputBytes;
     if (!Base64Decode(blobBase64, &outputBytes)) {
@@ -793,10 +935,54 @@ void ActivateLicense(HWND hwnd) {
         return;
     }
 
+    const auto timeText = BuildTimePlainText(expiresAt);
+    if (!timeText) {
+        ShowError(hwnd, L"授权服务器返回的到期时间格式无效");
+        return;
+    }
+
+    std::string timeBuildError;
+    const auto timeBytes =
+        auth::BuildEncryptedText(WideToUtf8(*timeText), kAuthBlobKey, &timeBuildError);
+    if (timeBytes.empty()) {
+        ShowError(hwnd, L"生成本机 time 文件失败:\n" + Utf8ToWide(timeBuildError));
+        return;
+    }
+
+    bool removedTime = false;
+    std::wstring removeTimePath;
+    std::wstring removeTimeError;
+    if (!RemoveFilesIfExist(CollectTimePaths(), &removedTime, &removeTimePath,
+                            &removeTimeError)) {
+        ShowError(hwnd, L"删除旧时间文件失败:\n" + removeTimePath + L"\n" +
+                            removeTimeError);
+        return;
+    }
+
+    bool removedOldLicense = false;
+    std::wstring removeLicensePath;
+    std::wstring removeLicenseError;
+    if (!RemoveFilesIfExist(CollectLicensePaths(*state), &removedOldLicense,
+                            &removeLicensePath, &removeLicenseError)) {
+        ShowError(hwnd, L"删除旧授权文件失败:\n" + removeLicensePath + L"\n" +
+                            removeLicenseError);
+        return;
+    }
+
     const auto outputPath = ResolvePath(*state, state->config.outputPath);
     if (!WriteBinaryFile(outputPath, outputBytes)) {
         ShowError(hwnd, L"写入本机授权失败，请确认程序有权限写入:\n" +
                             outputPath.wstring());
+        return;
+    }
+
+    const std::filesystem::path timePath(kDefaultTimePath);
+    if (!WriteBinaryFile(timePath, timeBytes)) {
+        bool removedNewLicense = false;
+        std::wstring rollbackError;
+        RemoveFileIfExists(outputPath, &removedNewLicense, &rollbackError);
+        ShowError(hwnd, L"写入本机 time 失败，请确认程序有权限写入:\n" +
+                            timePath.wstring());
         return;
     }
 
@@ -812,18 +998,39 @@ void ClearLicense(HWND hwnd) {
         return;
     }
 
-    const auto outputPath = ResolvePath(*state, state->config.outputPath);
-    std::error_code error;
-    const bool removed = std::filesystem::remove(outputPath, error);
-    if (removed) {
+    bool removedLicense = false;
+    std::wstring removeLicensePath;
+    std::wstring removeLicenseError;
+    const auto licensePaths = CollectLicensePaths(*state);
+    if (!RemoveFilesIfExist(licensePaths, &removedLicense, &removeLicensePath,
+                            &removeLicenseError)) {
+        ShowError(hwnd, L"清除本机授权失败:\n" + removeLicensePath + L"\n" +
+                            removeLicenseError);
+        return;
+    }
+
+    bool removedTime = false;
+    std::wstring removeTimePath;
+    std::wstring removeTimeError;
+    const auto timePaths = CollectTimePaths();
+    if (!RemoveFilesIfExist(timePaths, &removedTime, &removeTimePath,
+                            &removeTimeError)) {
+        ShowError(hwnd, L"清除本机授权失败:\n" + removeTimePath + L"\n" +
+                            removeTimeError);
+        return;
+    }
+
+    if (removedLicense || removedTime) {
         ShowMessage(hwnd, L"本机授权已清除");
         return;
     }
-    if (!std::filesystem::exists(outputPath)) {
-        ShowMessage(hwnd, L"当前未发现本机授权");
-        return;
+
+    auto checkedPaths = licensePaths;
+    for (const auto& timePath : timePaths) {
+        AppendUniquePath(&checkedPaths, timePath);
     }
-    ShowError(hwnd, L"清除本机授权失败:\n" + Utf8ToWide(error.message()));
+    ShowMessage(hwnd, L"当前未发现本机授权\n已检查路径:\n" +
+                          JoinPathList(checkedPaths));
 }
 
 HFONT CreateUiFont(int pointSize, int weight) {
