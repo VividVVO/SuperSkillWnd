@@ -868,7 +868,6 @@ namespace
     const DWORD kPendingSuperSkillUpgradeRewriteWindowMs = 1200;
     std::map<int, PendingOptimisticSuperSkillLevelHold> g_pendingOptimisticSuperSkillLevelHoldBySkillId;
     const DWORD kPendingOptimisticSuperSkillLevelHoldWindowMs = 1800;
-
     void RefreshSkillNativeState(SkillItem& item);
     bool ReadTextFile(const char* path, std::string& out);
     bool ParseJsonInt(const std::string& json, const char* key, int& outVal);
@@ -928,7 +927,6 @@ namespace
     void ClearAllPendingOptimisticSuperSkillLevelHolds(const char* reason);
     void ClearPendingOptimisticSuperSkillLevelHold(int skillId);
     bool TryGetFreshPendingOptimisticSuperSkillLevelHold(int skillId, PendingOptimisticSuperSkillLevelHold& outHold);
-    void ApplyOptimisticSuperSkillUpgradeObservation(int skillId, int carrierSkillId, int nextSkillLevel, int nextCarrierPoints);
     void ClearPendingSuperSkillUpgradePacketRewrite();
     bool IsPendingSuperSkillUpgradePacketRewriteFresh();
     void LoadSuperSkillRegistry();
@@ -1530,7 +1528,7 @@ namespace
                 {
                     g_observedCurrentLevelsBySkillId[skillId] = result;
                 }
-                else if (result > observedIt->second && result != 1)
+                else if (result != 1 || observedIt->second <= 1)
                 {
                     observedIt->second = result;
                 }
@@ -1610,7 +1608,7 @@ namespace
                 {
                     g_observedBaseLevelsBySkillId[skillId] = result;
                 }
-                else if (result > observedIt->second && result != 1)
+                else
                 {
                     observedIt->second = result;
                 }
@@ -1622,6 +1620,10 @@ namespace
         }
         else
         {
+            if (IsKnownSuperSkillCarrierSkillId(skillId))
+            {
+                g_observedBaseLevelsBySkillId[skillId] = 0;
+            }
             if (suppressResetFallback)
             {
                 ClearTrackedNonNativeSuperSkillLevel(skillId, "game-base-reset-sync");
@@ -1960,6 +1962,62 @@ namespace
                    currentJobId) != definition.visibleJobIds.end();
     }
 
+    thread_local int g_mountedRuntimeDefinitionResolveDepth = 0;
+
+    struct ScopedMountedRuntimeDefinitionResolveGuard
+    {
+        ScopedMountedRuntimeDefinitionResolveGuard()
+        {
+            ++g_mountedRuntimeDefinitionResolveDepth;
+        }
+
+        ~ScopedMountedRuntimeDefinitionResolveGuard()
+        {
+            --g_mountedRuntimeDefinitionResolveDepth;
+        }
+    };
+
+    bool IsMountedRuntimeDefinitionResolveActive()
+    {
+        return g_mountedRuntimeDefinitionResolveDepth > 0;
+    }
+
+    bool IsMountedRuntimeDefinitionResolveReentrant()
+    {
+        return g_mountedRuntimeDefinitionResolveDepth > 1;
+    }
+
+    int GetMountedRuntimeDefinitionLearnedLevel(int skillId)
+    {
+        if (skillId <= 0)
+            return 0;
+
+        const int runtimeAppliedLevel = GetRuntimeAppliedSkillLevel(skillId);
+        if (runtimeAppliedLevel > 0)
+            return runtimeAppliedLevel;
+
+        const int observedCurrentLevel = GetObservedCurrentSkillLevel(skillId);
+        if (observedCurrentLevel > 0)
+            return observedCurrentLevel;
+
+        if (IsMountedRuntimeDefinitionResolveReentrant())
+        {
+            static DWORD s_lastMountedRuntimeDefinitionReentrantLogTick = 0;
+            const DWORD nowTick = GetTickCount();
+            if (nowTick - s_lastMountedRuntimeDefinitionReentrantLogTick > 1000)
+            {
+                s_lastMountedRuntimeDefinitionReentrantLogTick = nowTick;
+                WriteLogFmt(
+                    "[MountRuntimeResolve] reentrant level guard skill=%d depth=%d",
+                    skillId,
+                    g_mountedRuntimeDefinitionResolveDepth);
+            }
+            return 0;
+        }
+
+        return GameGetSkillLevel(skillId);
+    }
+
     bool FindMountedRuntimeSkillDefinitionByMountItemId(
         int mountItemId,
         MountedRuntimeSkillKind kind,
@@ -1967,6 +2025,8 @@ namespace
     {
         if (mountItemId <= 0)
             return false;
+
+        ScopedMountedRuntimeDefinitionResolveGuard resolveGuard;
 
         int preferredSkillId = 0;
         if (TryGetPreferredMountedMovementOverrideSkillId(mountItemId, preferredSkillId) &&
@@ -1997,7 +2057,7 @@ namespace
             }
             if (!DoesSuperSkillMatchCurrentJob(definition))
                 continue;
-            if (GameGetSkillLevel(definition.skillId) > 0)
+            if (GetMountedRuntimeDefinitionLearnedLevel(definition.skillId) > 0)
             {
                 outDefinition = definition;
                 return true;
@@ -8228,32 +8288,6 @@ namespace
         return true;
     }
 
-    void ApplyOptimisticSuperSkillUpgradeObservation(int skillId, int carrierSkillId, int nextSkillLevel, int nextCarrierPoints)
-    {
-        if (skillId > 0)
-        {
-            SkillItem* item = FindManagerSkillItem(GetBridgeManager(), skillId);
-            if (item && nextSkillLevel > item->level)
-                item->level = nextSkillLevel;
-
-            g_observedBaseLevelsBySkillId[skillId] = nextSkillLevel;
-            g_observedCurrentLevelsBySkillId[skillId] = nextSkillLevel;
-            RecordPersistentSuperSkillLevel(skillId, nextSkillLevel, "optimistic-upgrade");
-            ArmPendingOptimisticSuperSkillLevelHold(skillId, nextSkillLevel);
-        }
-        if (carrierSkillId > 0)
-        {
-            g_observedBaseLevelsBySkillId[carrierSkillId] = nextCarrierPoints;
-            g_observedCurrentLevelsBySkillId[carrierSkillId] = nextCarrierPoints;
-        }
-
-        WriteLogFmt("[SuperSkill] optimistic observe skill=%d level=%d carrier=%d points=%d",
-            skillId,
-            nextSkillLevel,
-            carrierSkillId,
-            nextCarrierPoints);
-    }
-
     bool GameRequestSuperSkillUpgradeByProxyPacket(int proxySkillId, int targetSkillId)
     {
         if (proxySkillId <= 0 || targetSkillId <= 0)
@@ -11151,6 +11185,21 @@ int SkillOverlayBridgeResolveNativeLevelLookupSkillId(int skillId)
         return skillId;
     }
 
+    if (IsMountedRuntimeDefinitionResolveActive())
+    {
+        static DWORD s_lastMountedRuntimeDefinitionLevelLookupGuardLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (nowTick - s_lastMountedRuntimeDefinitionLevelLookupGuardLogTick > 1000)
+        {
+            s_lastMountedRuntimeDefinitionLevelLookupGuardLogTick = nowTick;
+            WriteLogFmt(
+                "[MountRuntimeResolve] level lookup guard keep query=%d depth=%d",
+                skillId,
+                g_mountedRuntimeDefinitionResolveDepth);
+        }
+        return skillId;
+    }
+
     int mountedCustomSkillId = 0;
     int mountItemId = 0;
     if (TryResolveMountedRuntimeProxyCustomSkillId(
@@ -11315,11 +11364,16 @@ void SkillOverlayBridgeObserveLevelResult(int skillId, int level, bool isBaseLev
     if (IsKnownSuperSkillCarrierSkillId(skillId))
     {
         std::map<int, int>::iterator observedIt = observedLevels.find(skillId);
+        const bool acceptCarrierLevel = isBaseLevel ||
+            level == 0 ||
+            level != 1 ||
+            observedIt == observedLevels.end() ||
+            observedIt->second <= 1;
         if (observedIt == observedLevels.end())
         {
             observedLevels[skillId] = level;
         }
-        else if (level == 0 || (level > observedIt->second && level != 1))
+        else if (acceptCarrierLevel)
         {
             observedIt->second = level;
         }

@@ -2008,6 +2008,11 @@ typedef void *(__thiscall *tMountedDemonJumpLateLookupFn)(
     int a2,
     int a3,
     int a4);
+typedef unsigned int *(__thiscall *tMountedDemonJumpNativeActionResetFn)(
+    char *thisPtr,
+    int a2);
+typedef int(__thiscall *tMountedDemonJumpCarrierResetFn)(
+    int *thisPtr);
 static tMountedDemonJumpLateRouteFn oMountedDemonJumpLateRoute575D60 = nullptr;
 static tMountedDemonJumpLateTickFn oMountedDemonJumpLateTick576020 = nullptr;
 static tMountedDemonJumpContextInputFn oMountedDemonJumpContextInputB22630 = nullptr;
@@ -2030,6 +2035,8 @@ static const DWORD ADDR_MountedDemonJumpMoveB1C9E0 = 0x00B1C9E0;
 static const DWORD ADDR_MountedDemonJumpPrimeAE8F70 = 0x00AE8F70;
 static const DWORD ADDR_MountedDemonJumpUpActionAFB710 = 0x00AFB710;
 static const DWORD ADDR_MountedDemonJumpAfbState42E170 = 0x0042E170;
+static const DWORD ADDR_MountedDemonJumpNativeActionReset47F1C0 = 0x0047F1C0;
+static const DWORD ADDR_MountedDemonJumpCarrierResetB22AE0 = 0x00B22AE0;
 static const DWORD ADDR_MountedDemonJumpAfbGateADB240 = 0x00ADB240;
 static const DWORD ADDR_MountedDemonJumpAfbGateAD9500 = 0x00AD9500;
 static const DWORD ADDR_MountedDemonJumpAfbLookup773500 = 0x00773500;
@@ -2245,7 +2252,9 @@ enum MountedRuntimeSkillKind
 static bool HasRecentMountedDoubleJumpIntent(int mountItemId, DWORD maxAgeMs = 400);
 static bool HasRecentMountedDemonJumpIntent(int mountItemId, DWORD maxAgeMs = 400);
 static bool IsMountedDemonJumpRelatedSkillId(int skillId);
-static void ObserveMountedDemonJumpIntent(int mountItemId);
+static void ObserveMountedDemonJumpIntent(
+    int mountItemId,
+    const char *reasonTag = nullptr);
 static void RememberMountedDemonJumpGlidePacket(int mountItemId);
 static bool ShouldSuppressMountedDemonJumpRepeatedGlidePacket(
     int mountItemId,
@@ -2267,6 +2276,7 @@ static const bool kEnableGlobalMovementSetterProtectionHooks = false;
 static const DWORD kMountedDemonJumpIntentMaxAgeMs = 400;
 static const DWORD kMountedDemonJumpContextClearProtectMs = 300;
 static const DWORD kMountedDemonJumpLateChildPrimeWindowMs = 180;
+static const DWORD kMountedDemonJumpPacketGuardReleaseAgeMs = 2000;
 // Despite the historical name, this now covers both the mounted data loader
 // cap in 888DF0 and the later shared speed/jump clamp chain.
 static const bool kEnableMountMovementCapPatches = true;
@@ -2295,6 +2305,21 @@ static bool TryClearMountedDemonJumpLateLocalLockState(
     int currentSkillId,
     const char *reasonTag,
     DWORD callerRet);
+static bool TryClearMountedDemonJumpTailLocalGateState(
+    void *thisPtr,
+    int mountItemId,
+    const char *reasonTag,
+    DWORD callerRet);
+static bool TryForceFinalizeMountedDemonJumpNativeActionTailState(
+    void *thisPtr,
+    int mountItemId,
+    const char *reasonTag,
+    DWORD callerRet);
+static bool TryClearMountedDemonJump35121005CarrierTailState(
+    void *thisPtr,
+    int mountItemId,
+    const char *reasonTag,
+    DWORD callerRet);
 static bool TryReassertMountedDemonJumpChildPacketAfterOverlay(
     void **packetDataSlot,
     int *packetLenSlot,
@@ -2308,6 +2333,17 @@ static bool TryGetRecentMountedDemonJumpNativeChildSkill(
     int *skillIdOut,
     const char **sourceOut = nullptr,
     DWORD maxAgeMs = 0);
+static void RememberMountedDemonJumpPostPacketVisualChildSkill(
+    int mountItemId,
+    int skillId,
+    const char *source = nullptr);
+static bool TryGetRecentMountedDemonJumpPostPacketVisualChildSkill(
+    int *mountItemIdOut,
+    int *skillIdOut,
+    DWORD maxAgeMs);
+static void ExpireMountedDemonJumpGlideRecentIntent(
+    int mountItemId,
+    const char *reasonTag);
 static void ClearMountedDemonJumpTransientRuntimeState(
     int mountItemId,
     const char *reasonTag);
@@ -8017,7 +8053,9 @@ static void __cdecl hkSkillReleaseClassifierB2F370Dispatch(int skillId)
                 classifierMountItemId,
                 localSkillId,
                 "B2F370");
-            ObserveMountedDemonJumpIntent(classifierMountItemId);
+            ObserveMountedDemonJumpIntent(
+                classifierMountItemId,
+                "B2F370-arm-missing-intent");
             static LONG s_mountedDemonJumpClassifierArmMissingIntentLogBudget = 24;
             if (InterlockedDecrement(
                     &s_mountedDemonJumpClassifierArmMissingIntentLogBudget) >= 0)
@@ -8272,6 +8310,79 @@ static void ObserveMountedDoubleJumpIntent(int mountItemId)
     ObserveMountedRuntimeSkillIntent(MountedRuntimeSkillKind_DoubleJump, mountItemId);
 }
 
+static void ClearMountedRuntimeSkillTransientStateIfMatching(
+    MountedRuntimeSkillKind kind,
+    int mountItemId,
+    const char *reasonTag,
+    const char *logTag)
+{
+    if (!kEnableMountedDoubleJumpRuntimeHooks || mountItemId <= 0)
+    {
+        return;
+    }
+
+    const LONG recentIntentMountItemId = InterlockedCompareExchange(
+        &g_recentMountedRuntimeSkillIntentItemId[kind],
+        0,
+        0);
+    const LONG recentIntentTick = InterlockedCompareExchange(
+        &g_recentMountedRuntimeSkillIntentTick[kind],
+        0,
+        0);
+    const LONG recentNativeReleaseMountItemId = InterlockedCompareExchange(
+        &g_recentMountedRuntimeSkillNativeReleaseItemId[kind],
+        0,
+        0);
+    const LONG recentNativeReleaseSkillId = InterlockedCompareExchange(
+        &g_recentMountedRuntimeSkillNativeReleaseSkillId[kind],
+        0,
+        0);
+    const LONG recentNativeReleaseTick = InterlockedCompareExchange(
+        &g_recentMountedRuntimeSkillNativeReleaseTick[kind],
+        0,
+        0);
+    const bool hadIntent = recentIntentMountItemId == mountItemId;
+    const bool hadNativeRelease = recentNativeReleaseMountItemId == mountItemId;
+    if (!hadIntent && !hadNativeRelease)
+    {
+        return;
+    }
+
+    DWORD intentAgeMs = 0;
+    if (hadIntent && recentIntentTick > 0)
+    {
+        intentAgeMs = GetTickCount() - static_cast<DWORD>(recentIntentTick);
+    }
+    DWORD nativeReleaseAgeMs = 0;
+    if (hadNativeRelease && recentNativeReleaseTick > 0)
+    {
+        nativeReleaseAgeMs =
+            GetTickCount() - static_cast<DWORD>(recentNativeReleaseTick);
+    }
+
+    InterlockedExchange(&g_recentMountedRuntimeSkillIntentItemId[kind], 0);
+    InterlockedExchange(&g_recentMountedRuntimeSkillIntentTick[kind], 0);
+    InterlockedExchange(&g_recentMountedRuntimeSkillNativeReleaseItemId[kind], 0);
+    InterlockedExchange(&g_recentMountedRuntimeSkillNativeReleaseSkillId[kind], 0);
+    InterlockedExchange(&g_recentMountedRuntimeSkillNativeReleaseTick[kind], 0);
+
+    static LONG s_clearMountedRuntimeSkillTransientStateLogBudget = 96;
+    if (InterlockedDecrement(
+            &s_clearMountedRuntimeSkillTransientStateLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[%s] clear transient runtime mount=%d reason=%s hadIntent=%d intentAge=%u hadRelease=%d releaseSkill=%d releaseAge=%u",
+            logTag ? logTag : "MountRuntimeSkill",
+            mountItemId,
+            reasonTag ? reasonTag : "unknown",
+            hadIntent ? 1 : 0,
+            intentAgeMs,
+            hadNativeRelease ? 1 : 0,
+            hadNativeRelease ? static_cast<int>(recentNativeReleaseSkillId) : 0,
+            nativeReleaseAgeMs);
+    }
+}
+
 static DWORD NormalizeMountedRuntimeSkillIntentAgeMs(
     MountedRuntimeSkillKind kind,
     DWORD maxAgeMs,
@@ -8286,9 +8397,20 @@ static DWORD NormalizeMountedRuntimeSkillIntentAgeMs(
     return allowedAgeMs;
 }
 
-static void ObserveMountedDemonJumpIntent(int mountItemId)
+static void ObserveMountedDemonJumpIntent(
+    int mountItemId,
+    const char *reasonTag)
 {
     ObserveMountedRuntimeSkillIntent(MountedRuntimeSkillKind_DemonJump, mountItemId);
+    // Mounted demon jump and mounted double-jump share early native gates on
+    // mounts that have both skills enabled. Once the demon path is confirmed,
+    // clear the stale double-jump transient state for this same mount so the
+    // later flight/landing branch does not keep seeing both intents at once.
+    ClearMountedRuntimeSkillTransientStateIfMatching(
+        MountedRuntimeSkillKind_DoubleJump,
+        mountItemId,
+        reasonTag ? reasonTag : "demon-intent",
+        "MountDoubleJump");
     PrimeMountedDemonJumpContextIfNeeded(mountItemId, "intent");
 }
 
@@ -9039,6 +9161,21 @@ static bool ShouldSuppressMountedDemonJumpMountedContextClear(
     if (rootSkillId != configuredSkillId &&
         !rootIsChild &&
         !currentIsChild)
+    {
+        return false;
+    }
+
+    // Evidence from v22.25 logs:
+    // mounted side child 30010184 reaches B28A00 successfully, but the
+    // postpacket finalize path does not clear root/current immediately.
+    // If 433FEC is still suppressed here, the native tail never gets a chance
+    // to drop the remaining context/local gate, which leaves side-jump unable
+    // to retrigger for a few seconds after landing. Allow only this exact
+    // 433FEC side-child tail through; up-child still uses its existing
+    // B28A00->433FEC finalize path and glide keeps its own native context.
+    if (callerRet == 0x00433FEC &&
+        rootSkillId == configuredSkillId &&
+        currentSkillId == 30010184)
     {
         return false;
     }
@@ -10524,6 +10661,52 @@ static void ClearMountedSoaringFlightActive()
     InterlockedExchange(&g_activeMountedSoaringFlightItemId, 0);
     InterlockedExchange(&g_activeMountedSoaringFlightTick, 0);
     InterlockedExchange(&g_activeMountedSoaringFlightStartTick, 0);
+}
+
+static bool TryForceClearMountedSoaringFlightActiveForMount(
+    int mountItemId,
+    const char *reasonTag)
+{
+    if (mountItemId <= 0)
+    {
+        return false;
+    }
+
+    const LONG activeMountItemId =
+        InterlockedCompareExchange(&g_activeMountedSoaringFlightItemId, 0, 0);
+    if (activeMountItemId <= 0 ||
+        activeMountItemId != mountItemId)
+    {
+        return false;
+    }
+
+    const LONG activeTick =
+        InterlockedCompareExchange(&g_activeMountedSoaringFlightTick, 0, 0);
+    const LONG activeStartTick =
+        InterlockedCompareExchange(&g_activeMountedSoaringFlightStartTick, 0, 0);
+    const DWORD nowTick = GetTickCount();
+    const DWORD ageMs =
+        activeTick > 0 ? (nowTick - static_cast<DWORD>(activeTick)) : 0;
+    const DWORD activeDurationMs =
+        activeStartTick > 0
+            ? (nowTick - static_cast<DWORD>(activeStartTick))
+            : 0;
+
+    ClearMountedSoaringFlightActive();
+
+    static LONG s_mountedSoaringFlightForcedClearLogBudget = 32;
+    if (InterlockedDecrement(
+            &s_mountedSoaringFlightForcedClearLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountFlightState] clear active reason=%s mount=%d age=%u duration=%u",
+            reasonTag ? reasonTag : "unknown",
+            mountItemId,
+            ageMs,
+            activeDurationMs);
+    }
+
+    return true;
 }
 
 static void ClearMountedSoaringRuntimeFallbackState()
@@ -13090,8 +13273,10 @@ static int __fastcall hkMountedDemonJumpContextClear433380(
     int passRootSkillId = 0;
     int passCurrentSkillId = 0;
     int passRecentChildSkillId = 0;
+    int passTerminalProbeMountItemId = 0;
     int passTransientClearMountItemId = 0;
     bool shouldClearLateLocalLock = false;
+    bool shouldProbeTerminalTransientClear = false;
     int mountItemId = 0;
     int rootSkillId = 0;
     int currentSkillId = 0;
@@ -13121,6 +13306,78 @@ static int __fastcall hkMountedDemonJumpContextClear433380(
     static LONG s_mountedDemonJumpContextClearPassLogBudget = 64;
     const bool shouldLogPassClear =
         InterlockedDecrement(&s_mountedDemonJumpContextClearPassLogBudget) >= 0;
+    const bool shouldLogNativeClearTailState =
+        shouldLogPassClear &&
+        (callerRet == 0x00433EAA || callerRet == 0x00433FEC);
+    struct MountedDemonJumpContextTailState
+    {
+        void *playerObj;
+        DWORD state4A4;
+        int state3DDC;
+        int state4DE4;
+        int state5D7C;
+        int state5F2C;
+        BYTE gateMode;
+        BYTE downLatch;
+        BYTE upLatch;
+        int slot;
+        bool valid;
+    };
+    MountedDemonJumpContextTailState nativeClearBeforeState = {};
+    MountedDemonJumpContextTailState nativeClearAfterState = {};
+    bool hasNativeClearBeforeState = false;
+    bool hasNativeClearAfterState = false;
+    auto ReadMountedDemonJumpContextTailState =
+        [](MountedDemonJumpContextTailState *outState) -> bool
+    {
+        if (!outState)
+        {
+            return false;
+        }
+
+        memset(outState, 0, sizeof(*outState));
+        void *playerObj = nullptr;
+        if (!TryReadMountedDemonJumpPrimePlayerObject(&playerObj) ||
+            !playerObj ||
+            SafeIsBadReadPtr(playerObj, 0x5F30))
+        {
+            return false;
+        }
+
+        const uintptr_t playerValue =
+            reinterpret_cast<uintptr_t>(playerObj);
+        __try
+        {
+            outState->playerObj = playerObj;
+            outState->state4A4 =
+                *reinterpret_cast<DWORD *>(playerValue + 0x4A4);
+            outState->state3DDC =
+                *reinterpret_cast<int *>(playerValue + 0x3DDC);
+            outState->state4DE4 =
+                *reinterpret_cast<int *>(playerValue + 0x4DE4);
+            outState->state5D7C =
+                *reinterpret_cast<int *>(playerValue + 0x5D7C);
+            outState->state5F2C =
+                *reinterpret_cast<int *>(playerValue + 0x5F2C);
+            outState->gateMode =
+                *reinterpret_cast<BYTE *>(playerValue + 0x5E84);
+            outState->downLatch =
+                *reinterpret_cast<BYTE *>(playerValue + 0x5E85);
+            outState->upLatch =
+                *reinterpret_cast<BYTE *>(playerValue + 0x5EE4);
+            outState->slot =
+                *reinterpret_cast<int *>(playerValue + 0x5E8C);
+            outState->valid = true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            memset(outState, 0, sizeof(*outState));
+            outState->valid = false;
+            return false;
+        }
+
+        return true;
+    };
     {
         void *userLocal = nullptr;
         const bool hasUserLocal =
@@ -13158,6 +13415,14 @@ static int __fastcall hkMountedDemonJumpContextClear433380(
             HasRecentMountedDemonJumpIntent(
                 liveMountItemId,
                 kMountedDemonJumpContextClearProtectMs);
+
+        if (configuredSkillId == 30010110 &&
+            liveMountItemId > 0 &&
+            !hasPrimedContext)
+        {
+            passTerminalProbeMountItemId = liveMountItemId;
+            shouldProbeTerminalTransientClear = true;
+        }
 
         if (configuredSkillId == 30010110 &&
             liveMountItemId > 0 &&
@@ -13213,9 +13478,116 @@ static int __fastcall hkMountedDemonJumpContextClear433380(
         }
     }
 
+    if (shouldLogNativeClearTailState)
+    {
+        hasNativeClearBeforeState =
+            ReadMountedDemonJumpContextTailState(
+                &nativeClearBeforeState) &&
+            nativeClearBeforeState.valid;
+    }
+
     const int result = oMountedDemonJumpContextClear433380
                            ? oMountedDemonJumpContextClear433380(contextPtr)
                            : 0;
+
+    if (shouldLogNativeClearTailState)
+    {
+        hasNativeClearAfterState =
+            ReadMountedDemonJumpContextTailState(
+                &nativeClearAfterState) &&
+            nativeClearAfterState.valid;
+
+        if (hasNativeClearBeforeState)
+        {
+            WriteLogFmt(
+                "[MountDemonJumpContextTail] %s this=0x%08X 4A4=0x%08X 3DDC=%d 4DE4=%d 5D7C=%d 5F2C=%d gate=%u/%u/%u slot=0x%08X",
+                callerRet == 0x00433FEC ? "433FEC-before" : "433EAA-before",
+                (DWORD)(uintptr_t)nativeClearBeforeState.playerObj,
+                nativeClearBeforeState.state4A4,
+                nativeClearBeforeState.state3DDC,
+                nativeClearBeforeState.state4DE4,
+                nativeClearBeforeState.state5D7C,
+                nativeClearBeforeState.state5F2C,
+                static_cast<unsigned int>(
+                    nativeClearBeforeState.gateMode),
+                static_cast<unsigned int>(
+                    nativeClearBeforeState.downLatch),
+                static_cast<unsigned int>(
+                    nativeClearBeforeState.upLatch),
+                nativeClearBeforeState.slot);
+        }
+        if (hasNativeClearAfterState)
+        {
+            WriteLogFmt(
+                "[MountDemonJumpContextTail] %s this=0x%08X 4A4=0x%08X 3DDC=%d 4DE4=%d 5D7C=%d 5F2C=%d gate=%u/%u/%u slot=0x%08X",
+                callerRet == 0x00433FEC ? "433FEC-after" : "433EAA-after",
+                (DWORD)(uintptr_t)nativeClearAfterState.playerObj,
+                nativeClearAfterState.state4A4,
+                nativeClearAfterState.state3DDC,
+                nativeClearAfterState.state4DE4,
+                nativeClearAfterState.state5D7C,
+                nativeClearAfterState.state5F2C,
+                static_cast<unsigned int>(
+                    nativeClearAfterState.gateMode),
+                static_cast<unsigned int>(
+                    nativeClearAfterState.downLatch),
+                static_cast<unsigned int>(
+                    nativeClearAfterState.upLatch),
+                nativeClearAfterState.slot);
+        }
+    }
+
+    if (callerRet == 0x00433FEC)
+    {
+        int tailMountItemId = 0;
+        if (TryReadCurrentUserMountItemId(&tailMountItemId) &&
+            tailMountItemId > 0 &&
+            ResolveMountedRuntimeSkillIdForKind(
+                MountedRuntimeSkillKind_DemonJump,
+                tailMountItemId) == 30010110)
+        {
+            void *playerObj = hasNativeClearAfterState &&
+                                      nativeClearAfterState.valid
+                                  ? nativeClearAfterState.playerObj
+                                  : nullptr;
+            if (!playerObj)
+            {
+                TryReadMountedDemonJumpPrimePlayerObject(&playerObj);
+            }
+            if (playerObj)
+            {
+                if (hasNativeClearBeforeState &&
+                    hasNativeClearAfterState &&
+                    nativeClearBeforeState.valid &&
+                    nativeClearAfterState.valid &&
+                    nativeClearBeforeState.slot != 0 &&
+                    nativeClearAfterState.slot == 0 &&
+                    (nativeClearAfterState.gateMode != 0 ||
+                     nativeClearAfterState.downLatch != 0 ||
+                     nativeClearAfterState.upLatch != 0) &&
+                    nativeClearAfterState.state5D7C == 0 &&
+                    nativeClearAfterState.state5F2C == 0)
+                {
+                    TryClearMountedDemonJumpTailLocalGateState(
+                        playerObj,
+                        tailMountItemId,
+                        "433380-tail-local-gate",
+                        callerRet);
+                }
+
+                TryForceFinalizeMountedDemonJumpNativeActionTailState(
+                    playerObj,
+                    tailMountItemId,
+                    "433380-tail-native-action",
+                    callerRet);
+                TryClearMountedDemonJump35121005CarrierTailState(
+                    playerObj,
+                    tailMountItemId,
+                    "433380-tail-carrier-tail",
+                    callerRet);
+            }
+        }
+    }
 
     if (shouldClearLateLocalLock)
     {
@@ -13238,6 +13610,67 @@ static int __fastcall hkMountedDemonJumpContextClear433380(
         ClearMountedDemonJumpTransientRuntimeState(
             passTransientClearMountItemId,
             "433380-pass");
+    }
+    else if (shouldProbeTerminalTransientClear &&
+             passTerminalProbeMountItemId > 0)
+    {
+        int afterRootSkillId = 0;
+        int afterCurrentSkillId = 0;
+        const bool hasAfterContext =
+            TryReadMountedDemonJumpContextState(
+                &afterRootSkillId,
+                &afterCurrentSkillId,
+                nullptr);
+        const bool contextStillActive =
+            hasAfterContext &&
+            (afterRootSkillId == 30010110 ||
+             afterCurrentSkillId == 30010110 ||
+             IsMountedDemonJumpRuntimeChildSkillId(afterRootSkillId) ||
+             IsMountedDemonJumpRuntimeChildSkillId(afterCurrentSkillId));
+
+        bool lateLocalLockStillActive = false;
+        void *playerObj = nullptr;
+        if (TryReadMountedDemonJumpPrimePlayerObject(&playerObj) &&
+            playerObj)
+        {
+            const uintptr_t playerValue =
+                reinterpret_cast<uintptr_t>(playerObj);
+            if (!SafeIsBadReadPtr(
+                    reinterpret_cast<void *>(playerValue + 0x5F30),
+                    sizeof(DWORD)))
+            {
+                __try
+                {
+                    lateLocalLockStillActive =
+                        *reinterpret_cast<int *>(playerValue + 0x5D7C) != 0 ||
+                        *reinterpret_cast<int *>(playerValue + 0x5F2C) != 0;
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER)
+                {
+                    lateLocalLockStillActive = false;
+                }
+            }
+        }
+
+        if (!contextStillActive && !lateLocalLockStillActive)
+        {
+            static LONG s_mountedDemonJumpContextTerminalClearLogBudget = 48;
+            if (InterlockedDecrement(
+                    &s_mountedDemonJumpContextTerminalClearLogBudget) >= 0)
+            {
+                WriteLogFmt(
+                    "[MountDemonJumpContext] 433380 terminal clear caller=0x%08X mount=%d root=%d current=%d lateLock=%d",
+                    callerRet,
+                    passTerminalProbeMountItemId,
+                    hasAfterContext ? afterRootSkillId : 0,
+                    hasAfterContext ? afterCurrentSkillId : 0,
+                    lateLocalLockStillActive ? 1 : 0);
+            }
+
+            ClearMountedDemonJumpTransientRuntimeState(
+                passTerminalProbeMountItemId,
+                "433380-pass-terminal");
+        }
     }
 
     return result;
@@ -13545,6 +13978,11 @@ static UINT __fastcall hkMountedDemonJumpContextInputB22630(
                 afterRootSkillId,
                 afterCurrentSkillId,
                 250);
+        const bool shouldArmLateUpChild =
+            !hadRealRecentIntent &&
+            !hadLateSustainIntent &&
+            afterRootSkillId == 30010110 &&
+            afterCurrentSkillId == 30010183;
         if (hadRealRecentIntent)
         {
             RememberMountedDemonJumpNativeChildSkill(
@@ -13552,7 +13990,7 @@ static UINT __fastcall hkMountedDemonJumpContextInputB22630(
                 afterCurrentSkillId,
                 "B22630");
         }
-        else if (hadLateSustainIntent)
+        else if (hadLateSustainIntent || shouldArmLateUpChild)
         {
             int recentChildSkillId = 0;
             const bool hadRecentChildCache =
@@ -13574,16 +14012,18 @@ static UINT __fastcall hkMountedDemonJumpContextInputB22630(
             }
             if (!hadMatchingRecentChildCache)
             {
-                ObserveMountedDemonJumpIntent(effectiveMountItemId);
-                int primedCurrentSkillId = 0;
-                int primedRootSkillId = 0;
-                bool hasPrimedContext = false;
                 const char *refreshReason =
                     afterCurrentSkillId == 30010183
                         ? "B22630-late-child-up"
                         : (afterCurrentSkillId == 30010184
                                ? "B22630-late-child-side"
                                : "B22630-late-child-glide");
+                ObserveMountedDemonJumpIntent(
+                    effectiveMountItemId,
+                    refreshReason);
+                int primedCurrentSkillId = 0;
+                int primedRootSkillId = 0;
+                bool hasPrimedContext = false;
                 if (thisPtr)
                 {
                     hasPrimedContext =
@@ -13604,12 +14044,24 @@ static UINT __fastcall hkMountedDemonJumpContextInputB22630(
                 }
                 const bool hasRecentIntentAfterArm =
                     HasRecentMountedDemonJumpIntent(effectiveMountItemId, 250);
+                bool syntheticSpecialMoveSent = false;
+                DWORD syntheticSpecialMoveTick = 0;
+                if (afterCurrentSkillId == 30010183 &&
+                    !hadMatchingRecentChildCache &&
+                    hasRecentIntentAfterArm)
+                {
+                    syntheticSpecialMoveSent =
+                        SendMountedDemonJumpSyntheticSpecialMovePacket(
+                            afterCurrentSkillId,
+                            1,
+                            &syntheticSpecialMoveTick);
+                }
                 static LONG s_mountedDemonJumpContextInputLateIntentLogBudget = 32;
                 if (InterlockedDecrement(
                         &s_mountedDemonJumpContextInputLateIntentLogBudget) >= 0)
                 {
                     WriteLogFmt(
-                        "[MountDemonJumpLate] B22630 child observed without fresh intent mount=%d root=%d current=%d result=%u a2=%u a3=0x%08X reason=%s -> arm intent=%d prime=%d primedRoot=%d primedCurrent=%d",
+                        "[MountDemonJumpLate] B22630 child observed without fresh intent mount=%d root=%d current=%d result=%u a2=%u a3=0x%08X reason=%s -> arm intent=%d prime=%d primedRoot=%d primedCurrent=%d synth93=%d tick=%u",
                         effectiveMountItemId,
                         afterRootSkillId,
                         afterCurrentSkillId,
@@ -13620,7 +14072,9 @@ static UINT __fastcall hkMountedDemonJumpContextInputB22630(
                         hasRecentIntentAfterArm ? 1 : 0,
                         hasPrimedContext ? 1 : 0,
                         hasPrimedContext ? primedRootSkillId : 0,
-                        hasPrimedContext ? primedCurrentSkillId : 0);
+                        hasPrimedContext ? primedCurrentSkillId : 0,
+                        syntheticSpecialMoveSent ? 1 : 0,
+                        syntheticSpecialMoveTick);
                 }
             }
             else
@@ -13794,6 +14248,14 @@ struct MountedDemonJumpLateLocalStateSnapshot
     bool valid;
 };
 
+struct MountedDemonJumpUserGateSnapshot
+{
+    BYTE gateMode;
+    BYTE downLatch;
+    BYTE upLatch;
+    bool valid;
+};
+
 static bool TryReadMountedDemonJumpLateLocalStateSnapshot(
     void *thisPtr,
     MountedDemonJumpLateLocalStateSnapshot *outSnapshot)
@@ -13843,6 +14305,122 @@ static bool TryReadMountedDemonJumpLateLocalStateSnapshot(
     }
 
     outSnapshot->valid = true;
+    return true;
+}
+
+static bool TryReadMountedDemonJumpUserGateSnapshot(
+    void *userLocal,
+    MountedDemonJumpUserGateSnapshot *outSnapshot)
+{
+    if (outSnapshot)
+    {
+        memset(outSnapshot, 0, sizeof(*outSnapshot));
+        outSnapshot->valid = false;
+    }
+
+    if (!userLocal || !outSnapshot)
+    {
+        return false;
+    }
+
+    const uintptr_t userLocalAddr = reinterpret_cast<uintptr_t>(userLocal);
+    if (SafeIsBadReadPtr(
+            reinterpret_cast<void *>(userLocalAddr + 24292),
+            sizeof(BYTE)))
+    {
+        return false;
+    }
+
+    __try
+    {
+        outSnapshot->gateMode =
+            *reinterpret_cast<BYTE *>(userLocalAddr + 24292);
+        outSnapshot->downLatch =
+            *reinterpret_cast<BYTE *>(userLocalAddr + 24196);
+        outSnapshot->upLatch =
+            *reinterpret_cast<BYTE *>(userLocalAddr + 24197);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        memset(outSnapshot, 0, sizeof(*outSnapshot));
+        outSnapshot->valid = false;
+        return false;
+    }
+
+    outSnapshot->valid = true;
+    return true;
+}
+
+static bool TryClearMountedDemonJumpUserGateState(
+    void *userLocal,
+    MountedDemonJumpUserGateSnapshot *beforeSnapshotOut,
+    MountedDemonJumpUserGateSnapshot *afterSnapshotOut)
+{
+    if (beforeSnapshotOut)
+    {
+        memset(beforeSnapshotOut, 0, sizeof(*beforeSnapshotOut));
+    }
+    if (afterSnapshotOut)
+    {
+        memset(afterSnapshotOut, 0, sizeof(*afterSnapshotOut));
+    }
+
+    if (!userLocal)
+    {
+        return false;
+    }
+
+    MountedDemonJumpUserGateSnapshot beforeSnapshot = {};
+    if (!TryReadMountedDemonJumpUserGateSnapshot(
+            userLocal,
+            &beforeSnapshot) ||
+        !beforeSnapshot.valid)
+    {
+        return false;
+    }
+
+    const uintptr_t userLocalAddr = reinterpret_cast<uintptr_t>(userLocal);
+    if (SafeIsBadWritePtr(
+            reinterpret_cast<void *>(userLocalAddr + 24292),
+            sizeof(BYTE)))
+    {
+        return false;
+    }
+
+    __try
+    {
+        *reinterpret_cast<BYTE *>(userLocalAddr + 24292) = 0;
+        *reinterpret_cast<BYTE *>(userLocalAddr + 24196) = 0;
+        *reinterpret_cast<BYTE *>(userLocalAddr + 24197) = 0;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+
+    MountedDemonJumpUserGateSnapshot afterSnapshot = {};
+    const bool hasAfterSnapshot =
+        TryReadMountedDemonJumpUserGateSnapshot(
+            userLocal,
+            &afterSnapshot) &&
+        afterSnapshot.valid;
+
+    if (beforeSnapshotOut)
+    {
+        *beforeSnapshotOut = beforeSnapshot;
+    }
+    if (afterSnapshotOut)
+    {
+        if (hasAfterSnapshot)
+        {
+            *afterSnapshotOut = afterSnapshot;
+        }
+        else
+        {
+            memset(afterSnapshotOut, 0, sizeof(*afterSnapshotOut));
+        }
+    }
+
     return true;
 }
 
@@ -14013,6 +14591,1039 @@ static bool TryClearMountedDemonJumpLateLocalLockState(
                 thisPtr,
                 afterState);
         }
+    }
+
+    return true;
+}
+
+static bool TryClearMountedDemonJumpTailLocalGateState(
+    void *thisPtr,
+    int mountItemId,
+    const char *reasonTag,
+    DWORD callerRet)
+{
+    if (!thisPtr ||
+        mountItemId <= 0 ||
+        ResolveMountedRuntimeSkillIdForKind(
+            MountedRuntimeSkillKind_DemonJump,
+            mountItemId) != 30010110)
+    {
+        return false;
+    }
+
+    MountedDemonJumpLateLocalStateSnapshot beforeState = {};
+    if (!TryReadMountedDemonJumpLateLocalStateSnapshot(
+            thisPtr,
+            &beforeState) ||
+        !beforeState.valid)
+    {
+        return false;
+    }
+
+    const bool shouldClearLocalGate =
+        beforeState.state5E84 != 0 ||
+        beforeState.state5E85 != 0 ||
+        beforeState.state5EE4 != 0;
+    if (!shouldClearLocalGate ||
+        beforeState.state5D7C != 0 ||
+        beforeState.state5F2C != 0 ||
+        beforeState.state5E8C != 0)
+    {
+        return false;
+    }
+
+    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
+    if (SafeIsBadWritePtr(
+            reinterpret_cast<void *>(thisValue + 0x5E84),
+            sizeof(BYTE)) ||
+        SafeIsBadWritePtr(
+            reinterpret_cast<void *>(thisValue + 0x5E85),
+            sizeof(BYTE)) ||
+        SafeIsBadWritePtr(
+            reinterpret_cast<void *>(thisValue + 0x5EE4),
+            sizeof(BYTE)))
+    {
+        return false;
+    }
+
+    __try
+    {
+        *reinterpret_cast<BYTE *>(thisValue + 0x5E84) = 0;
+        *reinterpret_cast<BYTE *>(thisValue + 0x5E85) = 0;
+        *reinterpret_cast<BYTE *>(thisValue + 0x5EE4) = 0;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+
+    MountedDemonJumpLateLocalStateSnapshot afterState = {};
+    const bool hasAfterState =
+        TryReadMountedDemonJumpLateLocalStateSnapshot(
+            thisPtr,
+            &afterState) &&
+        afterState.valid;
+
+    static LONG s_mountedDemonJumpTailLocalGateClearLogBudget = 48;
+    if (InterlockedDecrement(
+            &s_mountedDemonJumpTailLocalGateClearLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpTailGate] clear reason=%s caller=0x%08X mount=%d localGate=%u/%u/%u->%u/%u/%u slot=0x%08X->0x%08X 5BB0=%d->%d",
+            reasonTag ? reasonTag : "unknown",
+            callerRet,
+            mountItemId,
+            static_cast<unsigned int>(beforeState.state5E84),
+            static_cast<unsigned int>(beforeState.state5E85),
+            static_cast<unsigned int>(beforeState.state5EE4),
+            hasAfterState
+                ? static_cast<unsigned int>(afterState.state5E84)
+                : 0,
+            hasAfterState
+                ? static_cast<unsigned int>(afterState.state5E85)
+                : 0,
+            hasAfterState
+                ? static_cast<unsigned int>(afterState.state5EE4)
+                : 0,
+            beforeState.state5E8C,
+            hasAfterState ? afterState.state5E8C : 0,
+            beforeState.state5BB0,
+            hasAfterState ? afterState.state5BB0 : 0);
+        WriteMountedDemonJumpLateLocalStateLog(
+            "TailGate",
+            "before-clear",
+            thisPtr,
+            beforeState);
+        if (hasAfterState)
+        {
+            WriteMountedDemonJumpLateLocalStateLog(
+                "TailGate",
+                "after-clear",
+                thisPtr,
+                afterState);
+        }
+    }
+
+    return true;
+}
+
+static bool TryForceClearMountedDemonJumpPostPacketTailSlotState(
+    void *thisPtr,
+    int mountItemId,
+    int releasedSkillId,
+    const char *reasonTag,
+    DWORD callerRet,
+    const MountedDemonJumpLateLocalStateSnapshot *beforeStateHint = nullptr)
+{
+    if (!thisPtr ||
+        mountItemId <= 0 ||
+        releasedSkillId != 30010183 ||
+        ResolveMountedRuntimeSkillIdForKind(
+            MountedRuntimeSkillKind_DemonJump,
+            mountItemId) != 30010110)
+    {
+        return false;
+    }
+
+    MountedDemonJumpLateLocalStateSnapshot beforeState = {};
+    if (beforeStateHint && beforeStateHint->valid)
+    {
+        beforeState = *beforeStateHint;
+    }
+    else if (!TryReadMountedDemonJumpLateLocalStateSnapshot(
+                 thisPtr,
+                 &beforeState) ||
+             !beforeState.valid)
+    {
+        return false;
+    }
+
+    // Latest v22.29 logs show the remaining post-landing "can't move" tail on
+    // mounted 30010183 after the packet phase is already finalized:
+    // root/current is already logged as 0/0 by the caller, gate=0/0/0,
+    // 5D7C=0, 5F2C=0, but slot(5E8C) still holds a native child handle until
+    // the later 433FEC tail cleanup. Keep this helper local-state driven here:
+    // if packet-finalize already reached the clean local window, do not re-block
+    // on another context read that can lag one native frame behind the caller.
+    if (beforeState.state5D7C != 0 ||
+        beforeState.state5F2C != 0 ||
+        beforeState.state5E84 != 0 ||
+        beforeState.state5E85 != 0 ||
+        beforeState.state5EE4 != 0 ||
+        beforeState.state5E8C == 0)
+    {
+        static LONG s_mountedDemonJumpPostPacketTailSlotSkipLogBudget = 24;
+        if (InterlockedDecrement(
+                &s_mountedDemonJumpPostPacketTailSlotSkipLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountDemonJumpPostTail] skip reason=%s caller=0x%08X mount=%d released=%d slot=0x%08X gate=%u/%u/%u 5D7C=%d 5F2C=%d",
+                reasonTag ? reasonTag : "unknown",
+                callerRet,
+                mountItemId,
+                releasedSkillId,
+                beforeState.state5E8C,
+                static_cast<unsigned int>(beforeState.state5E84),
+                static_cast<unsigned int>(beforeState.state5E85),
+                static_cast<unsigned int>(beforeState.state5EE4),
+                beforeState.state5D7C,
+                beforeState.state5F2C);
+        }
+        return false;
+    }
+
+    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
+    if (SafeIsBadWritePtr(
+            reinterpret_cast<void *>(thisValue + 0x5E8C),
+            sizeof(DWORD)))
+    {
+        static LONG s_mountedDemonJumpPostPacketTailSlotBadWriteLogBudget = 12;
+        if (InterlockedDecrement(
+                &s_mountedDemonJumpPostPacketTailSlotBadWriteLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountDemonJumpPostTail] bad-write reason=%s caller=0x%08X mount=%d released=%d addr=0x%08X slot=0x%08X",
+                reasonTag ? reasonTag : "unknown",
+                callerRet,
+                mountItemId,
+                releasedSkillId,
+                static_cast<DWORD>(thisValue + 0x5E8C),
+                beforeState.state5E8C);
+        }
+        return false;
+    }
+
+    __try
+    {
+        *reinterpret_cast<int *>(thisValue + 0x5E8C) = 0;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        static LONG s_mountedDemonJumpPostPacketTailSlotExceptionLogBudget = 12;
+        if (InterlockedDecrement(
+                &s_mountedDemonJumpPostPacketTailSlotExceptionLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountDemonJumpPostTail] exception reason=%s caller=0x%08X mount=%d released=%d addr=0x%08X code=0x%08X",
+                reasonTag ? reasonTag : "unknown",
+                callerRet,
+                mountItemId,
+                releasedSkillId,
+                static_cast<DWORD>(thisValue + 0x5E8C),
+                GetExceptionCode());
+        }
+        return false;
+    }
+
+    MountedDemonJumpLateLocalStateSnapshot afterState = {};
+    const bool hasAfterState =
+        TryReadMountedDemonJumpLateLocalStateSnapshot(
+            thisPtr,
+            &afterState) &&
+        afterState.valid;
+
+    static LONG s_mountedDemonJumpPostPacketTailSlotClearLogBudget = 32;
+    if (InterlockedDecrement(
+            &s_mountedDemonJumpPostPacketTailSlotClearLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpPostTail] clear reason=%s caller=0x%08X mount=%d released=%d slot=0x%08X->0x%08X gate=%u/%u/%u->%u/%u/%u",
+            reasonTag ? reasonTag : "unknown",
+            callerRet,
+            mountItemId,
+            releasedSkillId,
+            beforeState.state5E8C,
+            hasAfterState ? afterState.state5E8C : 0,
+            static_cast<unsigned int>(beforeState.state5E84),
+            static_cast<unsigned int>(beforeState.state5E85),
+            static_cast<unsigned int>(beforeState.state5EE4),
+            hasAfterState
+                ? static_cast<unsigned int>(afterState.state5E84)
+                : 0,
+            hasAfterState
+                ? static_cast<unsigned int>(afterState.state5E85)
+                : 0,
+            hasAfterState
+                ? static_cast<unsigned int>(afterState.state5EE4)
+                : 0);
+        WriteMountedDemonJumpLateLocalStateLog(
+            "PostTail",
+            "before-clear",
+            thisPtr,
+            beforeState);
+        if (hasAfterState)
+        {
+            WriteMountedDemonJumpLateLocalStateLog(
+                "PostTail",
+                "after-clear",
+                thisPtr,
+                afterState);
+        }
+    }
+
+    return true;
+}
+
+static bool TryForceFinalizeMountedDemonJumpNativeActionTailState(
+    void *thisPtr,
+    int mountItemId,
+    const char *reasonTag,
+    DWORD callerRet)
+{
+    if (!thisPtr ||
+        mountItemId <= 0 ||
+        ResolveMountedRuntimeSkillIdForKind(
+            MountedRuntimeSkillKind_DemonJump,
+            mountItemId) != 30010110)
+    {
+        return false;
+    }
+
+    MountedDemonJumpLateLocalStateSnapshot beforeState = {};
+    if (!TryReadMountedDemonJumpLateLocalStateSnapshot(
+            thisPtr,
+            &beforeState) ||
+        !beforeState.valid)
+    {
+        static LONG s_mountedDemonJumpNativeTailSkipSnapshotLogBudget = 16;
+        if (InterlockedDecrement(
+                &s_mountedDemonJumpNativeTailSkipSnapshotLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountDemonJumpNativeTail] skip reason=%s caller=0x%08X mount=%d this=0x%08X stage=snapshot",
+                reasonTag ? reasonTag : "unknown",
+                callerRet,
+                mountItemId,
+                (DWORD)(uintptr_t)thisPtr);
+        }
+        return false;
+    }
+
+    if ((beforeState.state4A4 != 6 &&
+         beforeState.state4A4 != 7) ||
+        beforeState.state5D7C != 0 ||
+        beforeState.state5F2C != 0 ||
+        beforeState.state5E84 != 0 ||
+        beforeState.state5E85 != 0 ||
+        beforeState.state5EE4 != 0 ||
+        beforeState.state5E8C != 0)
+    {
+        static LONG s_mountedDemonJumpNativeTailSkipStateLogBudget = 24;
+        if (InterlockedDecrement(
+                &s_mountedDemonJumpNativeTailSkipStateLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountDemonJumpNativeTail] skip reason=%s caller=0x%08X mount=%d this=0x%08X stage=state 4A4=0x%08X lock=%d/%d gate=%u/%u/%u slot=0x%08X",
+                reasonTag ? reasonTag : "unknown",
+                callerRet,
+                mountItemId,
+                (DWORD)(uintptr_t)thisPtr,
+                static_cast<unsigned int>(beforeState.state4A4),
+                beforeState.state5D7C,
+                beforeState.state5F2C,
+                static_cast<unsigned int>(beforeState.state5E84),
+                static_cast<unsigned int>(beforeState.state5E85),
+                static_cast<unsigned int>(beforeState.state5EE4),
+                beforeState.state5E8C);
+        }
+        return false;
+    }
+
+    tMountedDemonJumpLateStateGetterFn afbStateGetter =
+        oMountedDemonJumpAfbState42E170
+            ? oMountedDemonJumpAfbState42E170
+            : reinterpret_cast<tMountedDemonJumpLateStateGetterFn>(
+                  ADDR_MountedDemonJumpAfbState42E170);
+    tMountedDemonJumpNativeActionResetFn nativeActionResetFn =
+        reinterpret_cast<tMountedDemonJumpNativeActionResetFn>(
+            ADDR_MountedDemonJumpNativeActionReset47F1C0);
+    if (!afbStateGetter || !nativeActionResetFn)
+    {
+        static LONG s_mountedDemonJumpNativeTailSkipEntryLogBudget = 12;
+        if (InterlockedDecrement(
+                &s_mountedDemonJumpNativeTailSkipEntryLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountDemonJumpNativeTail] skip reason=%s caller=0x%08X mount=%d this=0x%08X stage=entry getter=0x%08X reset=0x%08X",
+                reasonTag ? reasonTag : "unknown",
+                callerRet,
+                mountItemId,
+                (DWORD)(uintptr_t)thisPtr,
+                (DWORD)(uintptr_t)afbStateGetter,
+                (DWORD)(uintptr_t)nativeActionResetFn);
+        }
+        return false;
+    }
+
+    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
+    const uintptr_t nativeActionThisValue = thisValue + 144;
+    if (SafeIsBadReadPtr(
+            reinterpret_cast<void *>(nativeActionThisValue),
+            sizeof(DWORD)) ||
+        SafeIsBadWritePtr(
+            reinterpret_cast<void *>(thisValue + 0x494),
+            sizeof(DWORD)) ||
+        SafeIsBadWritePtr(
+            reinterpret_cast<void *>(thisValue + 0x4A8),
+            sizeof(DWORD)))
+    {
+        static LONG s_mountedDemonJumpNativeTailSkipPtrLogBudget = 12;
+        if (InterlockedDecrement(
+                &s_mountedDemonJumpNativeTailSkipPtrLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountDemonJumpNativeTail] skip reason=%s caller=0x%08X mount=%d this=0x%08X stage=ptrcheck native=0x%08X state1172=0x%08X state1192=0x%08X",
+                reasonTag ? reasonTag : "unknown",
+                callerRet,
+                mountItemId,
+                (DWORD)(uintptr_t)thisPtr,
+                static_cast<DWORD>(nativeActionThisValue),
+                static_cast<DWORD>(thisValue + 0x494),
+                static_cast<DWORD>(thisValue + 0x4A8));
+        }
+        return false;
+    }
+
+    int nativeActionStateBefore = 0;
+    int state1172Before = 0;
+    int state1192Before = 0;
+    __try
+    {
+        nativeActionStateBefore =
+            afbStateGetter(reinterpret_cast<void *>(nativeActionThisValue));
+        state1172Before =
+            *reinterpret_cast<int *>(thisValue + 0x494);
+        state1192Before =
+            *reinterpret_cast<int *>(thisValue + 0x4A8);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+
+    const bool allowExactMounted353TailReset =
+        nativeActionStateBefore == 353 &&
+        state1172Before == -1 &&
+        state1192Before == 353;
+    const bool allowExactMounted354TailReset =
+        nativeActionStateBefore == 354 &&
+        state1172Before == -1 &&
+        state1192Before == 354;
+    if (nativeActionStateBefore > -1 &&
+        !allowExactMounted353TailReset &&
+        !allowExactMounted354TailReset)
+    {
+        static LONG s_mountedDemonJumpNativeTailSkipAfbLogBudget = 24;
+        if (InterlockedDecrement(
+                &s_mountedDemonJumpNativeTailSkipAfbLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountDemonJumpNativeTail] skip reason=%s caller=0x%08X mount=%d this=0x%08X stage=afb afb=%d state1172=%d state1192=%d 4A4=0x%08X exact353=%d exact354=%d",
+                reasonTag ? reasonTag : "unknown",
+                callerRet,
+                mountItemId,
+                (DWORD)(uintptr_t)thisPtr,
+                nativeActionStateBefore,
+                state1172Before,
+                state1192Before,
+                static_cast<unsigned int>(beforeState.state4A4),
+                allowExactMounted353TailReset ? 1 : 0,
+                allowExactMounted354TailReset ? 1 : 0);
+        }
+        return false;
+    }
+
+    __try
+    {
+        *reinterpret_cast<int *>(thisValue + 0x494) = -1;
+        *reinterpret_cast<int *>(thisValue + 0x4A8) = -1;
+        nativeActionResetFn(
+            reinterpret_cast<char *>(nativeActionThisValue),
+            1);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        static LONG s_mountedDemonJumpNativeTailExceptionLogBudget = 12;
+        if (InterlockedDecrement(
+                &s_mountedDemonJumpNativeTailExceptionLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountDemonJumpNativeTail] exception reason=%s caller=0x%08X mount=%d this=0x%08X code=0x%08X",
+                reasonTag ? reasonTag : "unknown",
+                callerRet,
+                mountItemId,
+                static_cast<DWORD>(thisValue),
+                GetExceptionCode());
+        }
+        return false;
+    }
+
+    MountedDemonJumpLateLocalStateSnapshot afterState = {};
+    const bool hasAfterState =
+        TryReadMountedDemonJumpLateLocalStateSnapshot(
+            thisPtr,
+            &afterState) &&
+        afterState.valid;
+    int nativeActionStateAfter = 0;
+    int state1172After = 0;
+    int state1192After = 0;
+    bool hasAfterNativeState = false;
+    __try
+    {
+        nativeActionStateAfter =
+            afbStateGetter(reinterpret_cast<void *>(nativeActionThisValue));
+        state1172After =
+            *reinterpret_cast<int *>(thisValue + 0x494);
+        state1192After =
+            *reinterpret_cast<int *>(thisValue + 0x4A8);
+        hasAfterNativeState = true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        hasAfterNativeState = false;
+    }
+
+    static LONG s_mountedDemonJumpNativeTailResetLogBudget = 24;
+    if (InterlockedDecrement(
+            &s_mountedDemonJumpNativeTailResetLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpNativeTail] reset reason=%s caller=0x%08X mount=%d this=0x%08X mode=%s afb=%d->%d state1172=%d->%d state1192=%d->%d 4A4=0x%08X->0x%08X",
+            reasonTag ? reasonTag : "unknown",
+            callerRet,
+            mountItemId,
+            static_cast<DWORD>(thisValue),
+            allowExactMounted353TailReset
+                ? "exact353"
+                : (allowExactMounted354TailReset ? "exact354" : "idle"),
+            nativeActionStateBefore,
+            hasAfterNativeState ? nativeActionStateAfter : 0,
+            state1172Before,
+            hasAfterNativeState ? state1172After : 0,
+            state1192Before,
+            hasAfterNativeState ? state1192After : 0,
+            static_cast<unsigned int>(beforeState.state4A4),
+            hasAfterState
+                ? static_cast<unsigned int>(afterState.state4A4)
+                : 0U);
+        WriteMountedDemonJumpLateLocalStateLog(
+            "NativeTail",
+            "before-reset",
+            thisPtr,
+            beforeState);
+        if (hasAfterState)
+        {
+            WriteMountedDemonJumpLateLocalStateLog(
+                "NativeTail",
+                "after-reset",
+                thisPtr,
+                afterState);
+        }
+    }
+
+    return true;
+}
+
+static bool TryClearMountedDemonJump35121005CarrierTailState(
+    void *thisPtr,
+    int mountItemId,
+    const char *reasonTag,
+    DWORD callerRet)
+{
+    if (!thisPtr ||
+        mountItemId <= 0 ||
+        ResolveMountedRuntimeSkillIdForKind(
+            MountedRuntimeSkillKind_DemonJump,
+            mountItemId) != 30010110)
+    {
+        return false;
+    }
+
+    MountedDemonJumpLateLocalStateSnapshot beforeState = {};
+    if (!TryReadMountedDemonJumpLateLocalStateSnapshot(
+            thisPtr,
+            &beforeState) ||
+        !beforeState.valid)
+    {
+        return false;
+    }
+
+    if (beforeState.state5D7C != 0 ||
+        beforeState.state5F2C != 0 ||
+        beforeState.state5E84 != 0 ||
+        beforeState.state5E85 != 0 ||
+        beforeState.state5EE4 != 0)
+    {
+        return false;
+    }
+
+    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
+    const uintptr_t carrierStateAddr = thisValue + 4989 * sizeof(DWORD);
+    if (SafeIsBadReadPtr(
+            reinterpret_cast<void *>(carrierStateAddr),
+            7 * sizeof(DWORD)))
+    {
+        return false;
+    }
+
+    tMountedDemonJumpLateStateGetterFn afbStateGetter =
+        oMountedDemonJumpAfbState42E170
+            ? oMountedDemonJumpAfbState42E170
+            : reinterpret_cast<tMountedDemonJumpLateStateGetterFn>(
+                  ADDR_MountedDemonJumpAfbState42E170);
+    tMountedDemonJumpCarrierResetFn carrierResetFn =
+        reinterpret_cast<tMountedDemonJumpCarrierResetFn>(
+            ADDR_MountedDemonJumpCarrierResetB22AE0);
+    if (!afbStateGetter || !carrierResetFn)
+    {
+        return false;
+    }
+
+    int nativeActionStateBefore = 0;
+    int state1192Before = 0;
+    int carrier4989Before = 0;
+    int carrier4990Before = 0;
+    int carrier4991Before = 0;
+    int carrier4992Before = 0;
+    int carrier4993Before = 0;
+    int carrier4994Before = 0;
+    int carrier4995Before = 0;
+    __try
+    {
+        nativeActionStateBefore =
+            afbStateGetter(reinterpret_cast<void *>(thisValue + 144));
+        state1192Before =
+            *reinterpret_cast<int *>(thisValue + 0x4A8);
+        carrier4989Before =
+            *reinterpret_cast<int *>(thisValue + 4989 * sizeof(DWORD));
+        carrier4990Before =
+            *reinterpret_cast<int *>(thisValue + 4990 * sizeof(DWORD));
+        carrier4991Before =
+            *reinterpret_cast<int *>(thisValue + 4991 * sizeof(DWORD));
+        carrier4992Before =
+            *reinterpret_cast<int *>(thisValue + 4992 * sizeof(DWORD));
+        carrier4993Before =
+            *reinterpret_cast<int *>(thisValue + 4993 * sizeof(DWORD));
+        carrier4994Before =
+            *reinterpret_cast<int *>(thisValue + 4994 * sizeof(DWORD));
+        carrier4995Before =
+            *reinterpret_cast<int *>(thisValue + 4995 * sizeof(DWORD));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+
+    if (nativeActionStateBefore != 353 ||
+        state1192Before != 353 ||
+        carrier4989Before != 35121005 ||
+        carrier4993Before != 0)
+    {
+        static LONG s_mountedDemonJumpCarrierTailSkipLogBudget = 24;
+        if (InterlockedDecrement(
+                &s_mountedDemonJumpCarrierTailSkipLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountDemonJumpCarrierTail] skip reason=%s caller=0x%08X mount=%d this=0x%08X afb=%d state1192=%d carrier=%d/%d/%d/%d/%d/%d/%d",
+                reasonTag ? reasonTag : "unknown",
+                callerRet,
+                mountItemId,
+                static_cast<DWORD>(thisValue),
+                nativeActionStateBefore,
+                state1192Before,
+                carrier4989Before,
+                carrier4990Before,
+                carrier4991Before,
+                carrier4992Before,
+                carrier4993Before,
+                carrier4994Before,
+                carrier4995Before);
+        }
+        return false;
+    }
+
+    __try
+    {
+        carrierResetFn(reinterpret_cast<int *>(thisPtr));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        static LONG s_mountedDemonJumpCarrierTailExceptionLogBudget = 12;
+        if (InterlockedDecrement(
+                &s_mountedDemonJumpCarrierTailExceptionLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountDemonJumpCarrierTail] exception reason=%s caller=0x%08X mount=%d this=0x%08X code=0x%08X",
+                reasonTag ? reasonTag : "unknown",
+                callerRet,
+                mountItemId,
+                static_cast<DWORD>(thisValue),
+                GetExceptionCode());
+        }
+        return false;
+    }
+
+    int carrier4989After = 0;
+    int carrier4990After = 0;
+    int carrier4991After = 0;
+    int carrier4992After = 0;
+    int carrier4993After = 0;
+    int carrier4994After = 0;
+    int carrier4995After = 0;
+    __try
+    {
+        carrier4989After =
+            *reinterpret_cast<int *>(thisValue + 4989 * sizeof(DWORD));
+        carrier4990After =
+            *reinterpret_cast<int *>(thisValue + 4990 * sizeof(DWORD));
+        carrier4991After =
+            *reinterpret_cast<int *>(thisValue + 4991 * sizeof(DWORD));
+        carrier4992After =
+            *reinterpret_cast<int *>(thisValue + 4992 * sizeof(DWORD));
+        carrier4993After =
+            *reinterpret_cast<int *>(thisValue + 4993 * sizeof(DWORD));
+        carrier4994After =
+            *reinterpret_cast<int *>(thisValue + 4994 * sizeof(DWORD));
+        carrier4995After =
+            *reinterpret_cast<int *>(thisValue + 4995 * sizeof(DWORD));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        carrier4989After = 0;
+        carrier4990After = 0;
+        carrier4991After = 0;
+        carrier4992After = 0;
+        carrier4993After = 0;
+        carrier4994After = 0;
+        carrier4995After = 0;
+    }
+
+    static LONG s_mountedDemonJumpCarrierTailClearLogBudget = 24;
+    if (InterlockedDecrement(
+            &s_mountedDemonJumpCarrierTailClearLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpCarrierTail] clear reason=%s caller=0x%08X mount=%d this=0x%08X afb=%d state1192=%d carrier=%d/%d/%d/%d/%d/%d/%d -> %d/%d/%d/%d/%d/%d/%d",
+            reasonTag ? reasonTag : "unknown",
+            callerRet,
+            mountItemId,
+            static_cast<DWORD>(thisValue),
+            nativeActionStateBefore,
+            state1192Before,
+            carrier4989Before,
+            carrier4990Before,
+            carrier4991Before,
+            carrier4992Before,
+            carrier4993Before,
+            carrier4994Before,
+            carrier4995Before,
+            carrier4989After,
+            carrier4990After,
+            carrier4991After,
+            carrier4992After,
+            carrier4993After,
+            carrier4994After,
+            carrier4995After);
+        WriteMountedDemonJumpLateLocalStateLog(
+            "CarrierTail",
+            "before-clear",
+            thisPtr,
+            beforeState);
+    }
+
+    return true;
+}
+
+static bool TryForceClearMountedDemonJumpDescendingUpState(
+    void *thisPtr,
+    int mountItemId,
+    int rootSkillId,
+    int currentSkillId,
+    const char *reasonTag,
+    DWORD callerRet)
+{
+    if (!thisPtr ||
+        mountItemId <= 0 ||
+        ResolveMountedRuntimeSkillIdForKind(
+            MountedRuntimeSkillKind_DemonJump,
+            mountItemId) != 30010110)
+    {
+        return false;
+    }
+
+    const int effectiveChildSkillId =
+        ResolveMountedDemonJumpLateEffectiveChildSkillId(
+            mountItemId,
+            rootSkillId,
+            currentSkillId);
+    if (effectiveChildSkillId != 30010183)
+    {
+        return false;
+    }
+
+    void *userLocal = nullptr;
+    if (!TryReadCurrentUserLocalPtr(&userLocal) || !userLocal)
+    {
+        return false;
+    }
+
+    MountedDemonJumpUserGateSnapshot beforeGate = {};
+    if (!TryReadMountedDemonJumpUserGateSnapshot(
+            userLocal,
+            &beforeGate) ||
+        !beforeGate.valid)
+    {
+        return false;
+    }
+
+    // Evidence from v21.99 logs:
+    // the "can't move" / "can't immediately retrigger" tail starts once the
+    // local release latch flips to gate=3/down=0/up=1 while root/current still
+    // remain pinned to 30010110/30010183. Only force-clear on that exact
+    // descending tail, after the transient local lock bits are already down.
+    if (beforeGate.upLatch == 0)
+    {
+        return false;
+    }
+
+    MountedDemonJumpLateLocalStateSnapshot beforeLocalState = {};
+    if (!TryReadMountedDemonJumpLateLocalStateSnapshot(
+            thisPtr,
+            &beforeLocalState) ||
+        !beforeLocalState.valid)
+    {
+        return false;
+    }
+
+    if (beforeLocalState.state5D7C != 0 ||
+        beforeLocalState.state5F2C != 0)
+    {
+        return false;
+    }
+
+    MountedDemonJumpUserGateSnapshot afterGate = {};
+    const bool clearedGateState =
+        TryClearMountedDemonJumpUserGateState(
+            userLocal,
+            &beforeGate,
+            &afterGate);
+
+    int afterRootSkillId = 0;
+    int afterCurrentSkillId = 0;
+    TryReadMountedDemonJumpContextState(
+        &afterRootSkillId,
+        &afterCurrentSkillId,
+        nullptr);
+
+    static LONG s_mountedDemonJumpDescendingUpClearLogBudget = 48;
+    if (InterlockedDecrement(
+            &s_mountedDemonJumpDescendingUpClearLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpDescending] clear reason=%s caller=0x%08X mount=%d root=%d current=%d gate=%u/%u/%u->%u/%u/%u context=%d/%d->%d/%d preserveTransient=1",
+            reasonTag ? reasonTag : "unknown",
+            callerRet,
+            mountItemId,
+            rootSkillId,
+            currentSkillId,
+            static_cast<unsigned int>(beforeGate.gateMode),
+            static_cast<unsigned int>(beforeGate.downLatch),
+            static_cast<unsigned int>(beforeGate.upLatch),
+            static_cast<unsigned int>(afterGate.gateMode),
+            static_cast<unsigned int>(afterGate.downLatch),
+            static_cast<unsigned int>(afterGate.upLatch),
+            rootSkillId,
+            currentSkillId,
+            afterRootSkillId,
+            afterCurrentSkillId);
+        WriteMountedDemonJumpLateLocalStateLog(
+            "DescendingUp",
+            "before-clear",
+            thisPtr,
+            beforeLocalState);
+    }
+
+    if (clearedGateState)
+    {
+        TryForceClearMountedSoaringFlightActiveForMount(
+            mountItemId,
+            reasonTag ? reasonTag : "descending-up");
+    }
+
+    return clearedGateState;
+}
+static bool TryForceFinalizeMountedDemonJumpUpStateAfterPacket(
+    void *thisPtr,
+    int mountItemId,
+    int releasedSkillId,
+    const char *reasonTag,
+    DWORD callerRet)
+{
+    if (!thisPtr ||
+        mountItemId <= 0 ||
+        (releasedSkillId != 30010183 &&
+         releasedSkillId != 30010184) ||
+        ResolveMountedRuntimeSkillIdForKind(
+            MountedRuntimeSkillKind_DemonJump,
+            mountItemId) != 30010110)
+    {
+        return false;
+    }
+
+    void *userLocal = nullptr;
+    if (!TryReadCurrentUserLocalPtr(&userLocal) || !userLocal)
+    {
+        return false;
+    }
+
+    MountedDemonJumpUserGateSnapshot beforeGate = {};
+    if (!TryReadMountedDemonJumpUserGateSnapshot(
+            userLocal,
+            &beforeGate) ||
+        !beforeGate.valid)
+    {
+        return false;
+    }
+
+    MountedDemonJumpLateLocalStateSnapshot beforeLocalState = {};
+    if (!TryReadMountedDemonJumpLateLocalStateSnapshot(
+            thisPtr,
+            &beforeLocalState) ||
+        !beforeLocalState.valid)
+    {
+        return false;
+    }
+
+    // Evidence from v22.03-v22.05 logs:
+    // B28A00 succeeds for mounted child release only after the descending/helper
+    // path has already dropped the local gate to 0/0/0 and the late local lock
+    // bits are down. Clearing root/current any earlier breaks the packet path,
+    // while keeping them after this point causes the residual "can't move /
+    // can't retrigger" tail, especially for 30010184 side-child.
+    if (beforeGate.gateMode != 0 ||
+        beforeGate.downLatch != 0 ||
+        beforeGate.upLatch != 0 ||
+        beforeLocalState.state5D7C != 0 ||
+        beforeLocalState.state5F2C != 0)
+    {
+        return false;
+    }
+
+    int beforeRootSkillId = 0;
+    int beforeCurrentSkillId = 0;
+    if (!TryReadMountedDemonJumpContextState(
+            &beforeRootSkillId,
+            &beforeCurrentSkillId,
+            nullptr) ||
+        beforeRootSkillId != 30010110 ||
+        ResolveMountedDemonJumpLateEffectiveChildSkillId(
+            mountItemId,
+            beforeRootSkillId,
+            beforeCurrentSkillId) != releasedSkillId)
+    {
+        return false;
+    }
+
+    const uintptr_t userLocalAddr = reinterpret_cast<uintptr_t>(userLocal);
+    const uintptr_t contextAddr =
+        userLocalAddr + kMountedDemonJumpContextOffset;
+    const uintptr_t rootSkillAddr =
+        userLocalAddr + kMountedDemonJumpContextRootSkillOffset;
+    const uintptr_t readyFlagAddr =
+        userLocalAddr + kMountedDemonJumpReadyFlagOffset;
+    if (SafeIsBadWritePtr(
+            reinterpret_cast<void *>(contextAddr),
+            sizeof(DWORD)) ||
+        SafeIsBadWritePtr(
+            reinterpret_cast<void *>(rootSkillAddr),
+            sizeof(DWORD)) ||
+        SafeIsBadWritePtr(
+            reinterpret_cast<void *>(readyFlagAddr),
+            sizeof(BYTE)))
+    {
+        return false;
+    }
+
+    __try
+    {
+        *reinterpret_cast<DWORD *>(contextAddr) = 0;
+        *reinterpret_cast<int *>(rootSkillAddr) = 0;
+        *reinterpret_cast<BYTE *>(readyFlagAddr) = 0;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+
+    ClearMountedDemonJumpTransientRuntimeState(
+        mountItemId,
+        reasonTag ? reasonTag : "B28A00-up-postpacket");
+    RememberMountedDemonJumpPostPacketVisualChildSkill(
+        mountItemId,
+        releasedSkillId,
+        reasonTag ? reasonTag : "B28A00-up-postpacket");
+
+    int afterRootSkillId = 0;
+    int afterCurrentSkillId = 0;
+    const bool hasAfterContext =
+        TryReadMountedDemonJumpContextState(
+            &afterRootSkillId,
+            &afterCurrentSkillId,
+            nullptr);
+
+    static LONG s_mountedDemonJumpUpPostPacketClearLogBudget = 48;
+    if (InterlockedDecrement(
+            &s_mountedDemonJumpUpPostPacketClearLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpPostPacket] clear reason=%s caller=0x%08X mount=%d released=%d gate=%u/%u/%u root=%d/%d->%d/%d",
+            reasonTag ? reasonTag : "unknown",
+            callerRet,
+            mountItemId,
+            releasedSkillId,
+            static_cast<unsigned int>(beforeGate.gateMode),
+            static_cast<unsigned int>(beforeGate.downLatch),
+            static_cast<unsigned int>(beforeGate.upLatch),
+            beforeRootSkillId,
+            beforeCurrentSkillId,
+            hasAfterContext ? afterRootSkillId : 0,
+            hasAfterContext ? afterCurrentSkillId : 0);
+        WriteMountedDemonJumpLateLocalStateLog(
+            "PostPacket",
+            "before-clear",
+            thisPtr,
+            beforeLocalState);
+    }
+
+    if (releasedSkillId == 30010183)
+    {
+        TryForceClearMountedSoaringFlightActiveForMount(
+            mountItemId,
+            reasonTag ? reasonTag : "B28A00-up-postpacket");
+    }
+
+    const bool clearedPostPacketTailSlot =
+        TryForceClearMountedDemonJumpPostPacketTailSlotState(
+        thisPtr,
+        mountItemId,
+        releasedSkillId,
+        reasonTag ? reasonTag : "B28A00-up-postpacket",
+        callerRet,
+        &beforeLocalState);
+
+    if (clearedPostPacketTailSlot &&
+        releasedSkillId == 30010183)
+    {
+        TryForceFinalizeMountedDemonJumpNativeActionTailState(
+            thisPtr,
+            mountItemId,
+            "B28A00-up-postpacket-native-action",
+            callerRet);
+        TryClearMountedDemonJump35121005CarrierTailState(
+            thisPtr,
+            mountItemId,
+            "B28A00-up-postpacket-carrier-tail",
+            callerRet);
     }
 
     return true;
@@ -14455,6 +16066,15 @@ static void __fastcall hkMountedDemonJumpMoveB1DB10(
                 "B1DB10-leave",
                 (DWORD)(uintptr_t)_ReturnAddress());
         }
+
+        TryForceClearMountedDemonJumpDescendingUpState(
+            thisPtr,
+            mountItemId,
+            rootSkillId,
+            currentSkillId,
+            "B1DB10-descending-up",
+            (DWORD)(uintptr_t)_ReturnAddress());
+
     }
 }
 
@@ -14593,6 +16213,30 @@ static const char *DescribeMountedDemonJumpAfbInnerCaller(
 {
     switch (callerRet)
     {
+    case 0x00433EAA:
+        return "433EAA-mounted-clear-pre";
+    case 0x00433FEC:
+        return "433FEC-mounted-clear-post";
+    case 0x00B2B14E:
+        return "B2B14E-post-root-enter";
+    case 0x00B28B36:
+        return "B28B36-postpacket-check-a";
+    case 0x00B28B84:
+        return "B28B84-postpacket-check-b";
+    case 0x00481E86:
+        return "481E86-motion-a";
+    case 0x00481E92:
+        return "481E92-motion-b";
+    case 0x00481EF6:
+        return "481EF6-motion-c";
+    case 0x00A9E86B:
+        return "A9E86B-action-a";
+    case 0x00A9C906:
+        return "A9C906-action-b";
+    case 0x006ADA59:
+        return "6ADA59-loop-a";
+    case 0x006ADA93:
+        return "6ADA93-loop-b";
     case 0x00AFB759:
         return "42E170";
     case 0x00AFB769:
@@ -14620,6 +16264,7 @@ static int __fastcall hkMountedDemonJumpAfbState42E170(
     int rootSkillId = 0;
     int currentSkillId = 0;
     bool hasRecentIntent = false;
+    const char *stage = DescribeMountedDemonJumpAfbInnerCaller(callerRet);
     if (ShouldObserveMountedDemonJumpLatePath(
             &mountItemId,
             &rootSkillId,
@@ -14633,13 +16278,33 @@ static int __fastcall hkMountedDemonJumpAfbState42E170(
             WriteLogFmt(
                 "[MountDemonJumpLateAfb] 42E170 caller=0x%08X stage=%s this=0x%08X result=%d mount=%d recent=%d root=%d current=%d",
                 callerRet,
-                DescribeMountedDemonJumpAfbInnerCaller(callerRet),
+                stage,
                 (DWORD)(uintptr_t)thisPtr,
                 result,
                 mountItemId,
                 hasRecentIntent ? 1 : 0,
                 rootSkillId,
                 currentSkillId);
+
+            if (callerRet == 0x00433EAA ||
+                callerRet == 0x00433FEC)
+            {
+                void *playerObj = nullptr;
+                MountedDemonJumpLateLocalStateSnapshot playerState = {};
+                if (TryReadMountedDemonJumpPrimePlayerObject(&playerObj) &&
+                    playerObj &&
+                    TryReadMountedDemonJumpLateLocalStateSnapshot(
+                        playerObj,
+                        &playerState) &&
+                    playerState.valid)
+                {
+                    WriteMountedDemonJumpLateLocalStateLog(
+                        "42E170",
+                        stage ? stage : "state",
+                        playerObj,
+                        playerState);
+                }
+            }
         }
     }
     return result;
@@ -15416,6 +17081,21 @@ static int __fastcall hkMountedSkillAttackPacketB28A00(
         }
     }
 
+    DWORD nativePostPacketBusy = 0;
+    DWORD nativePostPacketLastTick = 0;
+    DWORD nativePostPacketAge = 0;
+    bool releasedPostPacketGuard = false;
+    const int effectiveReleasedSkillId =
+        rewrittenSkillId > 0 ? rewrittenSkillId : originalSkillId;
+    const bool isMountedDemonJumpChildRelease =
+        resolvedMount &&
+        mountItemId > 0 &&
+        ResolveMountedRuntimeSkillIdForKind(
+            MountedRuntimeSkillKind_DemonJump,
+            mountItemId) == 30010110 &&
+        IsMountedDemonJumpRuntimeChildSkillId(
+            effectiveReleasedSkillId);
+
     const int result = oMountedSkillAttackPacketB28A00
                            ? oMountedSkillAttackPacketB28A00(
                                  thisPtr,
@@ -15428,21 +17108,107 @@ static int __fastcall hkMountedSkillAttackPacketB28A00(
                                  a8)
                            : 0;
     if (result != 0 &&
-        resolvedMount &&
-        mountItemId > 0 &&
-        ResolveMountedRuntimeSkillIdForKind(
-            MountedRuntimeSkillKind_DemonJump,
-            mountItemId) == 30010110 &&
-        IsMountedDemonJumpRuntimeChildSkillId(
-            rewrittenSkillId > 0 ? rewrittenSkillId : originalSkillId))
+        isMountedDemonJumpChildRelease)
     {
         SkillOverlayBridgeCompleteMountedNativeReleaseContext(
             30010110,
-            rewrittenSkillId > 0 ? rewrittenSkillId : originalSkillId);
-        if ((rewrittenSkillId > 0 ? rewrittenSkillId : originalSkillId) ==
-            30010186)
+            effectiveReleasedSkillId);
+        if (effectiveReleasedSkillId == 30010186)
         {
             RememberMountedDemonJumpGlidePacket(mountItemId);
+            // Evidence from v22.06 logs:
+            // glide keeps rearming current=30010186 with finalGuard busy=1 and
+            // 433380 suppress-clear for roughly the same 400ms as
+            // kMountedDemonJumpIntentMaxAgeMs. Expire only the synthetic recent
+            // intent here so native clear can recover naturally, without
+            // forcibly dropping the live glide context itself.
+            ExpireMountedDemonJumpGlideRecentIntent(
+                mountItemId,
+                "B28A00-glide-postpacket");
+        }
+    }
+    if (result != 0 &&
+        resolvedMount &&
+        mountItemId > 0)
+    {
+        TryForceFinalizeMountedDemonJumpUpStateAfterPacket(
+            thisPtr,
+            mountItemId,
+            effectiveReleasedSkillId,
+            "B28A00-up-postpacket",
+            (DWORD)(uintptr_t)_ReturnAddress());
+    }
+    if (result != 0 &&
+        preWndMan &&
+        isMountedDemonJumpChildRelease &&
+        (effectiveReleasedSkillId == 30010183 ||
+         effectiveReleasedSkillId == 30010184 ||
+         effectiveReleasedSkillId == 30010186))
+    {
+        typedef DWORD(__cdecl *tGameTickFn)();
+        DWORD nowTick = GetTickCount();
+        tGameTickFn gameTickFn =
+            reinterpret_cast<tGameTickFn>(ADDR_B4C450);
+        __try
+        {
+            nowTick = gameTickFn ? gameTickFn() : GetTickCount();
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            nowTick = GetTickCount();
+        }
+
+        __try
+        {
+            DWORD releasedGuardAgeMs = 450;
+            if (effectiveReleasedSkillId == 30010183 ||
+                effectiveReleasedSkillId == 30010184)
+            {
+                releasedGuardAgeMs =
+                    kMountedDemonJumpPacketGuardReleaseAgeMs;
+            }
+
+            nativePostPacketBusy =
+                *reinterpret_cast<DWORD *>(preWndMan + 8372);
+            nativePostPacketLastTick =
+                *reinterpret_cast<DWORD *>(preWndMan + 8376);
+            if (nativePostPacketLastTick != 0)
+            {
+                nativePostPacketAge = nowTick - nativePostPacketLastTick;
+            }
+
+            // Evidence from v22.05 logs:
+            // once mounted demon child B28A00 succeeds, CWndMan immediately
+            // re-arms busy=1 age=0. Up/side are already fully finalized by this
+            // point; glide still keeps its native context, but the packet guard
+            // tail itself should not continue to block landing movement or the
+            // next trigger window. v22.36 logs then showed finalGuard age=450
+            // alongside the remaining ~0.5s landing lock. For up/side, release
+            // this guard to an already-old age instead of refreshing it back
+            // into the same block window; if the prepacket guard was even older,
+            // preserve that older timestamp.
+            DWORD releasedGuardLastTick =
+                nowTick > releasedGuardAgeMs
+                    ? (nowTick - releasedGuardAgeMs)
+                    : 0;
+            if (prePacketLastTick != 0 &&
+                prePacketAge > releasedGuardAgeMs &&
+                (releasedGuardLastTick == 0 ||
+                 prePacketLastTick < releasedGuardLastTick))
+            {
+                releasedGuardLastTick = prePacketLastTick;
+            }
+            *reinterpret_cast<DWORD *>(preWndMan + 8372) = 0;
+            *reinterpret_cast<DWORD *>(preWndMan + 8376) =
+                releasedGuardLastTick;
+            releasedPostPacketGuard = true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            nativePostPacketBusy = 0;
+            nativePostPacketLastTick = 0;
+            nativePostPacketAge = 0;
+            releasedPostPacketGuard = false;
         }
     }
     if (bypassedInitialPacketGuard &&
@@ -15553,7 +17319,7 @@ static int __fastcall hkMountedSkillAttackPacketB28A00(
         if (InterlockedDecrement(&s_mountedDemonJumpAttackPacketLogBudget) >= 0)
         {
             WriteLogFmt(
-                "[MountDemonJumpPacket] B28A00 caller=0x%08X player=0x%08X skill=%d sent=%d mount=%d source=%s recentIntent=%d root=%d current=%d context=%d result=%d count=%d arg4=%d opcode147Tail=%u nativeWhitelist=%d preGuard[busy=%u resource=%d age=%u] postGuard[busy=%u resource=%d age=%u] bypass=%d",
+                "[MountDemonJumpPacket] B28A00 caller=0x%08X player=0x%08X skill=%d sent=%d mount=%d source=%s recentIntent=%d root=%d current=%d context=%d result=%d count=%d arg4=%d opcode147Tail=%u nativeWhitelist=%d preGuard[busy=%u resource=%d age=%u] nativePostGuard[busy=%u age=%u] finalGuard[busy=%u resource=%d age=%u] bypass=%d postRelease=%d",
                 (DWORD)(uintptr_t)_ReturnAddress(),
                 (DWORD)(uintptr_t)thisPtr,
                 originalSkillId,
@@ -15572,10 +17338,13 @@ static int __fastcall hkMountedSkillAttackPacketB28A00(
                 prePacketBusy,
                 prePacketResource,
                 prePacketAge,
+                nativePostPacketBusy,
+                nativePostPacketAge,
                 packetBusy,
                 packetResource,
                 packetAge,
-                bypassedInitialPacketGuard ? 1 : 0);
+                bypassedInitialPacketGuard ? 1 : 0,
+                releasedPostPacketGuard ? 1 : 0);
         }
     }
 
@@ -16461,6 +18230,45 @@ static bool TryResolveMountedDemonJumpActiveChildSkill(
         *childSkillIdOut = 0;
     }
 
+    if (IsMountedDemonJumpRuntimeChildSkillId(observedSkillId))
+    {
+        int visualGraceMountItemId = 0;
+        int visualGraceChildSkillId = 0;
+        int currentMountItemId = 0;
+        if (TryGetRecentMountedDemonJumpPostPacketVisualChildSkill(
+                &visualGraceMountItemId,
+                &visualGraceChildSkillId,
+                maxAgeMs) &&
+            visualGraceChildSkillId == observedSkillId &&
+            TryReadCurrentUserMountItemId(&currentMountItemId) &&
+            currentMountItemId == visualGraceMountItemId &&
+            ResolveMountedRuntimeSkillIdForKind(
+                MountedRuntimeSkillKind_DemonJump,
+                visualGraceMountItemId) == 30010110 &&
+            SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(
+                visualGraceMountItemId,
+                visualGraceChildSkillId))
+        {
+            if (mountItemIdOut)
+            {
+                *mountItemIdOut = visualGraceMountItemId;
+            }
+            if (rootSkillIdOut)
+            {
+                *rootSkillIdOut = 30010110;
+            }
+            if (currentSkillIdOut)
+            {
+                *currentSkillIdOut = visualGraceChildSkillId;
+            }
+            if (childSkillIdOut)
+            {
+                *childSkillIdOut = visualGraceChildSkillId;
+            }
+            return true;
+        }
+    }
+
     int mountItemId = 0;
     if ((!TryResolveMountedDemonJumpMountItemIdWithFallback(
              nullptr,
@@ -16672,6 +18480,9 @@ static volatile LONG g_mountedUnknownSkillReleaseBranchRuntimeSkillOverride = 0;
 static volatile LONG g_recentMountedDemonJumpNativeChildSkillId = 0;
 static volatile LONG g_recentMountedDemonJumpNativeChildMountItemId = 0;
 static volatile LONG g_recentMountedDemonJumpNativeChildTick = 0;
+static volatile LONG g_recentMountedDemonJumpPostPacketVisualChildSkillId = 0;
+static volatile LONG g_recentMountedDemonJumpPostPacketVisualMountItemId = 0;
+static volatile LONG g_recentMountedDemonJumpPostPacketVisualTick = 0;
 static volatile LONG g_recentMountedDemonJumpGlidePacketMountItemId = 0;
 static volatile LONG g_recentMountedDemonJumpGlidePacketTick = 0;
 static volatile LONG g_pendingMountedDemonJumpRewriteActive = 0;
@@ -16807,6 +18618,89 @@ static bool TryGetRecentMountedDemonJumpNativeChildSkill(
     return true;
 }
 
+static void RememberMountedDemonJumpPostPacketVisualChildSkill(
+    int mountItemId,
+    int skillId,
+    const char *source)
+{
+    if (mountItemId <= 0 || !IsMountedDemonJumpRuntimeChildSkillId(skillId))
+    {
+        return;
+    }
+
+    InterlockedExchange(
+        &g_recentMountedDemonJumpPostPacketVisualChildSkillId,
+        skillId);
+    InterlockedExchange(
+        &g_recentMountedDemonJumpPostPacketVisualMountItemId,
+        mountItemId);
+    InterlockedExchange(
+        &g_recentMountedDemonJumpPostPacketVisualTick,
+        static_cast<LONG>(GetTickCount()));
+
+    static LONG s_recentMountedDemonJumpPostPacketVisualLogBudget = 48;
+    if (InterlockedDecrement(
+            &s_recentMountedDemonJumpPostPacketVisualLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpVisual] remember source=%s mount=%d child=%d",
+            source ? source : "unknown",
+            mountItemId,
+            skillId);
+    }
+}
+
+static bool TryGetRecentMountedDemonJumpPostPacketVisualChildSkill(
+    int *mountItemIdOut,
+    int *skillIdOut,
+    DWORD maxAgeMs)
+{
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = 0;
+    }
+    if (skillIdOut)
+    {
+        *skillIdOut = 0;
+    }
+
+    const LONG recentSkillId = InterlockedCompareExchange(
+        &g_recentMountedDemonJumpPostPacketVisualChildSkillId,
+        0,
+        0);
+    const LONG recentMountItemId = InterlockedCompareExchange(
+        &g_recentMountedDemonJumpPostPacketVisualMountItemId,
+        0,
+        0);
+    const LONG recentTick = InterlockedCompareExchange(
+        &g_recentMountedDemonJumpPostPacketVisualTick,
+        0,
+        0);
+    if (!IsMountedDemonJumpRuntimeChildSkillId(
+            static_cast<int>(recentSkillId)) ||
+        recentMountItemId <= 0 ||
+        recentTick <= 0)
+    {
+        return false;
+    }
+
+    const DWORD nowTick = GetTickCount();
+    if (nowTick - static_cast<DWORD>(recentTick) > maxAgeMs)
+    {
+        return false;
+    }
+
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = static_cast<int>(recentMountItemId);
+    }
+    if (skillIdOut)
+    {
+        *skillIdOut = static_cast<int>(recentSkillId);
+    }
+    return true;
+}
+
 static void ClearMountedDemonJumpTransientRuntimeState(
     int mountItemId,
     const char *reasonTag)
@@ -16815,6 +18709,12 @@ static void ClearMountedDemonJumpTransientRuntimeState(
     {
         return;
     }
+
+    ClearMountedRuntimeSkillTransientStateIfMatching(
+        MountedRuntimeSkillKind_DoubleJump,
+        mountItemId,
+        reasonTag ? reasonTag : "mounted-demon-clear",
+        "MountDoubleJump");
 
     InterlockedExchange(
         &g_recentMountedRuntimeSkillIntentItemId[MountedRuntimeSkillKind_DemonJump],
@@ -16834,6 +18734,9 @@ static void ClearMountedDemonJumpTransientRuntimeState(
     InterlockedExchange(&g_recentMountedDemonJumpNativeChildSkillId, 0);
     InterlockedExchange(&g_recentMountedDemonJumpNativeChildMountItemId, 0);
     InterlockedExchange(&g_recentMountedDemonJumpNativeChildTick, 0);
+    InterlockedExchange(&g_recentMountedDemonJumpPostPacketVisualChildSkillId, 0);
+    InterlockedExchange(&g_recentMountedDemonJumpPostPacketVisualMountItemId, 0);
+    InterlockedExchange(&g_recentMountedDemonJumpPostPacketVisualTick, 0);
     InterlockedExchange(&g_recentMountedDemonJumpGlidePacketMountItemId, 0);
     InterlockedExchange(&g_recentMountedDemonJumpGlidePacketTick, 0);
     InterlockedExchange(&g_mountedDemonJumpCrashTraceRuntimeSkillId, 0);
@@ -16878,6 +18781,53 @@ static void RememberMountedDemonJumpGlidePacket(int mountItemId)
     InterlockedExchange(
         &g_recentMountedDemonJumpGlidePacketTick,
         static_cast<LONG>(GetTickCount()));
+}
+
+static void ExpireMountedDemonJumpGlideRecentIntent(
+    int mountItemId,
+    const char *reasonTag)
+{
+    if (mountItemId <= 0)
+    {
+        return;
+    }
+
+    const LONG recentMountItemId = InterlockedCompareExchange(
+        &g_recentMountedRuntimeSkillIntentItemId[MountedRuntimeSkillKind_DemonJump],
+        0,
+        0);
+    const LONG recentTick = InterlockedCompareExchange(
+        &g_recentMountedRuntimeSkillIntentTick[MountedRuntimeSkillKind_DemonJump],
+        0,
+        0);
+    if (recentMountItemId != mountItemId)
+    {
+        return;
+    }
+
+    DWORD age = 0;
+    if (recentTick > 0)
+    {
+        age = GetTickCount() - static_cast<DWORD>(recentTick);
+    }
+
+    InterlockedExchange(
+        &g_recentMountedRuntimeSkillIntentItemId[MountedRuntimeSkillKind_DemonJump],
+        0);
+    InterlockedExchange(
+        &g_recentMountedRuntimeSkillIntentTick[MountedRuntimeSkillKind_DemonJump],
+        0);
+
+    static LONG s_mountedDemonJumpGlideRecentIntentExpireLogBudget = 32;
+    if (InterlockedDecrement(
+            &s_mountedDemonJumpGlideRecentIntentExpireLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpGlide] expire recent intent mount=%d age=%u reason=%s",
+            mountItemId,
+            age,
+            reasonTag ? reasonTag : "unknown");
+    }
 }
 
 static bool ShouldSuppressMountedDemonJumpRepeatedGlidePacket(
@@ -21905,27 +23855,9 @@ static void __fastcall hkSkillPresentationDispatch(void *thisPtr, void * /*edxUn
                     nullptr,
                     &mountedDemonJumpPresentationChildSkillId) &&
                 mountedDemonJumpPresentationChildSkillId == originalSkillId;
-            if (keepMountedDemonJumpChildVisual &&
-                originalSkillId == 30010186)
-            {
-                const uintptr_t glideVisualSkillDataPtr =
-                    SkillOverlayBridgeLookupSkillEntryPointer(23001002);
-                if (glideVisualSkillDataPtr)
-                {
-                    desiredSkillId = 23001002;
-                    keepMountedDemonJumpChildVisual = false;
-                    static LONG s_mountedDemonJumpPresentationGlideVisualLogBudget = 24;
-                    if (InterlockedDecrement(
-                            &s_mountedDemonJumpPresentationGlideVisualLogBudget) >= 0)
-                    {
-                        WriteLogFmt(
-                            "[MountDemonJump] ABAF70 glide visual remap mount=%d child=%d visual=%d",
-                            mountedDemonJumpPresentationMountItemId,
-                            mountedDemonJumpPresentationChildSkillId,
-                            desiredSkillId);
-                    }
-                }
-            }
+            // WZ evidence from Skill.wz/3001.img.xml shows 30010186 already has
+            // native effect frames and demonFly action. Keeping the child visual
+            // is the correct path for mounted glide as well.
             if (keepMountedDemonJumpChildVisual)
             {
                 static LONG s_mountedDemonJumpPresentationKeepChildLogBudget = 24;
